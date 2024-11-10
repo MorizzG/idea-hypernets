@@ -1,0 +1,3 @@
+[submodule "equinox-hessian"]
+	path = equinox-hessian
+	url = gitlab-fau:eg94ifeh/equinox-hessian

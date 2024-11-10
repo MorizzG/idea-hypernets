@@ -170,6 +170,34 @@ wheels = [
 ]
 
 [[package]]
+name = "equinox-hessian"
+version = "0.1.1"
+source = { directory = "equinox-hessian" }
+dependencies = [
+    { name = "chex" },
+    { name = "equinox" },
+    { name = "jaxtyping" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chex", specifier = ">=0.1.87" },
+    { name = "equinox", specifier = ">=0.11.7" },
+    { name = "jaxtyping", specifier = ">=0.2.34" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "beartype", specifier = ">=0.19.0" },
+    { name = "ipython", specifier = ">=8.28.0" },
+    { name = "jax", extras = ["cuda"], specifier = ">=0.4.34" },
+    { name = "nvidia-cuda-nvcc-cu12", specifier = "==12.6.68" },
+    { name = "nvidia-nvjitlink-cu12", specifier = "==12.6.68" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-xdist", specifier = ">=3.6.1" },
+]
+
+[[package]]
 name = "etils"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -230,6 +258,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "equinox" },
+    { name = "equinox-hessian" },
     { name = "jax", extra = ["cuda"] },
     { name = "jaxtyping" },
     { name = "nibabel" },
@@ -252,6 +281,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "equinox", specifier = ">=0.11.8" },
+    { name = "equinox-hessian", directory = "equinox-hessian" },
     { name = "jax", extras = ["cuda"], specifier = ">=0.4.35" },
     { name = "jaxtyping", specifier = ">=0.2.34" },
     { name = "nibabel", specifier = ">=5.3.2" },
