@@ -1,4 +1,3 @@
-from jaxtyping import Array, Float, PRNGKeyArray
 from typing import Any, Optional, Sequence
 
 import equinox as eqx
@@ -6,13 +5,32 @@ import equinox.nn as nn
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from jaxtyping import Array, Float, PRNGKeyArray
 
-from ._util import _channel_to_spatials
+from ._util import _channel_to_spatials2d, _channel_to_spatials3d
 
 
 class ReLU(eqx.Module):
     def __call__(self, x: Array) -> Array:
         return jax.nn.relu(x)
+
+
+class Upsample2d(eqx.Module):
+    conv: nn.Conv2d
+
+    def __init__(self, in_channels: int, out_channels: int, *, key: PRNGKeyArray):
+        super().__init__()
+
+        self.conv = nn.Conv2d(in_channels, 2**2 * out_channels, 1, key=key)
+
+    def __call__(
+        self, x: Float[Array, "c h w"], *, key: Optional[PRNGKeyArray] = None
+    ) -> Float[Array, "c h w"]:
+        x = self.conv(x)
+
+        x = _channel_to_spatials2d(x)
+
+        return x
 
 
 class Upsample3d(eqx.Module):
@@ -21,20 +39,20 @@ class Upsample3d(eqx.Module):
     def __init__(self, in_channels: int, out_channels: int, *, key: PRNGKeyArray):
         super().__init__()
 
-        self.conv = nn.Conv3d(in_channels, 4 * out_channels, 1, key=key)
+        self.conv = nn.Conv3d(in_channels, 2**3 * out_channels, 1, key=key)
 
     def __call__(
         self, x: Float[Array, "c h w d"], *, key: Optional[PRNGKeyArray] = None
     ) -> Float[Array, "c h w d"]:
         x = self.conv(x)
 
-        x = _channel_to_spatials(x)
+        x = _channel_to_spatials3d(x)
 
         return x
 
 
 class ConvNormAct(eqx.Module):
-    conv: nn.Conv3d
+    conv: nn.Conv2d
     # norm: nn.BatchNorm2d
     norm: nn.GroupNorm
     act: ReLU
@@ -50,7 +68,7 @@ class ConvNormAct(eqx.Module):
     ):
         super().__init__()
 
-        self.conv = nn.Conv3d(
+        self.conv = nn.Conv2d(
             in_channels, out_channels, kernel_size, padding="SAME", use_bias=False, key=key
         )
 
@@ -134,7 +152,7 @@ class UnetDown(eqx.Module):
     channel_mults: list[int] = eqx.field(static=True)
 
     blocks: list[Block]
-    downs: list[nn.MaxPool3d]
+    downs: list[nn.MaxPool2d]
 
     def __init__(
         self,
@@ -166,7 +184,7 @@ class UnetDown(eqx.Module):
 
             channels = new_channels
 
-            self.downs.append(nn.MaxPool3d(2, 2))
+            self.downs.append(nn.MaxPool2d(2, 2))
 
     def __call__(
         self, x: Array, *, key: Optional[PRNGKeyArray] = None
@@ -188,7 +206,7 @@ class UnetUp(eqx.Module):
     channel_mults: list[int] = eqx.field(static=True)
 
     blocks: list[Block]
-    ups: list[Upsample3d]
+    ups: list[Upsample2d]
 
     def __init__(
         self,
@@ -206,17 +224,17 @@ class UnetUp(eqx.Module):
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
 
-        channels = base_channels * channel_mults[-1]
-
         self.blocks = []
         self.ups = []
+
+        channels = base_channels * channel_mults[-1]
 
         for channel_mult in list(reversed(channel_mults))[1:]:
             new_channels = channel_mult * base_channels
 
             key, block_key, up_key = jr.split(key, 3)
 
-            self.ups.append(Upsample3d(channels, channels, key=up_key))
+            self.ups.append(Upsample2d(channels, channels, key=up_key))
 
             self.blocks.append(Block(2 * channels, new_channels, key=block_key, **block_args))
 
