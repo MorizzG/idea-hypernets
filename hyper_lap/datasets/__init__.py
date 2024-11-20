@@ -42,8 +42,6 @@ class SlicedDataset:
 
         idx = self.rng.choice(np.arange(counts.size), p=counts)
 
-        print(f"Selected slice {idx}")
-
         image = image[..., idx]
         label = label[..., idx]
 

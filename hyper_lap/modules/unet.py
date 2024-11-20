@@ -51,6 +51,16 @@ class Upsample3d(eqx.Module):
         return x
 
 
+class BilinearUpsample2d(eqx.Module):
+    def __init__(self):
+        super().__init__()
+
+    def __call__(self, x: Array) -> Float[Array, "c h w"]:
+        c, h, w = x.shape
+
+        return jax.image.resize(x, [c, 2 * h, 2 * w], method="bilinear")
+
+
 class ConvNormAct(eqx.Module):
     conv: nn.Conv2d
     # norm: nn.BatchNorm2d
@@ -73,7 +83,7 @@ class ConvNormAct(eqx.Module):
         )
 
         # self.norm = nn.BatchNorm2d(out_channels, "batch")
-        self.norm = nn.GroupNorm(groups, out_channels)
+        self.norm = nn.GroupNorm(groups, out_channels, channelwise_affine=False)
 
         self.act = ReLU()
 

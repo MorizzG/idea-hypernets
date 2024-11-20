@@ -1,5 +1,6 @@
 from typing import Optional, Sequence
 
+import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
@@ -7,7 +8,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 from hyper_lap.modules.unet import Block, UnetModule
 
 
-class Unet:
+class Unet(eqx.Module):
     init_conv: nn.Conv2d
     unet: UnetModule
     recomb: Block
@@ -18,6 +19,7 @@ class Unet:
         base_channels: int,
         channel_mults: Sequence[int],
         in_channels: int = 1,
+        out_channels: int = 2,
         *,
         use_res: bool = False,
         key: PRNGKeyArray,
@@ -34,7 +36,7 @@ class Unet:
 
         self.recomb = Block(base_channels, base_channels, key=recomb_key)
 
-        self.final_conv = nn.Conv2d(base_channels, 2, 1, key=final_key)
+        self.final_conv = nn.Conv2d(base_channels, out_channels, 1, key=final_key)
 
     def __call__(
         self, x: Float[Array, "c_in h w d"], *, key: Optional[PRNGKeyArray] = None

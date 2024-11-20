@@ -1,7 +1,8 @@
+from typing import Literal
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Self
 
 
 @dataclass
@@ -45,7 +46,7 @@ class Metadata:
         return s
 
     @staticmethod
-    def load(root_dir: str) -> Self:
+    def load(root_dir: str) -> "Metadata":
         base_folder = Path(root_dir)
 
         with (base_folder / "dataset.json").open() as f:
