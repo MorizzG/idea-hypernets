@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -12,9 +13,14 @@ class NiftiDataset:
 
     _split: Literal["train", "validation", "test"]
 
-    _dataset: list[dict[str, Path]]
+    _dataset: list[dict[str, Path]] | list[dict[str, np.ndarray]]
 
-    def __init__(self, root_dir: str, split: Literal["train", "validation", "test"] = "train"):
+    def __init__(
+        self,
+        root_dir: str,
+        split: Literal["train", "validation", "test"] = "train",
+        preload: bool = False,
+    ):
         super().__init__()
 
         if split not in ["train", "validation", "test"]:
@@ -33,6 +39,31 @@ class NiftiDataset:
                 self._dataset = self.metadata.test
             case _:
                 assert False
+
+        if preload:
+
+            dataset: list[dict[str, np.ndarray]] = []
+
+            start_time = time.time()
+
+            for entry in self._dataset:
+                image = np.asanyarray(nib.load(entry["image"]).dataobj).astype(np.float32)
+
+                if "label" in entry:
+                    label = np.asanyarray(nib.load(entry["label"]).dataobj).astype(np.uint8)
+                else:
+                    label = None
+
+                if label is not None:
+                    dataset.append({"image": image, "label": label})
+                else:
+                    dataset.append({"image": image})
+
+            end_time = time.time()
+
+            print(f"Took {end_time - start_time:.3}s to preload dataset")
+
+            self._dataset = dataset
 
     @property
     def metadata(self) -> Metadata:
@@ -68,6 +99,32 @@ class NiftiDataset:
     def __len__(self) -> int:
         return len(self._dataset)
 
+    @staticmethod
+    def load_array(path_or_array: Path | np.ndarray, dtype: np.dtype = np.float32):
+        if isinstance(path_or_array, Path):
+            return np.asanyarray(nib.load(path_or_array).dataobj).astype(dtype)
+        elif isinstance(path_or_array, np.ndarray):
+            return path_or_array.astype(dtype)
+        else:
+            assert False
+
+    @staticmethod
+    def load_array_slice(
+        path_or_array: Path | np.ndarray, slice_idx: int, dtype: np.dtype = np.float32
+    ):
+        if isinstance(path_or_array, Path):
+            return (
+                np.asanyarray(
+                    nib.load(path_or_array).slicer[:, :, slice_idx : slice_idx + 1].dataobj
+                )
+                .astype(dtype)
+                .squeeze(2)
+            )
+        elif isinstance(path_or_array, np.ndarray):
+            return path_or_array[:, :, slice_idx].astype(dtype)
+        else:
+            assert False
+
     def get_image_shape(self, idx: int) -> tuple[int, ...]:
         assert 0 <= idx < len(self), f"index {idx} out of range"
 
@@ -80,7 +137,7 @@ class NiftiDataset:
 
         entry = self._dataset[idx]
 
-        image = np.asanyarray(nib.load(entry["image"]).dataobj).astype(np.float32)
+        image = self.load_array(entry["image"])
 
         # expand image with channel axis if it doesn't exist yet
         if self.metadata.tensor_image_size == "3D":
@@ -98,11 +155,13 @@ class NiftiDataset:
 
         entry = self._dataset[idx]
 
-        image = (
-            np.asanyarray(nib.load(entry["image"]).slicer[:, :, slice_idx : slice_idx + 1].dataobj)
-            .squeeze(2)
-            .astype(np.float32)
-        )
+        # image = (
+        #     np.asanyarray(nib.load(entry["image"]).slicer[:, :, slice_idx : slice_idx + 1].dataobj)
+        #     .squeeze(2)
+        #     .astype(np.float32)
+        # )
+
+        image = self.load_array_slice(entry["image"], slice_idx)
 
         # expand image with channel axis if it doesn't exist yet
         if self.metadata.tensor_image_size == "3D":
@@ -132,7 +191,9 @@ class NiftiDataset:
         if "label" not in entry:
             return None
 
-        label = np.asanyarray(nib.load(entry["label"]).dataobj).astype(np.uint8)
+        # label = np.asanyarray(nib.load(entry["label"]).dataobj).astype(np.uint8)
+
+        label = self.load_array(entry["label"], dtype=np.uint8)
 
         return label
 
@@ -144,11 +205,13 @@ class NiftiDataset:
         if "label" not in entry:
             return None
 
-        label = (
-            np.asanyarray(nib.load(entry["label"]).slicer[:, :, slice_idx : slice_idx + 1].dataobj)
-            .squeeze(2)
-            .astype(np.float32)
-        )
+        # label = (
+        #     np.asanyarray(nib.load(entry["label"]).slicer[:, :, slice_idx : slice_idx + 1].dataobj)
+        #     .squeeze(2)
+        #     .astype(np.float32)
+        # )
+
+        label = self.load_array_slice(entry["label"], slice_idx, dtype=np.uint8)
 
         return label
 

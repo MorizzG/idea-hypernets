@@ -5,19 +5,19 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
-from jaxtyping import Array
 import optax
+from jaxtyping import Array, Float, Integer
 from optax import OptState
 from torch.utils.data import DataLoader
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from hyper_lap.datasets import MediDec, SlicedDataset
 from hyper_lap.models import Unet
 
 warnings.simplefilter("ignore")
 
-BATCH_SIZE = 32
-EPOCHS = 10
+BATCH_SIZE = 256
+EPOCHS = 100
 
 _key = jr.key(0)
 
@@ -28,25 +28,31 @@ def consume():
     return _consume
 
 
-dataset = MediDec("/media/LinuxData/datasets/MediDec/Task01_BrainTumour")
+# dataset = MediDec("/media/LinuxData/datasets/MediDec/Task01_BrainTumour")
+dataset = MediDec(
+    "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets/MediDec/Task01_BrainTumour",
+    preload=False,
+)
 
-sliced_dataset = SlicedDataset(dataset)
+sliced_dataset = SlicedDataset(dataset, multiplier=10)
 
-train_loader = DataLoader(sliced_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
+# TODO: shuffle=True
+train_loader = DataLoader(sliced_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=32)
 
-model = Unet(8, [1, 2, 4, 6, 6], in_channels=1, out_channels=2, key=consume())
+model = Unet(8, [1, 2, 4], in_channels=4, out_channels=2, key=consume())
 
-opt = optax.adamw(1e-4)
+opt = optax.adamw(1e-3)
 
 opt_state = opt.init(eqx.filter(model, eqx.is_array))
 
 
 @jax.jit
-def loss_fn(logits: Array, labels: Array) -> Array:
+def loss_fn(logits: Float[Array, "c h w"], labels: Integer[Array, "h w"]) -> Array:
+    # C H W -> H W C
+    logits = jnp.moveaxis(logits, 0, -1)
+
     # b c h w
-    neg_log_prob = optax.softmax_cross_entropy_with_integer_labels(
-        jnp.moveaxis(logits, 0, -1), labels
-    )
+    neg_log_prob = optax.softmax_cross_entropy_with_integer_labels(logits, labels)
 
     # sum over spatial dims
     neg_log_likelihood = neg_log_prob.sum()
@@ -80,25 +86,31 @@ def training_step(
     return loss, model, opt_state
 
 
+# batch = next(iter(train_loader))
+batch = sliced_dataset[0]
+
+batch = jt.map(lambda x: jnp.repeat(jnp.asarray(x)[None, ...], BATCH_SIZE, axis=0), batch)
+
 for epoch in (pbar := trange(EPOCHS)):
     losses = []
 
-    inner_pbar = tqdm(total=len(sliced_dataset), leave=False)
-    for batch in train_loader:
-        # for batch in tqdm(train_loader, leave=False):
+    # inner_pbar = tqdm(total=len(sliced_dataset), leave=False)
+    # for batch in train_loader:
+    # for batch in tqdm(train_loader, leave=False):
+    for _ in trange(len(train_loader), leave=False):
         batch: dict[str, Array] = jt.map(jnp.asarray, batch)
 
         image = batch["image"]
         label = batch["label"]
 
-        image = image[:, 0:1]
+        # image = image[:, 0:1]
         label = (label == 1).astype(jnp.int32)
 
         loss, model, opt_state = training_step(model, image, label, opt_state)
 
         losses.append(loss.item())
 
-        inner_pbar.update(BATCH_SIZE)
+        # inner_pbar.update(BATCH_SIZE)
 
     mean_loss = jnp.mean(jnp.array(losses))
 

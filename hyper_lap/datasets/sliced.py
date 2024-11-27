@@ -4,14 +4,18 @@ from .nifti import NiftiDataset
 
 
 class SlicedDataset:
+    multiplier: int
+
     dataset: NiftiDataset
 
     slice_dists: list[np.ndarray]
 
-    rng: np.random.Generator = np.random.default_rng()
+    rng: np.random.Generator
 
-    def __init__(self, dataset: NiftiDataset):
+    def __init__(self, dataset: NiftiDataset, multiplier: int = 1):
         super().__init__()
+
+        self.multiplier = multiplier
 
         self.dataset = dataset
 
@@ -19,8 +23,10 @@ class SlicedDataset:
 
         self.slice_dists = [self._make_slice_dist(idx) for idx in range(len(self.dataset))]
 
+        self.rng = np.random.default_rng(seed=42)
+
     def __len__(self) -> int:
-        return len(self.dataset)
+        return self.multiplier * len(self.dataset)
 
     def _make_slice_dist(self, idx: int) -> np.ndarray:
         label = self.dataset.get_label(idx)
@@ -39,6 +45,8 @@ class SlicedDataset:
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
         assert 0 <= idx < len(self), f"idx {idx} out of range"
+
+        idx = idx % len(self.dataset)
 
         if self.slice_dists[idx] is None:
             self._make_slice_dist(idx)
