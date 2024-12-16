@@ -30,8 +30,15 @@ class Metadata:
     quantitative: str | None = None
 
     @staticmethod
-    def load(root_dir: str) -> "Metadata":
-        base_folder = Path(root_dir)
+    def load(root_dir: str | Path) -> "Metadata":
+        if isinstance(root_dir, str):
+            base_folder = Path(root_dir)
+        elif isinstance(root_dir, Path):
+            base_folder = root_dir
+        else:
+            raise ValueError(f"Invalid root_dir {root_dir}")
+
+        assert base_folder.exists()
 
         with (base_folder / "dataset.json").open() as f:
             d = json.load(f)

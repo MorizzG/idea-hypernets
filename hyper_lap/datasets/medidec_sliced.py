@@ -19,7 +19,7 @@ class MediDecSliced(Dataset):
 
     def __init__(
         self,
-        root_dir: str,
+        root_dir: str | Path,
         split: Literal["train", "test"] = "train",
         # preload: bool = False,
     ):
