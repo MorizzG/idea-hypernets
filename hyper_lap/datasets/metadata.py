@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-@dataclass
+@dataclass(frozen=True)
 class Metadata:
     name: str
     description: str
@@ -29,22 +29,6 @@ class Metadata:
     release: str | None = None
     quantitative: str | None = None
 
-    def __repr__(self) -> str:
-        s = "Metadata:\n"
-
-        s += f"\tName: {self.name}\n"
-        s += f"\tDescription: {self.description}\n"
-        s += "\n"
-        s += f"\tTensor Image Size: {self.tensor_image_size}\n"
-        s += f"\tModality: {self.modality}\n"
-        s += f"\tLabels: {self.labels}\n"
-        s += "\n"
-        s += f"\tNumber of training: {self.num_training}\n"
-        s += f"\tNumber of validation: {self.num_validation}\n"
-        s += f"\tNumber of test: {self.num_test}\n"
-
-        return s
-
     @staticmethod
     def load(root_dir: str) -> "Metadata":
         base_folder = Path(root_dir)
@@ -66,29 +50,83 @@ class Metadata:
 
         assert d["tensor_image_size"] in ("3D", "4D")
 
-        d["training"] = [
-            dict(image=(base_folder / X["image"]), label=(base_folder / X["label"]))
-            for X in d["training"]
-        ]
+        training = []
+
+        for X in d["training"]:
+            if isinstance(X, str):
+                image = base_folder / X
+
+                training.append(dict(image=image))
+            elif isinstance(X, dict):
+                image = base_folder / X["image"]
+                label = base_folder / X["label"]
+
+                assert image.exists() and label.exists()
+
+                training.append(dict(image=image, label=label))
+
+        d["training"] = training
+
         if "validation" in d:
-            d["validation"] = [
-                dict(image=(base_folder / X["image"]), label=(base_folder / X["label"]))
-                for X in d["validation"]
-            ]
+            validation = []
+
+            for X in d["validation"]:
+                image = base_folder / X["image"]
+                label = base_folder / X["label"]
+
+                assert image.exists() and label.exists()
+
+                validation.append(dict(image=image, label=label))
+
+            d["validation"] = validation
         else:
             d["num_validation"] = 0
             d["validation"] = []
 
-        match d["test"][0]:
-            case str():
-                d["test"] = [dict(image=(base_folder / path)) for path in d["test"]]
-            case dict():
-                d["test"] = [dict(image=(base_folder / X["image"])) for X in d["test"]]
-            case _:
-                assert False, f"Unexpected type {type(d['test'][0])} for test entries"
+        test = []
+
+        assert len(d["test"]) == d["num_test"]
+
+        for X in d["test"]:
+            if isinstance(X, str):
+                image = base_folder / X
+            elif isinstance(X, dict):
+                image = base_folder / X["image"]
+            else:
+                assert False
+
+            assert image.exists()
+
+            test.append(dict(image=image))
+
+        d["test"] = test
 
         if "relase" in d:
-            # typechecking stuff is totally overrated
+            # spellchecking is totally overrated
             replace_key("relase", "release")
 
+        assert d["num_training"] == len(
+            d["training"]
+        ), f'{d["num_training"]} != {len(d["training"])}'
+        assert d["num_validation"] == len(
+            d["validation"]
+        ), f'{d["num_validation"]} != {len(d["validation"])}'
+        assert d["num_test"] == len(d["test"]), f'{d["num_test"]} != {len(d["test"])}'
+
         return Metadata(**d)
+
+    def __repr__(self) -> str:
+        s = "Metadata:\n"
+
+        s += f"\tName: {self.name}\n"
+        s += f"\tDescription: {self.description}\n"
+        s += "\n"
+        s += f"\tTensor Image Size: {self.tensor_image_size}\n"
+        s += f"\tModality: {self.modality}\n"
+        s += f"\tLabels: {self.labels}\n"
+        s += "\n"
+        s += f"\tNumber of training: {self.num_training}\n"
+        s += f"\tNumber of validation: {self.num_validation}\n"
+        s += f"\tNumber of test: {self.num_test}\n"
+
+        return s

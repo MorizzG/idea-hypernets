@@ -1,86 +1,123 @@
 import numpy as np
+from torch.utils.data import Dataset
 
 from .nifti import NiftiDataset
 
 
-class SlicedDataset:
-    multiplier: int
+class SlicedDataset(Dataset):
+    samples_per_volume: int
 
     dataset: NiftiDataset
 
-    slice_dists: list[np.ndarray]
+    indices: list[tuple[int, int]]
 
-    rng: np.random.Generator
-
-    def __init__(self, dataset: NiftiDataset, multiplier: int = 1):
-        super().__init__()
-
-        self.multiplier = multiplier
-
-        self.dataset = dataset
-
-        # self.slice_dists = len(self.dataset) * [None]
-
-        self.slice_dists = [self._make_slice_dist(idx) for idx in range(len(self.dataset))]
-
-        self.rng = np.random.default_rng(seed=42)
-
-    def __len__(self) -> int:
-        return self.multiplier * len(self.dataset)
-
-    def _make_slice_dist(self, idx: int) -> np.ndarray:
-        label = self.dataset.get_label(idx)
-
+    @staticmethod
+    def _make_slice_dist(image: np.ndarray, label: np.ndarray | None) -> np.ndarray:
         if label is not None:
             counts = np.count_nonzero(label != 0, axis=(0, 1))
             p = counts / counts.sum()
         else:
-            label_shape = self.dataset.get_label_shape(idx)
+            image_shape = image.shape
 
-            n_slices = label_shape[2]
+            n_slices = image_shape[-1]
 
             p = np.full([n_slices], 1 / n_slices)
 
         return p
 
+    def __init__(self, dataset: NiftiDataset, samples_per_volume: int = 1):
+        super().__init__()
+
+        self.samples_per_volume = samples_per_volume
+
+        self.dataset = dataset
+
+        rng = np.random.default_rng(seed=42)
+
+        self.indices = []
+
+        from tqdm import tqdm
+
+        for i, X in enumerate(tqdm(dataset)):
+            image = X["image"]
+            label = X.get("label", None)
+
+            p = self._make_slice_dist(image, label)
+
+            for _ in range(samples_per_volume):
+                slice_idx = rng.choice(np.arange(p.shape[0]), p=p)
+
+                self.indices.append((i, slice_idx))
+
+    def __len__(self) -> int:
+        # return self.multiplier * len(self.dataset)
+        return len(self.indices)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
-        assert 0 <= idx < len(self), f"idx {idx} out of range"
+        if not 0 <= idx < len(self):
+            raise IndexError("index out of range")
 
-        idx = idx % len(self.dataset)
+        dataset_idx, slice_idx = self.indices[idx]
 
-        if self.slice_dists[idx] is None:
-            self._make_slice_dist(idx)
+        return self.dataset.get_slice(dataset_idx, slice_idx)
 
-        # # X = self.dataset[idx]
-        # #
-        # # image = X["image"]
-        # # label = X.get("label", None)
-        # #
-        # # c, h, w, d = image.shape
-        # #
-        # # if label is None:
-        # #     image = self.rng.choice(image, axis=3)
-        # #
-        # #     return {"image": image}
-        # #
-        # # assert label.shape == (h, w, d)
-        # #
-        # # counts = np.count_nonzero(label != 0, axis=(0, 1))
-        # # counts = counts / counts.sum()
-        # #
-        # # idx = self.rng.choice(np.arange(counts.size), p=counts)
-        #
-        # image = image[..., idx]
-        # label = label[..., idx]
+    # def _make_slice_dist(self, idx: int) -> np.ndarray:
+    #     label = self.dataset.get_label(idx)
+    #
+    #     if label is not None:
+    #         counts = np.count_nonzero(label != 0, axis=(0, 1))
+    #         p = counts / counts.sum()
+    #     else:
+    #         label_shape = self.dataset.get_label_shape(idx)
+    #
+    #         n_slices = label_shape[2]
+    #
+    #         p = np.full([n_slices], 1 / n_slices)
+    #
+    #     return p
 
-        p = self.slice_dists[idx]
-
-        slice_idx = self.rng.choice(np.arange(p.shape[0]), p=p)
-
-        image = self.dataset.get_image_slice(idx, slice_idx)
-        label = self.dataset.get_label_slice(idx, slice_idx)
-
-        if label is not None:
-            return {"image": image, "label": label}
-        else:
-            return {"image": image}
+    # def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
+    #     assert 0 <= idx < len(self), f"idx {idx} out of range"
+    #
+    #     idx = idx % len(self.dataset)
+    #
+    #     if self.slice_dists[idx] is None:
+    #         self._make_slice_dist(idx)
+    #
+    #     # # X = self.dataset[idx]
+    #     # #
+    #     # # image = X["image"]
+    #     # # label = X.get("label", None)
+    #     # #
+    #     # # c, h, w, d = image.shape
+    #     # #
+    #     # # if label is None:
+    #     # #     image = self.rng.choice(image, axis=3)
+    #     # #
+    #     # #     return {"image": image}
+    #     # #
+    #     # # assert label.shape == (h, w, d)
+    #     # #
+    #     # # counts = np.count_nonzero(label != 0, axis=(0, 1))
+    #     # # counts = counts / counts.sum()
+    #     # #
+    #     # # idx = self.rng.choice(np.arange(counts.size), p=counts)
+    #     #
+    #     # image = image[..., idx]
+    #     # label = label[..., idx]
+    #
+    #     p = self.slice_dists[idx]
+    #
+    #     slice_idx = self.rng.choice(np.arange(p.shape[0]), p=p)
+    #
+    #     image = self.dataset.get_image_slice(idx, slice_idx)
+    #     label = self.dataset.get_label_slice(idx, slice_idx)
+    #
+    #     if label is not None:
+    #         return {"image": image, "label": label}
+    #     else:
+    #         return {"image": image}

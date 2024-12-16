@@ -1,4 +1,8 @@
 from .amos import Amos as Amos
+from .degenerate import DegenerateDataset as DegenerateDataset
+from .lidc_idri import LidcIdri as LidcIdri
 from .medidec import MediDec as MediDec
+from .medidec_sliced import MediDecSliced as MediDecSliced
 from .nifti import NiftiDataset as NiftiDataset
+from .preloaded import PreloadedDataset as PreloadedDataset
 from .sliced import SlicedDataset as SlicedDataset

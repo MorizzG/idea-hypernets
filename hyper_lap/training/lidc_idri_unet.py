@@ -15,13 +15,13 @@ from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, MediDecSliced, PreloadedDataset
+from hyper_lap.datasets import DegenerateDataset, LidcIdri
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import Unet
 
 warnings.simplefilter("ignore")
 
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 EPOCHS = 10
 
 _key = jr.key(0)
@@ -41,23 +41,15 @@ args = parser.parse_args()
 degenerate = args.degenerate
 
 
-# root_dir = "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets/MediDec/Task01_BrainTumour"
-root_dir = "/media/LinuxData/datasets/MediDecSliced/01_BrainTumour"
-
-dataset = MediDecSliced(root_dir)
+dataset = LidcIdri("/media/LinuxData/datasets/LIDC-IDRI-slices")
 
 if degenerate:
     dataset = DegenerateDataset(dataset)
 
-dataset = PreloadedDataset(dataset)
-
 num_workers = min(multiprocessing.cpu_count() // 2, 64)
-# num_workers = 4
 print(f"Using {num_workers} workers")
 
-
 train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers)
-
 
 model = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
 
@@ -109,7 +101,7 @@ def training_step(
 @eqx.filter_jit
 def calc_dice_score(model: Unet, batch: dict[str, Array]):
     images = batch["image"]
-    labels = batch["label"]
+    labels = batch["masks"][0]
 
     images = images[:, 0:1]
     labels = (labels == 1).astype(jnp.int32)
@@ -124,17 +116,15 @@ def calc_dice_score(model: Unet, batch: dict[str, Array]):
 
 
 for epoch in (pbar := trange(EPOCHS)):
-    pbar.write(f"Epoch {epoch:02}\n")
-
     losses = []
 
     for batch_tensor in tqdm(train_loader, leave=False):
         batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
         images = batch["image"]
-        labels = batch["label"]
+        labels = batch["masks"][0]
 
-        images = images[:, 0:1]
+        # image = image[:, 0:1]
         labels = (labels == 1).astype(jnp.int32)
 
         loss, model, opt_state = training_step(model, images, labels, opt_state)
@@ -155,8 +145,8 @@ for epoch in (pbar := trange(EPOCHS)):
     pbar.write("")
 
 
-image = jnp.asarray(dataset[0]["image"][0:1])
-label = jnp.asarray(dataset[0]["label"])
+image = jnp.asarray(dataset[0]["image"])
+label = jnp.asarray(dataset[0]["masks"][0])
 
 logits = eqx.filter_jit(model)(image)
 pred = jnp.argmax(logits, axis=0)

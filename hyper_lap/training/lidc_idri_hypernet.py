@@ -15,14 +15,15 @@ from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, MediDecSliced, PreloadedDataset
+from hyper_lap.datasets import DegenerateDataset, LidcIdri
+from hyper_lap.hyper.hypernet import HyperNet
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import Unet
 
 warnings.simplefilter("ignore")
 
-BATCH_SIZE = 32
-EPOCHS = 10
+BATCH_SIZE = 64
+EPOCHS = 50
 
 _key = jr.key(0)
 
@@ -41,29 +42,27 @@ args = parser.parse_args()
 degenerate = args.degenerate
 
 
-# root_dir = "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets/MediDec/Task01_BrainTumour"
-root_dir = "/media/LinuxData/datasets/MediDecSliced/01_BrainTumour"
-
-dataset = MediDecSliced(root_dir)
+dataset = LidcIdri("/media/LinuxData/datasets/LIDC-IDRI-slices")
 
 if degenerate:
     dataset = DegenerateDataset(dataset)
 
-dataset = PreloadedDataset(dataset)
+gen_image = jnp.asarray(dataset[0]["image"])
+gen_label = jnp.asarray(dataset[0]["masks"][0])
 
 num_workers = min(multiprocessing.cpu_count() // 2, 64)
-# num_workers = 4
 print(f"Using {num_workers} workers")
-
 
 train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers)
 
 
-model = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
+model_template = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
+hypernet = HyperNet(model_template, 8, emb_size=256, key=consume())
 
-opt = optax.adamw(1e-3)
 
-opt_state = opt.init(eqx.filter(model, eqx.is_array))
+opt = optax.adamw(5e-4)
+
+opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
 
 @jax.jit
@@ -82,12 +81,19 @@ def loss_fn(logits: Float[Array, "c h w"], labels: Integer[Array, "h w"]) -> Arr
 
 @eqx.filter_jit
 def training_step(
-    model: Unet, images: Array, labels: Array, opt_state: OptState
-) -> tuple[Array, Unet, OptState]:
-    dynamic_model, static_model = eqx.partition(model, eqx.is_array)
+    hypernet: HyperNet,
+    images: Array,
+    labels: Array,
+    opt_state: OptState,
+    image: Array,
+    label: Array,
+) -> tuple[Array, HyperNet, OptState]:
+    dynamic_hypernet, static_hypernet = eqx.partition(hypernet, eqx.is_array)
 
-    def grad_fn(dynamic_model: Unet) -> Array:
-        model = eqx.combine(dynamic_model, static_model)
+    def grad_fn(dynamic_hypernet: HyperNet) -> Array:
+        hypernet = eqx.combine(dynamic_hypernet, static_hypernet)
+
+        model = hypernet(model_template, image, label)
 
         logits = jax.vmap(model)(images)
 
@@ -95,21 +101,23 @@ def training_step(
 
         return loss
 
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(dynamic_model)
+    loss, grads = eqx.filter_value_and_grad(grad_fn)(hypernet)
 
-    updates, opt_state = opt.update(grads, opt_state, dynamic_model)
+    updates, opt_state = opt.update(grads, opt_state, dynamic_hypernet)
 
-    dynamic_model = eqx.apply_updates(dynamic_model, updates)
+    dynamic_hypernet = eqx.apply_updates(dynamic_hypernet, updates)
 
-    model = eqx.combine(dynamic_model, static_model)
+    hypernet = eqx.combine(dynamic_hypernet, static_hypernet)
 
-    return loss, model, opt_state
+    return loss, hypernet, opt_state
 
 
 @eqx.filter_jit
-def calc_dice_score(model: Unet, batch: dict[str, Array]):
+def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
+    model = eqx.filter_jit(hypernet)(model_template, gen_image, gen_label)
+
     images = batch["image"]
-    labels = batch["label"]
+    labels = batch["masks"][0]
 
     images = images[:, 0:1]
     labels = (labels == 1).astype(jnp.int32)
@@ -124,20 +132,20 @@ def calc_dice_score(model: Unet, batch: dict[str, Array]):
 
 
 for epoch in (pbar := trange(EPOCHS)):
-    pbar.write(f"Epoch {epoch:02}\n")
-
     losses = []
 
     for batch_tensor in tqdm(train_loader, leave=False):
         batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
         images = batch["image"]
-        labels = batch["label"]
+        labels = batch["masks"][0]
 
-        images = images[:, 0:1]
+        # image = image[:, 0:1]
         labels = (labels == 1).astype(jnp.int32)
 
-        loss, model, opt_state = training_step(model, images, labels, opt_state)
+        loss, hypernet, opt_state = training_step(
+            hypernet, images, labels, opt_state, gen_image, gen_label
+        )
 
         losses.append(loss.item())
 
@@ -149,14 +157,16 @@ for epoch in (pbar := trange(EPOCHS)):
 
     batch = jt.map(jnp.asarray, next(iter(train_loader)))
 
-    dice = calc_dice_score(model, batch)
+    dice = calc_dice_score(hypernet, batch)
 
     pbar.write(f"Dice score: {dice:.3}")
     pbar.write("")
 
 
-image = jnp.asarray(dataset[0]["image"][0:1])
-label = jnp.asarray(dataset[0]["label"])
+model = hypernet(model_template, gen_image, gen_label)
+
+image = jnp.asarray(dataset[0]["image"])
+label = jnp.asarray(dataset[0]["masks"][0])
 
 logits = eqx.filter_jit(model)(image)
 pred = jnp.argmax(logits, axis=0)

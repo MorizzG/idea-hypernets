@@ -1,4 +1,3 @@
-from jaxtyping import Array, PRNGKeyArray, PyTree
 from typing import Any, Optional, Self, Sequence
 
 import equinox as eqx
@@ -6,6 +5,7 @@ import equinox_hessian.nn as nn
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
+from jaxtyping import Array, PRNGKeyArray, PyTree
 
 from ._util import _channel_to_spatials, _spatials_to_channel
 
@@ -29,12 +29,12 @@ class Downsample2d(nn.HessianMixin, eqx.Module):
     def hessian_filter_spec(self) -> PyTree:
         spec = eqx.filter(self, eqx.is_array, inverse=True)  # TODO: fixme
 
-        spec = eqx.tree_at(lambda spec: spec.conv, spec, (self.conv.hessian_filter_spec))
+        spec = eqx.tree_at(lambda spec: spec.conv1, spec, (self.conv.hessian_filter_spec))
 
         return spec
 
     def sample_weights(self, *, key: PRNGKeyArray) -> Self:
-        return eqx.tree_at(lambda me: me.conv, self, self.conv.sample_weights(key=key))
+        return eqx.tree_at(lambda me: me.conv1, self, self.conv.sample_weights(key=key))
 
     def forward_with_hessian_state(
         self, x: Array, *, key: Optional[PRNGKeyArray] = None
@@ -51,7 +51,7 @@ class Downsample2d(nn.HessianMixin, eqx.Module):
         H_x = _channel_to_spatials(H)
 
         hessians = jt.map(lambda _: None, self)
-        hessians = eqx.tree_at(lambda hessians: hessians.conv, hessians, conv_hessians)
+        hessians = eqx.tree_at(lambda hessians: hessians.conv1, hessians, conv_hessians)
 
         return H_x, hessians
 
@@ -75,12 +75,12 @@ class Upsample2d(nn.HessianMixin, eqx.Module):
     def hessian_filter_spec(self) -> PyTree:
         spec = eqx.filter(self, eqx.is_array, inverse=True)  # TODO: fixme
 
-        spec = eqx.tree_at(lambda spec: spec.conv, spec, (self.conv.hessian_filter_spec))
+        spec = eqx.tree_at(lambda spec: spec.conv1, spec, (self.conv.hessian_filter_spec))
 
         return spec
 
     def sample_weights(self, *, key: PRNGKeyArray) -> Self:
-        return eqx.tree_at(lambda me: me.conv, self, self.conv.sample_weights(key=key))
+        return eqx.tree_at(lambda me: me.conv1, self, self.conv.sample_weights(key=key))
 
     def forward_with_hessian_state(
         self, x: Array, *, key: Optional[PRNGKeyArray] = None
@@ -97,7 +97,7 @@ class Upsample2d(nn.HessianMixin, eqx.Module):
         H_x, conv_hessians = self.conv.hessians(H, hessian_state["conv_state"])
 
         hessians = jt.map(lambda _: None, self)
-        hessians = eqx.tree_at(lambda hessians: hessians.conv, hessians, conv_hessians)
+        hessians = eqx.tree_at(lambda hessians: hessians.conv1, hessians, conv_hessians)
 
         return H_x, hessians
 
@@ -138,7 +138,7 @@ class ConvNormAct(nn.HessianMixin, eqx.Module):
     @property
     def hessian_filter_spec(self) -> PyTree:
         return eqx.tree_at(
-            lambda me: [me.conv, me.norm, me.act],
+            lambda me: [me.conv1, me.norm1, me.act],
             self,
             [m.hessian_filter_spec for m in [self.conv, self.norm, self.act]],
         )
@@ -147,7 +147,7 @@ class ConvNormAct(nn.HessianMixin, eqx.Module):
         keys = jr.split(key, 3)
 
         return eqx.tree_at(
-            lambda me: [me.conv, me.norm, me.act],
+            lambda me: [me.conv1, me.norm1, me.act],
             self,
             [m.sample_weights(key=key) for m, key in zip([self.conv, self.norm, self.act], keys)],
         )
@@ -162,7 +162,7 @@ class ConvNormAct(nn.HessianMixin, eqx.Module):
         x, act_state = self.act.forward_with_hessian_state(x)
 
         hessian_state = eqx.tree_at(
-            lambda me: [me.conv, me.norm, me.act], self, [conv_state, norm_state, act_state]
+            lambda me: [me.conv1, me.norm1, me.act], self, [conv_state, norm_state, act_state]
         )
 
         return x, hessian_state
@@ -170,12 +170,12 @@ class ConvNormAct(nn.HessianMixin, eqx.Module):
     def hessians(self, H: Array, hessian_state: PyTree) -> tuple[Array, PyTree]:
         H, act_hessians = self.act.hessians(H, hessian_state.act)
 
-        H, norm_hessians = self.norm.hessians(H, hessian_state.norm)
+        H, norm_hessians = self.norm.hessians(H, hessian_state.norm1)
 
-        H, conv_hessians = self.conv.hessians(H, hessian_state.conv)
+        H, conv_hessians = self.conv.hessians(H, hessian_state.conv1)
 
         hessians = eqx.tree_at(
-            lambda me: [me.conv, me.norm, me.act],
+            lambda me: [me.conv1, me.norm1, me.act],
             self,
             [conv_hessians, norm_hessians, act_hessians],
         )

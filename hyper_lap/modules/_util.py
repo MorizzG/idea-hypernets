@@ -1,4 +1,19 @@
+import equinox as eqx
+import jax
 from jaxtyping import Array, Shaped
+
+
+class ReLU(eqx.nn.Lambda):
+    def __init__(self):
+        super().__init__(fn=jax.nn.relu)
+
+    # def __call__(self, x: Array) -> Array:
+    #     return jax.nn.relu(x)
+
+
+class SiLU(eqx.nn.Lambda):
+    def __init__(self):
+        super().__init__(fn=jax.nn.swish)
 
 
 def _channel_to_spatials2d(x: Shaped[Array, "c h w"]) -> Shaped[Array, "c h w"]:

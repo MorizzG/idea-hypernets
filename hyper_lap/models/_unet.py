@@ -5,11 +5,14 @@ import equinox.nn as nn
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from hyper_lap.modules.unet import Block, UnetModule
+from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 
 
 class Unet(eqx.Module):
-    init_conv: nn.Conv2d
+    base_channels: int = eqx.field(static=True)
+    channel_mults: list[int] = eqx.field(static=True)
+
+    init_conv: ConvNormAct
     unet: UnetModule
     recomb: Block
     final_conv: nn.Conv2d
@@ -26,9 +29,12 @@ class Unet(eqx.Module):
     ):
         super().__init__()
 
+        self.base_channels = base_channels
+        self.channel_mults = list(channel_mults)
+
         init_key, unet_key, recomb_key, final_key = jr.split(key, 4)
 
-        self.init_conv = nn.Conv2d(in_channels, base_channels, 1, key=init_key)
+        self.init_conv = ConvNormAct(in_channels, base_channels, kernel_size=1, key=init_key)
 
         self.unet = UnetModule(
             base_channels, channel_mults, key=unet_key, block_args={"use_res": use_res}
@@ -36,7 +42,7 @@ class Unet(eqx.Module):
 
         self.recomb = Block(base_channels, base_channels, key=recomb_key)
 
-        self.final_conv = nn.Conv2d(base_channels, out_channels, 1, key=final_key)
+        self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
 
     def __call__(
         self, x: Float[Array, "c_in h w d"], *, key: Optional[PRNGKeyArray] = None

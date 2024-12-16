@@ -1,14 +1,14 @@
-import time
 from pathlib import Path
 from typing import Literal, Optional
 
 import nibabel as nib
 import numpy as np
+from torch.utils.data import Dataset
 
 from .metadata import Metadata
 
 
-class NiftiDataset:
+class NiftiDataset(Dataset):
     _metadata: Metadata
 
     _split: Literal["train", "validation", "test"]
@@ -19,7 +19,7 @@ class NiftiDataset:
         self,
         root_dir: str,
         split: Literal["train", "validation", "test"] = "train",
-        preload: bool = False,
+        # preload: bool = False,
     ):
         super().__init__()
 
@@ -40,30 +40,30 @@ class NiftiDataset:
             case _:
                 assert False
 
-        if preload:
-
-            dataset: list[dict[str, np.ndarray]] = []
-
-            start_time = time.time()
-
-            for entry in self._dataset:
-                image = np.asanyarray(nib.load(entry["image"]).dataobj).astype(np.float32)
-
-                if "label" in entry:
-                    label = np.asanyarray(nib.load(entry["label"]).dataobj).astype(np.uint8)
-                else:
-                    label = None
-
-                if label is not None:
-                    dataset.append({"image": image, "label": label})
-                else:
-                    dataset.append({"image": image})
-
-            end_time = time.time()
-
-            print(f"Took {end_time - start_time:.3}s to preload dataset")
-
-            self._dataset = dataset
+        # if preload:
+        #
+        #     dataset: list[dict[str, np.ndarray]] = []
+        #
+        #     start_time = time.time()
+        #
+        #     for entry in self._dataset:
+        #         image = np.asanyarray(nib.load(entry["image"]).dataobj).astype(np.float32)
+        #
+        #         if "label" in entry:
+        #             label = np.asanyarray(nib.load(entry["label"]).dataobj).astype(np.uint8)
+        #         else:
+        #             label = None
+        #
+        #         if label is not None:
+        #             dataset.append({"image": image, "label": label})
+        #         else:
+        #             dataset.append({"image": image})
+        #
+        #     end_time = time.time()
+        #
+        #     print(f"Took {end_time - start_time:.3}s to preload dataset")
+        #
+        #     self._dataset = dataset
 
     @property
     def metadata(self) -> Metadata:
@@ -103,8 +103,8 @@ class NiftiDataset:
     def load_array(path_or_array: Path | np.ndarray, dtype: np.dtype = np.float32):
         if isinstance(path_or_array, Path):
             return np.asanyarray(nib.load(path_or_array).dataobj).astype(dtype)
-        elif isinstance(path_or_array, np.ndarray):
-            return path_or_array.astype(dtype)
+        # elif isinstance(path_or_array, np.ndarray):
+        #     return path_or_array.astype(dtype)
         else:
             assert False
 
@@ -120,8 +120,8 @@ class NiftiDataset:
                 .astype(dtype)
                 .squeeze(2)
             )
-        elif isinstance(path_or_array, np.ndarray):
-            return path_or_array[:, :, slice_idx].astype(dtype)
+        # elif isinstance(path_or_array, np.ndarray):
+        #     return path_or_array[:, :, slice_idx].astype(dtype)
         else:
             assert False
 
@@ -216,6 +216,9 @@ class NiftiDataset:
         return label
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
+        if not 0 <= idx < len(self):
+            raise IndexError("index out of range")
+
         image = self.get_image(idx)
         label = self.get_label(idx)
 
@@ -225,6 +228,9 @@ class NiftiDataset:
             return {"image": image}
 
     def get_slice(self, idx: int, slice_idx: int) -> dict[str, np.ndarray]:
+        if not 0 <= idx < len(self):
+            raise IndexError("index out of range")
+
         image = self.get_image_slice(idx, slice_idx)
         label = self.get_label_slice(idx, slice_idx)
 

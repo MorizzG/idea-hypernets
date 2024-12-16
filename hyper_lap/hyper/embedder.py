@@ -1,37 +1,55 @@
-from chex import assert_shape
+from jaxtyping import Array, Float, Integer, PRNGKeyArray
+from typing import Literal
+
 import equinox as eqx
 import jax.numpy as jnp
-from jaxtyping import Array, Float, Integer, PRNGKeyArray
+from chex import assert_shape
 
+from hyper_lap.modules.convnext import ConvNeXt
+from hyper_lap.modules.resnet import ResNet
 from hyper_lap.modules.vit import ViT
 
 
 class InputEmbedder(eqx.Module):
     emb_size: int
 
-    vit: ViT
+    embedder: ViT | ConvNeXt | ResNet
 
-    def __init__(self, emb_size: int, *, key: PRNGKeyArray):
+    def __init__(
+        self,
+        emb_size: int,
+        *,
+        kind: Literal["vit", "convnext", "resnet"] = "resnet",
+        key: PRNGKeyArray,
+    ):
         super().__init__()
 
         self.emb_size = emb_size
 
-        self.vit = ViT(512, 3, 16, 6, 8, 64, emb_size, key=key)
+        if kind == "vit":
+            self.embedder = ViT(512, 3, 16, 6, 8, 64, emb_size, key=key)
+        elif kind == "convnext":
+            self.embedder = ConvNeXt(emb_size, 96, in_channels=3, depths=[3, 3, 9, 3], key=key)
+        elif kind == "resnet":
+            self.embedder = ResNet(emb_size, in_channels=3, depths=[3, 4, 6, 3], key=key)
+        else:
+            raise ValueError(f"Unknown embedder: {kind}")
 
     def __call__(
         self, image: Float[Array, "1 h w"], label: Integer[Array, "h w"]
-    ) -> Float[Array, "k"]:
+    ) -> Float[Array, "*"]:
         c, h, w = image.shape
 
         assert c == 1
         assert_shape(label, (h, w))
 
-        labels_onehot = jnp.zeros([2, h, w]).at[label].set(1)
+        labels_onehot = jnp.zeros([2, h, w])
+        labels_onehot = labels_onehot.at[label].set(1)
 
         combined = jnp.concatenate([image, labels_onehot], axis=0)
 
         assert_shape(combined, (3, h, w))
 
-        emb = self.vit(combined)
+        emb = self.embedder(combined)
 
         return emb
