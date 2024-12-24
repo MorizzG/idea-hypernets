@@ -38,7 +38,7 @@ class Dataset:
 
 
 BATCH_SIZE = 32
-EPOCHS = 1  # 50
+EPOCHS = 50
 
 
 num_workers = min(multiprocessing.cpu_count() // 2, 64)
@@ -70,8 +70,8 @@ dataset_names = [
     "01_BrainTumour",
     "02_Heart",
     "03_Liver",
-    "04_Hippocampus",
-    "05_Prostate",
+    # "04_Hippocampus",
+    # "05_Prostate",
     "06_Lung",
     "07_Pancreas",
     "08_HepaticVessel",
@@ -91,7 +91,16 @@ def load_dataset(dataset_name: str) -> Dataset:
     gen_image = jnp.asarray(dataset[0]["image"][0:1])
     gen_label = jnp.asarray(dataset[0]["label"])
 
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers)
+    shape_x, shape_y = dataset[0]["image"].shape[-2:]
+
+    if shape_x * shape_y >= 512 * 512:
+        batch_size = 16
+    elif shape_x * shape_y >= 128 * 128:
+        batch_size = 32
+    else:
+        batch_size = 64
+
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
     return Dataset(
         name=dataset_name,
@@ -190,9 +199,26 @@ def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
     return jnp.mean(dices)
 
 
+def validate(hypernet: HyperNet, datasets: list[Dataset], pbar: tqdm):
+    pbar.write("Validation:\n")
+
+    for dataset in datasets:
+        pbar.write(f"Dataset: {dataset.name}")
+
+        train_loader = dataset.dataloader
+
+        batch = jt.map(jnp.array, next(iter(train_loader)))
+
+        dice = calc_dice_score(hypernet, batch)
+
+        pbar.write(f"Dice score: {dice:.3}")
+        pbar.write("")
+
+
 for epoch in (pbar := trange(EPOCHS)):
-    pbar.write(f"Epoch {epoch:02}")
-    pbar.write("")
+    pbar.write(f"Epoch {epoch:02}\n")
+
+    pbar.write("Training:\n")
 
     dataset_idx = jr.randint(consume(), (), 0, len(datasets))
 
@@ -208,7 +234,7 @@ for epoch in (pbar := trange(EPOCHS)):
     losses = []
 
     for batch_tensor in tqdm(train_loader, leave=False):
-        batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
+        batch: dict[str, Array] = jt.map(jnp.array, batch_tensor)
 
         loss, hypernet, opt_state = training_step(hypernet, batch, opt_state, gen_image, gen_label)
 
@@ -218,12 +244,14 @@ for epoch in (pbar := trange(EPOCHS)):
 
     pbar.write(f"Loss: {mean_loss:.3}")
 
-    batch = jt.map(jnp.asarray, next(iter(train_loader)))
+    validate(hypernet, datasets, pbar)
 
-    dice = calc_dice_score(hypernet, batch)
+    # batch = jt.map(jnp.asarray, next(iter(train_loader)))
 
-    pbar.write(f"Dice score: {dice:.3}")
-    pbar.write("")
+    # dice = calc_dice_score(hypernet, batch)
+
+    # pbar.write(f"Dice score: {dice:.3}")
+    # pbar.write("")
 
 print()
 print()

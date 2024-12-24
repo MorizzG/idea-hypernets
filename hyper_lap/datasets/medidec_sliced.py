@@ -80,4 +80,5 @@ class MediDecSliced(Dataset):
 
         X = np.load(entry)
 
-        return dict(X)
+        return {key: np.array(value) for key, value in X.items()}
+        # return dict(X)
