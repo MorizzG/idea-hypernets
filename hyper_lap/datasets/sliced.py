@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 from torch.utils.data import Dataset
 
@@ -12,9 +13,18 @@ class SlicedDataset(Dataset):
     indices: list[tuple[int, int]]
 
     @staticmethod
-    def _make_slice_dist(image: np.ndarray, label: np.ndarray | None) -> np.ndarray:
+    def _make_slice_dist(
+        image: np.ndarray, label: np.ndarray | None, target: Optional[int]
+    ) -> np.ndarray | None:
         if label is not None:
-            counts = np.count_nonzero(label != 0, axis=(0, 1))
+            if target is None:
+                counts = np.count_nonzero(label != 0, axis=(0, 1))
+            else:
+                counts = np.count_nonzero(label == target, axis=(0, 1))
+
+            if counts.sum() == 0:
+                return None
+
             p = counts / counts.sum()
         else:
             image_shape = image.shape
@@ -25,10 +35,8 @@ class SlicedDataset(Dataset):
 
         return p
 
-    def __init__(self, dataset: NiftiDataset, samples_per_volume: int = 1):
+    def __init__(self, dataset: NiftiDataset, target: Optional[int] = None):
         super().__init__()
-
-        self.samples_per_volume = samples_per_volume
 
         self.dataset = dataset
 
@@ -42,7 +50,12 @@ class SlicedDataset(Dataset):
             image = X["image"]
             label = X.get("label", None)
 
-            p = self._make_slice_dist(image, label)
+            p = self._make_slice_dist(image, label, target)
+
+            if p is None:
+                continue
+
+            samples_per_volume = min(np.count_nonzero(p) // 4, 2)
 
             for _ in range(samples_per_volume):
                 slice_idx = rng.choice(np.arange(p.shape[0]), p=p)

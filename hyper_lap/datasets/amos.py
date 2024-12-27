@@ -8,6 +8,5 @@ class Amos(NiftiDataset):
         self,
         root_dir: str,
         split: Literal["train", "validation", "test"] = "train",
-        preload: bool = False,
     ):
-        super().__init__(root_dir, split, preload=preload)
+        super().__init__(root_dir, split)

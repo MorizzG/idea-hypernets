@@ -71,6 +71,8 @@ class Metadata:
                 assert image.exists() and label.exists()
 
                 training.append(dict(image=image, label=label))
+            else:
+                assert False
 
         d["training"] = training
 
@@ -78,12 +80,19 @@ class Metadata:
             validation = []
 
             for X in d["validation"]:
-                image = base_folder / X["image"]
-                label = base_folder / X["label"]
+                if isinstance(X, str):
+                    image = base_folder / X
 
-                assert image.exists() and label.exists()
+                    validation.append(dict(image=image))
+                elif isinstance(X, dict):
+                    image = base_folder / X["image"]
+                    label = base_folder / X["label"]
 
-                validation.append(dict(image=image, label=label))
+                    assert image.exists() and label.exists()
+
+                    validation.append(dict(image=image, label=label))
+                else:
+                    assert False
 
             d["validation"] = validation
         else:
