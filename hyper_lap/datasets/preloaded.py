@@ -5,6 +5,8 @@ from torch.utils.data import Dataset
 class PreloadedDataset(Dataset):
     dataset: list[dict[str, np.ndarray]]
 
+    orig_dataset: Dataset
+
     def __init__(self, dataset):
         super().__init__()
 
@@ -12,6 +14,8 @@ class PreloadedDataset(Dataset):
 
         self.dataset = []
         self.dataset.extend(tqdm(dataset))
+
+        self.orig_dataset = dataset
 
     def __len__(self) -> int:
         return len(self.dataset)

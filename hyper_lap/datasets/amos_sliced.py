@@ -36,7 +36,7 @@ class AmosSliced(Dataset):
             case "train":
                 self._dataset = self.metadata.training
             case "validation":
-                raise ValueError("MediDec sliced dataset has no validation set")
+                self._dataset = self.metadata.validation
             case "test":
                 self._dataset = self.metadata.test
             case _:

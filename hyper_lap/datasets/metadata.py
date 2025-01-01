@@ -10,7 +10,6 @@ class Metadata:
     name: str
     description: str
 
-    tensor_image_size: Literal["3D"] | Literal["4D"]
     modality: dict[str, str]
     labels: dict[str, str]
 
@@ -28,6 +27,7 @@ class Metadata:
     licence: str | None = None
     release: str | None = None
     quantitative: str | None = None
+    tensor_image_size: Literal["3D"] | Literal["4D"] | None = None
 
     @staticmethod
     def load(root_dir: str | Path) -> "Metadata":
@@ -55,7 +55,8 @@ class Metadata:
         replace_key("numValidation", "num_validation")
         replace_key("numTest", "num_test")
 
-        assert d["tensor_image_size"] in ("3D", "4D")
+        if "tensor_image_size" in d:
+            assert d["tensor_image_size"] in ("3D", "4D")
 
         training = []
 
