@@ -1,6 +1,8 @@
 from jaxtyping import Array
 from typing import Literal, Optional
 
+import json
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,11 +10,23 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
-from hyper_lap.datasets.amos import Amos
+from hyper_lap.datasets import Amos
 
 jax.config.update("jax_platform_name", "cpu")
+
+AMOS_FOLDER = Path("./datasets/AMOS/amos22/")
+
+BASE_FOLDER = Path("./datasets/AmosSliced")
+
+AMOS_TRAIN = Amos(AMOS_FOLDER, split="train")
+AMOS_VAL = Amos(AMOS_FOLDER, split="validation")
+AMOS_TEST = Amos(AMOS_FOLDER, split="test")
+
+LABELS = AMOS_TRAIN.metadata.labels
+
+NUM_CLASSES = len(LABELS)
 
 _key = jr.PRNGKey(0)
 
@@ -36,24 +50,10 @@ class Dataset:
     counters: dict[str, int]
 
 
-base_folder = Path("./datasets/AmosSliced")
-
-base_folder.mkdir(parents=True, exist_ok=False)
-
-
-amos_train = Amos("./datasets/AMOS/amos22/", split="train")
-amos_val = Amos("./datasets/AMOS/amos22/", split="validation")
-amos_test = Amos("./datasets/AMOS/amos22/", split="test")
-
-labels = amos_train.metadata.labels
-
-num_classes = len(labels)
-
-
 def make_datasets():
     datasets = []
 
-    for i_str, name in labels.items():
+    for i_str, name in LABELS.items():
         i = int(i_str)
 
         if i == 0:
@@ -61,7 +61,7 @@ def make_datasets():
 
         name = name.replace("/", "-")
 
-        dataset_folder = base_folder / f"{i:02} {name}"
+        dataset_folder = BASE_FOLDER / f"{i:02} {name}"
         dataset_folder.mkdir()
 
         train_folder = dataset_folder / "training"
@@ -109,7 +109,7 @@ def normalise(image: Array, label: Optional[Array]) -> tuple[Array, Optional[Arr
     c, h, w, d = image.shape
 
     if label is not None:
-        assert label.shape == (h, w, d, num_classes)
+        assert label.shape == (h, w, d, NUM_CLASSES)
 
     if h < 256 and w < 256:
         # volume too small -> continue
@@ -123,7 +123,7 @@ def normalise(image: Array, label: Optional[Array]) -> tuple[Array, Optional[Arr
         if label is not None:
             label = label.astype(jnp.float32)
 
-            label: Array = jax.image.resize(label, (512, 512, d, num_classes), method="cubic")
+            label: Array = jax.image.resize(label, (512, 512, d, NUM_CLASSES), method="cubic")
 
             label = (label > 0.5).astype(jnp.uint8)
 
@@ -137,7 +137,7 @@ def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "va
         if "label" in X:
             label = jnp.asarray(X["label"])
 
-            label = jax.nn.one_hot(label, num_classes, dtype=jnp.uint8)
+            label = jax.nn.one_hot(label, NUM_CLASSES, dtype=jnp.uint8)
         else:
             label = None
 
@@ -151,7 +151,7 @@ def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "va
         c, h, w, d = image.shape
 
         if label is not None:
-            assert label.shape == (h, w, d, num_classes)
+            assert label.shape == (h, w, d, NUM_CLASSES)
 
         for dataset in datasets:
             i = dataset.i
@@ -181,7 +181,7 @@ def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "va
 
                 if p is not None:
                     assert jnp.all(
-                        jnp.sum(label_slice[..., :num_candidates], axis=(0, 1)) != 0
+                        jnp.sum(label_slice[..., :num_candidates], axis=(0, 1)) != 0  # type: ignore
                     ), f"{jnp.sum(label_slice, axis=(0, 1))}"
             else:
                 label_slice = None
@@ -206,12 +206,52 @@ def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "va
                 dataset.counters[split] = counter + 1
 
 
+def make_json(datasets: list[Dataset]):
+    with (AMOS_FOLDER / "dataset.json").open("r") as f:
+        amos_json = json.load(f)
+
+    for dataset in datasets:
+        dataset_folder = dataset.dataset_folder
+
+        assert dataset_folder.exists(), f"Path {dataset_folder} doesn't exist"
+
+        name = dataset_folder.name[3:]
+
+        dataset_json = deepcopy(amos_json)
+        dataset_json["name"] += f" {name} sliced"
+        dataset_json["labels"] = {"0": "background", "1": name}
+
+        splits = {}
+        nums = {}
+
+        for split in ["training", "validation", "test"]:
+            folder = dataset_folder / split
+            assert folder.exists(), f"folder {folder} doesn't exist"
+
+            paths = [str(file.relative_to(dataset_folder)) for file in folder.iterdir()]
+
+            split_cap = split[0:1].upper() + split[1:]
+
+            nums["num" + split_cap] = len(paths)
+            splits[split] = paths
+
+        dataset_json |= nums
+        dataset_json |= splits
+
+        with (dataset_folder / "dataset.json").open("w") as f:
+            json.dump(dataset_json, f, indent=4)
+
+
 def main():
+    BASE_FOLDER.mkdir(parents=True, exist_ok=False)
+
     datasets = make_datasets()
 
-    make_slices(datasets, amos_train, "train")
-    make_slices(datasets, amos_val, "val")
-    make_slices(datasets, amos_test, "test")
+    make_slices(datasets, AMOS_TRAIN, "train")
+    make_slices(datasets, AMOS_VAL, "val")
+    make_slices(datasets, AMOS_TEST, "test")
+
+    make_json(datasets)
 
 
 if __name__ == "__main__":

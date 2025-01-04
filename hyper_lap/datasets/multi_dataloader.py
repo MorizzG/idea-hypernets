@@ -31,10 +31,8 @@ class MultiDataLoader:
     def __iter__(self) -> Generator[Any, None, None]:
         iters = [iter(dataloader) for dataloader in self.dataloaders]
 
-        while True:
+        while iters:
             iter_idx = self.rng.choice(len(iters))
-
-            print(f"next idx: {iter_idx}")
 
             next_iter = iters[iter_idx]
 
@@ -44,6 +42,3 @@ class MultiDataLoader:
                 yield batch
             except StopIteration:
                 iters.pop(iter_idx)
-
-                if not iters:
-                    return

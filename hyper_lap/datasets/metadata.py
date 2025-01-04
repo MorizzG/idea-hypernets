@@ -102,7 +102,7 @@ class Metadata:
 
         test = []
 
-        assert len(d["test"]) == d["num_test"]
+        assert len(d["test"]) == d["num_test"], f"{len(d['test'])} != {d['num_test']} {root_dir}"
 
         for X in d["test"]:
             if isinstance(X, str):

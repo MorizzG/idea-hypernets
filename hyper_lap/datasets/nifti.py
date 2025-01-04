@@ -1,5 +1,6 @@
-from pathlib import Path
 from typing import Literal, Optional
+
+from pathlib import Path
 
 import nibabel as nib
 import numpy as np
@@ -17,7 +18,7 @@ class NiftiDataset(Dataset):
 
     def __init__(
         self,
-        root_dir: str,
+        root_dir: str | Path,
         split: Literal["train", "validation", "test"] = "train",
         # preload: bool = False,
     ):

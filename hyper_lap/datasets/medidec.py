@@ -1,12 +1,14 @@
 from typing import Literal
 
+from pathlib import Path
+
 from .nifti import NiftiDataset
 
 
 class MediDec(NiftiDataset):
     def __init__(
         self,
-        root_dir: str,
+        root_dir: str | Path,
         split: Literal["train", "validation", "test"] = "train",
         # preload: bool = False,
     ):
