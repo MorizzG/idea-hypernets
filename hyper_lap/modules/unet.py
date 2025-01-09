@@ -1,10 +1,10 @@
+from jaxtyping import Array, Float, PRNGKeyArray
 from typing import Any, Optional, Sequence
 
 import equinox as eqx
 import equinox.nn as nn
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Array, Float, PRNGKeyArray
 
 from ._util import ReLU, SiLU
 from .upsample import BilinearUpsample2d
@@ -155,6 +155,12 @@ class UnetDown(eqx.Module):
 
             skips.append(x)
 
+            c, h, w = x.shape
+
+            assert (
+                h % 2 == 0 and w % 2 == 0
+            ), f"spatial dims of shape {x.shape} are not divisible by 2"
+
             x = down(x)
 
         return x, skips
@@ -250,6 +256,17 @@ class UnetModule(eqx.Module):
         self.up = UnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 
     def __call__(self, x: Array, *, key: Optional[PRNGKeyArray] = None) -> Array:
+        c, h, w = x.shape
+
+        down_factor = 2 ** len(self.channel_mults)
+
+        assert (
+            h % down_factor == 0
+        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        assert (
+            w % down_factor == 0
+        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+
         x, skips = self.down(x)
 
         x = self.middle(x)
