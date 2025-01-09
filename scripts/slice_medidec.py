@@ -76,13 +76,10 @@ def make_datasets():
         testset = MediDec(folder, split="test")
 
         dataset_folder = BASE_FOLDER / f"{i:02}_{name}"
-        dataset_folder.mkdir(exist_ok=True)
 
         train_folder = dataset_folder / "training"
-        train_folder.mkdir(exist_ok=True)
 
         test_folder = dataset_folder / "test"
-        test_folder.mkdir(exist_ok=True)
 
         dataset = Dataset(
             i=i,
@@ -161,6 +158,15 @@ def normalise(
 def make_slices(dataset: Dataset, split: Literal["train", "test"]):
     n = 0
 
+    split_folder = dataset.split_folders[split]
+
+    if split_folder.exists():
+        print(f"folder {split_folder} exists, skipping...")
+
+        return
+
+    split_folder.mkdir(parents=True, exist_ok=False)
+
     for n_item, X in enumerate(
         (pbar := tqdm(dataset.split_medidec[split], leave=True, desc=f"{dataset.name} {split}"))  # type: ignore
     ):
@@ -182,8 +188,6 @@ def make_slices(dataset: Dataset, split: Literal["train", "test"]):
 
         if label is not None:
             assert label.shape == (h, w, d)
-
-        split_folder = dataset.split_folders[split]
 
         p = make_slice_dist(label)
 
@@ -265,13 +269,13 @@ def make_json(datasets: list[Dataset]):
 
 
 def main():
-    # BASE_FOLDER.mkdir(parents=True, exist_ok=False)
+    BASE_FOLDER.mkdir(parents=True, exist_ok=False)
 
     datasets = make_datasets()
 
-    # for dataset in datasets:
-    #     make_slices(dataset, "train")
-    #     make_slices(dataset, "test")
+    for dataset in datasets:
+        make_slices(dataset, "train")
+        make_slices(dataset, "test")
 
     make_json(datasets)
 
