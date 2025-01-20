@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from chex import assert_shape
 
 from hyper_lap.modules.convnext import ConvNeXt
+from hyper_lap.modules.embedder import ClipEmbedder
 from hyper_lap.modules.resnet import ResNet
 from hyper_lap.modules.vit import ViT
 
@@ -13,13 +14,13 @@ from hyper_lap.modules.vit import ViT
 class InputEmbedder(eqx.Module):
     emb_size: int
 
-    embedder: ViT | ConvNeXt | ResNet
+    embedder: ViT | ConvNeXt | ResNet | ClipEmbedder
 
     def __init__(
         self,
         emb_size: int,
         *,
-        kind: Literal["vit", "convnext", "resnet"] = "resnet",
+        kind: Literal["vit", "convnext", "resnet", "clip"] = "resnet",
         key: PRNGKeyArray,
     ):
         super().__init__()
@@ -32,6 +33,8 @@ class InputEmbedder(eqx.Module):
             self.embedder = ConvNeXt(emb_size, 96, in_channels=3, depths=[3, 3, 9, 3], key=key)
         elif kind == "resnet":
             self.embedder = ResNet(emb_size, in_channels=3, depths=[3, 4, 6, 3], key=key)
+        elif kind == "clip":
+            self.embedder = ClipEmbedder(emb_size, key=key)
         else:
             raise ValueError(f"Unknown embedder: {kind}")
 

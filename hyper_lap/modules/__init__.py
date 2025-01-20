@@ -1,6 +1,7 @@
 from . import (
     attention as attention,
     convnext as convnext,
+    embedder as embedder,
     resnet as resnet,
     unet as unet,
     vit as vit,
