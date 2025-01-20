@@ -1,6 +1,8 @@
 from jaxtyping import Array, Float, Integer
 
+import multiprocessing
 import warnings
+from argparse import ArgumentParser
 
 import equinox as eqx
 import jax
@@ -13,13 +15,14 @@ from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, PreloadedDataset
+from hyper_lap.datasets import AmosSliced, DegenerateDataset, PreloadedDataset
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import Unet
-from hyper_lap.training.utils import load_medidec_datasets, parse_args
 
 warnings.simplefilter("ignore")
 
+BATCH_SIZE = 32
+EPOCHS = 10
 
 _key = jr.key(0)
 
@@ -30,29 +33,35 @@ def consume():
     return _consume
 
 
-args = parse_args()
+parser = ArgumentParser()
+parser.add_argument("--degenerate", action="store_true", help="Use degenerate dataset")
+
+args = parser.parse_args()
+
+degenerate = args.degenerate
 
 
-dataset = load_medidec_datasets()[0]
+root_dir = "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets/AmosSliced/01 spleen"
+# root_dir = "/media/LinuxData/datasets/AmosSliced/01 spleen"
+
+dataset = AmosSliced(root_dir)
+
+if degenerate:
+    dataset = DegenerateDataset(dataset)
 
 dataset = PreloadedDataset(dataset)
 
-if args.degenerate:
-    dataset = DegenerateDataset(dataset)
-
-
-num_workers = args.num_workers
+num_workers = min(multiprocessing.cpu_count() // 2, 64)
+# num_workers = 4
 print(f"Using {num_workers} workers")
 
 
-train_loader = DataLoader(
-    dataset, batch_size=args.batch_size, shuffle=True, num_workers=num_workers
-)
+train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers)
 
 
 model = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
 
-opt = optax.adamw(1e-3)
+opt = optax.adamw(1e-2)
 
 opt_state = opt.init(eqx.filter(model, eqx.is_array))
 
@@ -114,7 +123,7 @@ def calc_dice_score(model: Unet, batch: dict[str, Array]):
     return jnp.mean(dices)
 
 
-for epoch in (pbar := trange(args.epochs)):
+for epoch in (pbar := trange(EPOCHS)):
     pbar.write(f"Epoch {epoch:02}\n")
 
     losses = []

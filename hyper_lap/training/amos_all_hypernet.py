@@ -1,9 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
 import warnings
-from argparse import ArgumentParser
-from dataclasses import dataclass
-from pathlib import Path
 
 import equinox as eqx
 import jax
@@ -16,30 +13,26 @@ from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, MediDecSliced
+from hyper_lap.datasets import AmosSliced, DegenerateDataset
 from hyper_lap.datasets.multi_dataloader import MultiDataLoader
 from hyper_lap.hyper.hypernet import HyperNet
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import Unet
+from hyper_lap.training.utils import load_amos_datasets, parse_args
 
 warnings.simplefilter("ignore")
 
 
-@dataclass
-class Dataset:
-    name: str
+# @dataclass
+# class Dataset:
+#     name: str
 
-    dataset: MediDecSliced | DegenerateDataset
+#     dataset: AmosSliced | DegenerateDataset
 
-    gen_image: Array
-    gen_label: Array
+#     gen_image: Array
+#     gen_label: Array
 
-    # dataloader: DataLoader
-
-
-DEFAULT_BATCH_SIZE = 64
-DEFAULT_EPOCHS = 50
-NUM_WORKERS = 8
+# dataloader: DataLoader
 
 
 _key = jr.key(0)
@@ -51,111 +44,39 @@ def consume():
     return _consume
 
 
-parser = ArgumentParser()
-
-parser.add_argument("--degenerate", action="store_true", help="Use degenerate dataset")
-parser.add_argument(
-    "--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of epochs to train for"
-)
-parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Batch size")
-parser.add_argument(
-    "--num-workers", type=int, default=NUM_WORKERS, help="Number of dataloader worker threads"
-)
-
-args = parser.parse_args()
-
-degenerate = args.degenerate
-
-epochs = args.epochs
-batch_size = args.batch_size
-num_workers = args.num_workers
+args = parse_args()
 
 
 # num_workers = min(multiprocessing.cpu_count() // 2, 64)
 # num_workers = 4
+num_workers = args.num_workers
 
-print(f"Using {num_workers} workers")
-
-
-root_dir = Path("/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets/MediDecSliced")
-
-if not root_dir.exists():
-    root_dir = Path("/media/LinuxData/datasets/MediDecSliced")
-
-if not root_dir.exists():
-    raise RuntimeError("Could not determine root_dir")
-
-assert root_dir.exists()
-
-dataset_names = [
-    "01_BrainTumour",
-    "02_Heart",
-    "03_Liver",
-    # "04_Hippocampus",  # hippocampus is small and has weird shapes, so we exclude it
-    "05_Prostate",
-    "06_Lung",
-    "07_Pancreas",
-    "08_HepaticVessel",
-    "09_Spleen",
-    "10_Colon",
-]
+print(f"Using {args.num_workers} workers")
 
 
-def load_dataset(dataset_name: str) -> Dataset:
-    dataset = MediDecSliced(root_dir / dataset_name, split="train")
+datasets = load_amos_datasets()
 
-    if degenerate:
-        dataset = DegenerateDataset(dataset)
+if args.degenerate:
+    datasets = [DegenerateDataset(dataset) for dataset in datasets]
 
-    # dataset = PreloadedDataset(dataset)
+train_sets = datasets[:-1]
 
-    gen_image = jnp.asarray(dataset[0]["image"][0:1])
-    gen_label = jnp.asarray(dataset[0]["label"])
+test_dataset = datasets[-1]
 
-    # shape_x, shape_y = dataset[0]["image"].shape[-2:]
-
-    # if shape_x * shape_y >= 512 * 512:
-    #     batch_size = 16
-    # elif shape_x * shape_y >= 128 * 128:
-    #     batch_size = 32
-    # else:
-    #     batch_size = 64
-
-    # batch_size = BATCH_SIZE
-
-    # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-
-    return Dataset(
-        name=dataset_name,
-        dataset=dataset,
-        gen_image=gen_image,
-        gen_label=gen_label,
-    )
-
-
-# datasets: list[Dataset] = []
-
-# for dataset_name in dataset_names[:-1]:
-#     datasets.append(load_dataset(dataset_name))
-
-datasets = [load_dataset(dataset_name) for dataset_name in dataset_names[:-1]]
-
-test_dataset = load_dataset(dataset_names[-1])
-
-test_loader = DataLoader(test_dataset.dataset, batch_size=128, num_workers=32)
+test_loader = DataLoader(test_dataset, batch_size=128, num_workers=32)
 
 multi_dataloader = MultiDataLoader(
-    *[dataset.dataset for dataset in datasets],
-    batch_size=batch_size,
+    *[dataset for dataset in train_sets],
+    batch_size=args.batch_size,
     shuffle=True,
-    num_workers=num_workers,
+    num_workers=args.num_workers,
 )
 
 model_template = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
 hypernet = HyperNet(model_template, 8, emb_size=64, key=consume())
 
 
-opt = optax.adamw(1e-4)
+opt = optax.adamw(1e-5)
 
 
 @jax.jit
@@ -231,18 +152,18 @@ def calc_dice_score(
     return jnp.mean(dices)
 
 
-def validate(hypernet: HyperNet, datasets: list[Dataset], pbar: tqdm):
+def validate(hypernet: HyperNet, datasets: list[AmosSliced] | list[DegenerateDataset], pbar: tqdm):
     pbar.write("Validation:\n")
 
     for dataloader in multi_dataloader.dataloaders:
-        dataset: MediDecSliced | DegenerateDataset = dataloader.dataset  # type: ignore
+        dataset: AmosSliced | DegenerateDataset = dataloader.dataset  # type: ignore
 
-        assert isinstance(dataset, (MediDecSliced, DegenerateDataset))
+        assert isinstance(dataset, (AmosSliced, DegenerateDataset))
 
-        if isinstance(dataset, MediDecSliced):
+        if isinstance(dataset, AmosSliced):
             name = dataset.metadata.name
         elif isinstance(dataset, DegenerateDataset):
-            assert isinstance(dataset.orig_dataset, MediDecSliced)
+            assert isinstance(dataset.orig_dataset, AmosSliced)
 
             name = dataset.orig_dataset.metadata.name
         else:
@@ -266,7 +187,7 @@ def main():
 
     opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
-    for epoch in (pbar := trange(epochs)):
+    for epoch in (pbar := trange(args.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
 
         pbar.write("Training:\n")
@@ -276,8 +197,8 @@ def main():
         for dataset_idx, batch_tensor in tqdm(multi_dataloader, leave=False):  # type: ignore
             batch: dict[str, Array] = jt.map(jnp.array, batch_tensor)
 
-            gen_image = datasets[dataset_idx].gen_image
-            gen_label = datasets[dataset_idx].gen_label
+            gen_image = jnp.asarray(train_sets[dataset_idx][0]["image"])
+            gen_label = jnp.asarray(train_sets[dataset_idx][0]["label"])
 
             loss, hypernet, opt_state = training_step(
                 hypernet, batch, opt_state, gen_image, gen_label
@@ -289,7 +210,7 @@ def main():
 
         pbar.write(f"Loss: {mean_loss:.3}")
 
-        validate(hypernet, datasets, pbar)
+        validate(hypernet, train_sets, pbar)
 
         # batch = jt.map(jnp.asarray, next(iter(train_loader)))
 
@@ -303,8 +224,8 @@ def main():
     print("Test:")
     print()
 
-    gen_image = test_dataset.gen_image
-    gen_label = test_dataset.gen_label
+    gen_image = jnp.asarray(test_dataset[0]["image"])
+    gen_label = jnp.asarray(test_dataset[0]["label"])
 
     batch = jt.map(jnp.asarray, next(iter(test_loader)))
 
@@ -314,8 +235,8 @@ def main():
 
     model = eqx.filter_jit(hypernet)(model_template, gen_image, gen_label)
 
-    image = jnp.asarray(test_dataset.dataset[0]["image"][0:1])
-    label = jnp.asarray(test_dataset.dataset[0]["label"])
+    image = jnp.asarray(test_dataset[1]["image"][0:1])
+    label = jnp.asarray(test_dataset[1]["label"])
 
     logits = eqx.filter_jit(model)(image)
     pred = jnp.argmax(logits, axis=0)

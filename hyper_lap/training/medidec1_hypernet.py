@@ -1,8 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
-import multiprocessing
 import warnings
-from argparse import ArgumentParser
 
 import equinox as eqx
 import jax
@@ -15,15 +13,14 @@ from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, MediDecSliced, PreloadedDataset
+from hyper_lap.datasets import DegenerateDataset, PreloadedDataset
 from hyper_lap.hyper.hypernet import HyperNet
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import Unet
+from hyper_lap.training.utils import load_medidec_datasets, parse_args
 
 warnings.simplefilter("ignore")
 
-BATCH_SIZE = 32
-EPOCHS = 10
 
 _key = jr.key(0)
 
@@ -34,41 +31,39 @@ def consume():
     return _consume
 
 
-parser = ArgumentParser()
-parser.add_argument("--degenerate", action="store_true", help="Use degenerate dataset")
-
-args = parser.parse_args()
-
-degenerate = args.degenerate
+args = parse_args()
 
 
-# root_dir = "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets/MediDec/Task01_BrainTumour"
-root_dir = "/media/LinuxData/datasets/MediDecSliced/01_BrainTumour"
-
-dataset = MediDecSliced(root_dir)
-
-if degenerate:
-    dataset = DegenerateDataset(dataset)
+dataset = load_medidec_datasets()[0]
 
 dataset = PreloadedDataset(dataset)
+
+if args.degenerate:
+    dataset = DegenerateDataset(dataset)
+
+    for X in dataset:
+        assert jnp.all(X["image"] == dataset[0]["image"])
+        assert jnp.all(X["label"] == dataset[0]["label"])
+
+
+num_workers = args.num_workers
+
+print(f"Using {num_workers} workers")
+
+
+train_loader = DataLoader(
+    dataset, batch_size=args.batch_size, shuffle=True, num_workers=num_workers
+)
 
 
 gen_image = jnp.asarray(dataset[0]["image"][0:1])
 gen_label = jnp.asarray(dataset[0]["label"])
 
-num_workers = min(multiprocessing.cpu_count() // 2, 64)
-# num_workers = 4
-print(f"Using {num_workers} workers")
-
-
-train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers)
-
-
 model_template = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
-hypernet = HyperNet(model_template, 8, emb_size=64, key=consume())
+hypernet = HyperNet(model_template, 8, emb_size=512, key=consume())
 
 
-opt = optax.adamw(1e-4)
+opt = optax.adamw(1e-5)
 
 opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
@@ -78,7 +73,6 @@ def loss_fn(logits: Float[Array, "c h w"], labels: Integer[Array, "h w"]) -> Arr
     # C H W -> H W C
     logits = jnp.moveaxis(logits, 0, -1)
 
-    # b c h w
     neg_log_prob = optax.softmax_cross_entropy_with_integer_labels(logits, labels)
 
     # sum over spatial dims
@@ -144,7 +138,7 @@ def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
     return jnp.mean(dices)
 
 
-for epoch in (pbar := trange(EPOCHS)):
+for epoch in (pbar := trange(args.epochs)):
     pbar.write(f"Epoch {epoch:02}\n")
 
     losses = []

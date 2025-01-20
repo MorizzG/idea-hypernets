@@ -57,7 +57,7 @@ def load_amos_datasets() -> list[AmosSliced]:
 
     datasets = []
 
-    for sub_dir in amos_dir.iterdir():
+    for sub_dir in sorted(amos_dir.iterdir()):
         if not sub_dir.is_dir():
             continue
 
@@ -76,7 +76,7 @@ def load_medidec_datasets() -> list[MediDecSliced]:
 
     datasets = []
 
-    for sub_dir in medidec_sliced.iterdir():
+    for sub_dir in sorted(medidec_sliced.iterdir()):
         if not sub_dir.is_dir():
             continue
 
