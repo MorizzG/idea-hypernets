@@ -1,7 +1,7 @@
 from typing import Any, Callable, Generator
 
 import numpy as np
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 
 class MultiDataLoader:
@@ -9,7 +9,7 @@ class MultiDataLoader:
 
     rng: np.random.Generator
 
-    def __init__(self, *datasets, **dataloader_args: dict[str, Callable | Any]):
+    def __init__(self, *datasets: Dataset, **dataloader_args: Callable | Any):
         super().__init__()
 
         self.rng = np.random.default_rng()
@@ -23,22 +23,25 @@ class MultiDataLoader:
                 for key, value in dataloader_args.items()
             }
 
-            self.dataloaders.append(DataLoader(dataset, **kw_args))
+            self.dataloaders.append((DataLoader(dataset, **kw_args)))
 
     def __len__(self) -> int:
         return sum(len(dataloader) for dataloader in self.dataloaders)
 
-    def __iter__(self) -> Generator[Any, None, None]:
-        iters = [iter(dataloader) for dataloader in self.dataloaders]
+    def __iter__(self) -> Generator[tuple[int, dict[str, np.ndarray]], None, None]:
+        # iters = [(idx, iter(dataloader)) for idx, dataloader in self.dataloaders]
+
+        iters = {i: iter(dataloader) for i, dataloader in enumerate(self.dataloaders)}
+        # iters = {i: islice(iter(dataloader), 0, 5) for i, dataloader in enumerate(self.dataloaders)}
 
         while iters:
-            iter_idx = self.rng.choice(len(iters))
+            idx = self.rng.choice(list(iters.keys()))
 
-            next_iter = iters[iter_idx]
+            next_iter = iters[idx]
 
             try:
-                batch = next(next_iter)
+                batch: dict[str, np.ndarray] = next(next_iter)
 
-                yield batch
+                yield idx, batch
             except StopIteration:
-                iters.pop(iter_idx)
+                iters.pop(idx)
