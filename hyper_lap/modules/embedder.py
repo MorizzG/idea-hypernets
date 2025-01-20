@@ -1,4 +1,7 @@
 from jaxtyping import Array, Float, PRNGKeyArray
+from typing import Literal
+
+import logging
 
 import equinox as eqx
 import equinox.nn as nn
@@ -13,27 +16,37 @@ from ._util import img_to_imagenet
 class ClipEmbedder(eqx.Module):
     num_layers: int = eqx.field(static=True)
     select_layer: int = eqx.field(static=True)
+    pool: Literal["cls", "mean"] = eqx.field(static=True)
 
-    image_embedder: FlaxCLIPVisionModel = eqx.field(static=True)
-    label_embedder: FlaxCLIPVisionModel = eqx.field(static=True)
+    # image_embedder: FlaxCLIPVisionModel = eqx.field(static=True)
+    # label_embedder: FlaxCLIPVisionModel = eqx.field(static=True)
+
+    clip: FlaxCLIPVisionModel = eqx.field(static=True)
 
     projection: nn.Linear
 
-    def __init__(self, emb_size: int, select_layer: int = -2, *, key: PRNGKeyArray):
+    def __init__(
+        self,
+        emb_size: int,
+        select_layer: int = -2,
+        pool: Literal["cls", "mean"] = "cls",
+        *,
+        key: PRNGKeyArray,
+    ):
         super().__init__()
 
-        self.image_embedder = FlaxCLIPVisionModel.from_pretrained(
+        if pool not in ["cls", "mean"]:
+            raise ValueError(f"Invalid pool {pool}")
+
+        self.select_layer = select_layer
+        self.pool = pool
+
+        self.clip = FlaxCLIPVisionModel.from_pretrained(
             "openai/clip-vit-large-patch14-336", from_pt=True
         )  # type: ignore
 
-        self.label_embedder = FlaxCLIPVisionModel.from_pretrained(
-            "openai/clip-vit-large-patch14-336", from_pt=True
-        )  # type: ignore
-
-        self.num_layers = len(self.image_embedder.params["vision_tower"]["encoder"]["layers"])
-        assert (
-            len(self.label_embedder.params["vision_tower"]["encoder"]["layers"]) == self.num_layers
-        )
+        self.num_layers = len(self.clip.params["vision_model"]["encoder"]["layers"])
+        # self.num_layers = 24
 
         if not -self.num_layers <= select_layer < self.num_layers:
             raise ValueError(
@@ -47,9 +60,9 @@ class ClipEmbedder(eqx.Module):
 
         assert c == 3
 
-        image = x[0, ...]
+        image = x[0:1, ...]
         # x[1, ...] is background
-        label = x[2, ...]
+        label = x[2:3, ...]
 
         image = jax.image.resize(image, (1, 336, 336), method="bilinear")
         label = jax.image.resize(label, (1, 336, 336), method="bilinear")
@@ -57,19 +70,31 @@ class ClipEmbedder(eqx.Module):
         image = img_to_imagenet(image)
         label = img_to_imagenet(label)
 
-        image_output = self.image_embedder(image, output_hidden_states=True)
-        label_output = self.label_embedder(label, output_hidden_states=True)
+        image_output = self.clip(image[None, ...], output_hidden_states=True)
+        label_output = self.clip(label[None, ...], output_hidden_states=True)
 
-        image_hidden_states = image_output["hidden_states"]
-        label_hidden_states = label_output["hidden_states"]
+        # ignore first hidden state, as it's just the input
+        image_hidden_states = image_output["hidden_states"][1:]  # type: ignore
+        label_hidden_states = label_output["hidden_states"][1:]  # type: ignore
 
         assert (
             len(image_hidden_states) == self.num_layers
             and len(label_hidden_states) == self.num_layers
         )
 
-        image_emb = image_hidden_states[self.select_layer]
-        label_emb = label_hidden_states[self.select_layer]
+        image_hidden_state = image_hidden_states[self.select_layer]
+        label_hidden_state = label_hidden_states[self.select_layer]
+
+        assert_shape([image_hidden_state, label_hidden_state], (1, 577, 1024))
+
+        if self.pool == "cls":
+            image_emb = image_hidden_state[0, 0, :]
+            label_emb = label_hidden_state[0, 0, :]
+        elif self.pool == "mean":
+            image_emb = image_hidden_state[0].mean(axis=0)
+            label_emb = label_hidden_state[0].mean(axis=0)
+        else:
+            assert False, f"self.pool has unexpected value {self.pool}"
 
         assert_shape([image_emb, label_emb], (1024,))
 

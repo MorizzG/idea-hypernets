@@ -93,8 +93,8 @@ def img_to_imagenet(img: Float[Array, "c h w"]):
     # assert imagenet_mean.shape == (3,1,1) and
     assert_shape((imagenet_mean, imagenet_std), (3, 1, 1))
 
-    mean = img.mean(axis=(1, 2))
-    std = img.std(axis=(1, 2))
+    mean = img.mean(axis=(1, 2), keepdims=True)
+    std = img.std(axis=(1, 2), keepdims=True)
 
     img_normed = (img - mean) / (std + 1e-5)
 
