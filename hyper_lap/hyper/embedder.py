@@ -32,7 +32,9 @@ class InputEmbedder(eqx.Module):
         elif kind == "convnext":
             self.embedder = ConvNeXt(emb_size, 96, in_channels=3, depths=[3, 3, 9, 3], key=key)
         elif kind == "resnet":
-            self.embedder = ResNet(emb_size, in_channels=3, depths=[3, 4, 6, 3], key=key)
+            self.embedder = ResNet(
+                emb_size, in_channels=3, depths=[2, 2, 2, 2], block_kind="bottleneck", key=key
+            )
         elif kind == "clip":
             self.embedder = ClipEmbedder(emb_size, key=key)
         else:

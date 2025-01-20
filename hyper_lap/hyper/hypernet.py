@@ -1,12 +1,13 @@
+from jaxtyping import Array, PRNGKeyArray
 from typing import Literal
 
-from chex import assert_equal_shape, assert_shape
 import equinox as eqx
-from equinox import nn
 import jax
+import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
-from jaxtyping import Array, PRNGKeyArray
+from chex import assert_equal_shape, assert_shape
+from equinox import nn
 
 from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.hyper.generator import Conv2dGenerator
@@ -31,6 +32,8 @@ class HyperNet(eqx.Module):
     init_kernel: Array
     final_kernel: Array
 
+    input_emb: Array
+
     @staticmethod
     def kernel_shape(
         in_channels: int, out_channels: int, kernel_size: int
@@ -48,6 +51,8 @@ class HyperNet(eqx.Module):
         key: PRNGKeyArray,
     ):
         super().__init__()
+
+        self.input_emb = jnp.zeros((emb_size,))
 
         self.kernel_size = kernel_size
         self.base_channels = model.base_channels
@@ -146,6 +151,8 @@ class HyperNet(eqx.Module):
             weight = weight.transpose(0, 2, 1, 3, 4, 5)
             weight = weight.reshape(b_out * block_size, b_in * block_size, kernel_size, kernel_size)
 
+            assert weights[i].shape == weight.shape
+
             weights[i] = weight
 
         model_weights = jt.unflatten(treedef, weights)
@@ -189,6 +196,7 @@ class HyperNet(eqx.Module):
 
     def __call__(self, model: Unet, image: Array, label: Array) -> Unet:
         input_emb = self.input_embedder(image, label)
+        # input_emb = self.input_emb
 
         init_conv, unet, recomb, final_conv = (
             model.init_conv,
