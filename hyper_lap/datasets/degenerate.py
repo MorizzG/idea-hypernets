@@ -8,12 +8,12 @@ class DegenerateDataset(Dataset):
 
     orig_dataset: Dataset
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, idx: int = 0):
         super().__init__()
 
         self.len = len(dataset)
 
-        self.item = dataset[0]
+        self.item = dataset[idx]
 
         self.orig_dataset = dataset
 

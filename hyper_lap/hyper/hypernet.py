@@ -47,7 +47,7 @@ class HyperNet(eqx.Module):
         *,
         emb_size: int = 256,
         kernel_size: int = 3,
-        embedder_kind: Literal["vit", "convnext", "resnet"] = "resnet",
+        embedder_kind: Literal["vit", "convnext", "resnet", "clip"] = "resnet",
         key: PRNGKeyArray,
     ):
         super().__init__()
