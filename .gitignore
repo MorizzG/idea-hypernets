@@ -1,5 +1,6 @@
 /datasets/
 /images/
+/models/
 
 # Python-generated files
 __pycache__/

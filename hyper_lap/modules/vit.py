@@ -1,16 +1,17 @@
-from chex import assert_equal_shape, assert_rank, assert_shape
+from jaxtyping import Array, Float, PRNGKeyArray
+
 import equinox as eqx
-from equinox import nn
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Array, Float, PRNGKeyArray
+from chex import assert_equal_shape, assert_rank, assert_shape
+from equinox import nn
 
 from hyper_lap.modules.attention import Encoder
 
 
 class SinusoidalPositionEmbeddings(eqx.Module):
-    dim_model: int
+    dim_model: int = eqx.field(static=True)
 
     def __init__(self, dim_model: int):
         super().__init__()
@@ -36,8 +37,9 @@ class SinusoidalPositionEmbeddings(eqx.Module):
 
 def sinudoidal_positional_encoding2d(n: int, m: int, dim_model: int) -> Float[Array, ""]:
     """
-    2-dimensional sinusoidal positional encoding, constructed by applying 1d sinusoidal positional encodings, in the
-    first direction on the first half of the model dimension and in the second direction on the second half.
+    2-dimensional sinusoidal positional encoding, constructed by applying 1d sinusoidal positional
+    encodings, in the first direction on the first half of the model dimension and in the second
+    direction on the second half.
     """
     assert dim_model % 4 == 0, "dim_model must be divisible by 4"
 
@@ -64,10 +66,10 @@ def sinudoidal_positional_encoding2d(n: int, m: int, dim_model: int) -> Float[Ar
 
 
 class PatchEmbedder(eqx.Module):
-    dim_model: int
+    dim_model: int = eqx.field(static=True)
 
-    channels: int
-    patch_size: int
+    channels: int = eqx.field(static=True)
+    patch_size: int = eqx.field(static=True)
 
     patch_proj: nn.Linear
 
@@ -131,7 +133,7 @@ class PatchEmbedder(eqx.Module):
 
 
 class ViT(eqx.Module):
-    dim_model: int
+    dim_model: int = eqx.field(static=True)
 
     embedder: PatchEmbedder
 
@@ -166,7 +168,7 @@ class ViT(eqx.Module):
 
         self.projection = nn.Linear(dim_model, dim_out, key=proj_key)
 
-    def __call__(self, img: Float[Array, "c h w"]) -> Float[Array, "d"]:
+    def __call__(self, img: Float[Array, "c h w"]) -> Float[Array, " d"]:
         x = self.embedder(img)
 
         assert_rank(x, 2)

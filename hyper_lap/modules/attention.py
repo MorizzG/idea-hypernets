@@ -1,9 +1,10 @@
-from chex import assert_rank, assert_shape
+from jaxtyping import Array, Float, PRNGKeyArray
+
 import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.random as jr
-from jaxtyping import Array, Float, PRNGKeyArray
+from chex import assert_rank, assert_shape
 
 
 class FeedForward(eqx.Module):
@@ -19,7 +20,7 @@ class FeedForward(eqx.Module):
 
         self.linear2 = nn.Linear(dim_hidden, dim_model, key=key2)
 
-    def __call__(self, x: Float[Array, "d"]) -> Float[Array, "d"]:
+    def __call__(self, x: Float[Array, " d"]) -> Float[Array, " d"]:
         x = self.linear1(x)
 
         x = jax.nn.swish(x)
@@ -30,10 +31,10 @@ class FeedForward(eqx.Module):
 
 
 class Attention(eqx.Module):
-    dim_model: int
+    dim_model: int = eqx.field(static=True)
 
-    num_heads: int
-    dim_head: int
+    num_heads: int = eqx.field(static=True)
+    dim_head: int = eqx.field(static=True)
 
     query: nn.Linear
     key: nn.Linear
@@ -116,8 +117,8 @@ class Attention(eqx.Module):
 
 
 class SpatialAttention(eqx.Module):
-    num_heads: int
-    dim_head: int
+    num_heads: int = eqx.field(static=True)
+    dim_head: int = eqx.field(static=True)
 
     scale_factor: float
 

@@ -1,13 +1,13 @@
 from jaxtyping import Array, Float, PRNGKeyArray
 from typing import Literal
 
-import logging
-
 import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.numpy as jnp
+import transformers
 from chex import assert_shape
+from jax import lax
 from transformers.models.clip import FlaxCLIPVisionModel
 
 from ._util import img_to_imagenet
@@ -41,9 +41,17 @@ class ClipEmbedder(eqx.Module):
         self.select_layer = select_layer
         self.pool = pool
 
+        # logging.getLogger("transformers/modeling_flax_utils.py").setLevel(logging.ERROR)
+
+        orig_verbosity = transformers.logging.get_verbosity()
+
+        transformers.logging.set_verbosity_error()
+
         self.clip = FlaxCLIPVisionModel.from_pretrained(
             "openai/clip-vit-large-patch14-336", from_pt=True
         )  # type: ignore
+
+        transformers.logging.set_verbosity(orig_verbosity)
 
         self.num_layers = len(self.clip.params["vision_model"]["encoder"]["layers"])
         # self.num_layers = 24
@@ -104,4 +112,4 @@ class ClipEmbedder(eqx.Module):
 
         emb = self.projection(concat_emb)
 
-        return emb
+        return lax.stop_gradient(emb)

@@ -1,17 +1,18 @@
+from jaxtyping import Array, Float, PRNGKeyArray
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Array, Float, PRNGKeyArray
 
 
 class Conv2dGenerator(eqx.Module):
-    emb_size: int
-    h_size: int
+    emb_size: int = eqx.field(static=True)
+    h_size: int = eqx.field(static=True)
 
-    in_channels: int
-    out_channels: int
-    kernel_size: int
+    in_channels: int = eqx.field(static=True)
+    out_channels: int = eqx.field(static=True)
+    kernel_size: int = eqx.field(static=True)
 
     first: eqx.nn.Linear
     second: eqx.nn.Linear

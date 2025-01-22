@@ -1,4 +1,5 @@
 from typing import Optional
+
 import numpy as np
 from torch.utils.data import Dataset
 
@@ -46,7 +47,7 @@ class SlicedDataset(Dataset):
 
         from tqdm import tqdm
 
-        for i, X in enumerate(tqdm(dataset)):
+        for i, X in enumerate(tqdm(dataset)):  # type: ignore
             image = X["image"]
             label = X.get("label", None)
 

@@ -12,7 +12,7 @@ from hyper_lap.modules.vit import ViT
 
 
 class InputEmbedder(eqx.Module):
-    emb_size: int
+    emb_size: int = eqx.field(static=True)
 
     embedder: ViT | ConvNeXt | ResNet | ClipEmbedder
 
