@@ -1,6 +1,7 @@
 from jaxtyping import Array, Float, Integer
 
 import warnings
+from pathlib import Path
 
 import equinox as eqx
 import jax
@@ -16,8 +17,7 @@ from tqdm import tqdm, trange
 from hyper_lap.datasets import DegenerateDataset, PreloadedDataset
 from hyper_lap.hyper.hypernet import HyperNet
 from hyper_lap.metrics import dice_score
-from hyper_lap.models import Unet
-from hyper_lap.training.utils import load_amos_datasets, parse_args
+from hyper_lap.training.utils import load_amos_datasets, make_hypernet, parse_args, save_hypernet
 
 warnings.simplefilter("ignore")
 
@@ -61,12 +61,27 @@ train_loader = DataLoader(
 gen_image = jnp.asarray(dataset[0]["image"][0:1])
 gen_label = jnp.asarray(dataset[0]["label"])
 
-model_template = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
-hypernet = HyperNet(model_template, 8, emb_size=512, key=consume())
+
+hyper_params = {
+    "seed": 42,
+    "unet": {
+        "base_channels": 8,
+        "channel_mults": [1, 2, 4],
+        "in_channels": 1,
+        "out_channels": 2,
+        "weight_standardized_conv": True,
+    },
+    "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": "clip"},
+}
+
+# unet_key, hypernet_key = jr.split(jr.PRNGKey(hyper_params["seed"]))
+
+# model_template = Unet(**hyper_params["unet"], key=unet_key)
+# hypernet = HyperNet(model_template, **hyper_params, key=hypernet_key)
+model_template, hypernet = make_hypernet(hyper_params)
 
 
-opt = optax.adamw(1e-4)
-
+opt = optax.adamw(1e-5)
 opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
 
@@ -177,5 +192,11 @@ axs[0].imshow(image[0], cmap="gray")
 axs[1].imshow(label, cmap="gray")
 axs[2].imshow(pred, cmap="gray")
 
-fig.show()
-plt.show()
+
+model_name = Path(__file__).stem
+
+fig.savefig(f"images/{model_name}.png")
+
+print(f"{logits.mean():.3} +/- {logits.std():.3}")
+
+save_hypernet(f"models/{model_name}.eqx", hyper_params, hypernet)

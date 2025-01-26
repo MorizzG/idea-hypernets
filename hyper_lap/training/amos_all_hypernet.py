@@ -247,8 +247,7 @@ def main():
     axs[1].imshow(label, cmap="gray")
     axs[2].imshow(pred, cmap="gray")
 
-    fig.show()
-    plt.show()
+    fig.savefig("images/figure.png")
 
 
 if __name__ == "__main__":

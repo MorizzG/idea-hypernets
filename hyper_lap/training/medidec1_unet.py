@@ -42,7 +42,6 @@ if args.degenerate:
 
 
 num_workers = args.num_workers
-print(f"Using {num_workers} workers")
 
 
 train_loader = DataLoader(
@@ -52,7 +51,7 @@ train_loader = DataLoader(
 
 model = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
 
-opt = optax.adamw(1e-3)
+opt = optax.adamw(1e-5)
 
 opt_state = opt.init(eqx.filter(model, eqx.is_array))
 
@@ -158,5 +157,4 @@ axs[0].imshow(image[0], cmap="gray")
 axs[1].imshow(label, cmap="gray")
 axs[2].imshow(pred, cmap="gray")
 
-fig.show()
-plt.show()
+fig.savefig("images/figure.png")

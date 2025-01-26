@@ -1,10 +1,17 @@
+import json
 import multiprocessing
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
+from pprint import pprint
+
+import equinox as eqx
+import jax.random as jr
 
 from hyper_lap.datasets.amos_sliced import AmosSliced
 from hyper_lap.datasets.medidec_sliced import MediDecSliced
+from hyper_lap.hyper.hypernet import HyperNet
+from hyper_lap.models import Unet
 
 
 @dataclass
@@ -85,3 +92,46 @@ def load_medidec_datasets() -> list[MediDecSliced]:
         datasets.append(dataset)
 
     return datasets
+
+
+def make_hypernet(hyper_params: dict) -> tuple[Unet, HyperNet]:
+    pprint(hyper_params)
+
+    unet_key, hypernet_key = jr.split(jr.PRNGKey(hyper_params["seed"]))
+
+    model_template = Unet(**hyper_params["unet"], key=unet_key)
+    hypernet = HyperNet(model_template, **hyper_params["hypernet"], key=hypernet_key)
+
+    return model_template, hypernet
+
+
+def save_hypernet(path: str | Path, hyper_params: dict, hypernet: HyperNet):
+    if isinstance(path, Path):
+        pass
+    elif isinstance(path, str):
+        path = Path(path)
+    else:
+        raise ValueError(f"invalid path {path}")
+
+    with path.open("wb") as f:
+        hyper_params_str = json.dumps(hyper_params)
+
+        f.write((hyper_params_str + "\n").encode())
+
+        eqx.tree_serialise_leaves(f, hypernet)
+
+
+def load_hypernet(path: str | Path) -> tuple[Unet, HyperNet]:
+    if isinstance(path, Path):
+        pass
+    elif isinstance(path, str):
+        path = Path(path)
+    else:
+        raise ValueError(f"invalid path {path}")
+
+    with path.open("rb") as f:
+        hyper_params = json.loads(f.readline().decode())
+
+        (unet, hypernet) = make_hypernet(hyper_params)
+
+        return unet, eqx.tree_deserialise_leaves(f, hypernet)
