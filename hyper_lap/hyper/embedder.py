@@ -3,6 +3,7 @@ from typing import Literal
 
 import equinox as eqx
 import jax.numpy as jnp
+import jax.random as jr
 from chex import assert_shape
 
 from hyper_lap.modules.convnext import ConvNeXt
@@ -11,16 +12,28 @@ from hyper_lap.modules.resnet import ResNet
 from hyper_lap.modules.vit import ViT
 
 
+class LearnedEmbedding(eqx.Module):
+    embedding: Array
+
+    def __init__(self, emb_size: int, *, key: PRNGKeyArray):
+        super().__init__()
+
+        self.embedding = jr.normal(key, (emb_size,))
+
+    def __call__(self, _x: Array) -> Array:
+        return self.embedding
+
+
 class InputEmbedder(eqx.Module):
     emb_size: int = eqx.field(static=True)
 
-    embedder: ViT | ConvNeXt | ResNet | ClipEmbedder
+    embedder: ViT | ConvNeXt | ResNet | ClipEmbedder | LearnedEmbedding
 
     def __init__(
         self,
         emb_size: int,
         *,
-        kind: Literal["vit", "convnext", "resnet", "clip"] = "resnet",
+        kind: Literal["vit", "convnext", "resnet", "clip", "learned"] = "resnet",
         key: PRNGKeyArray,
     ):
         super().__init__()
@@ -37,6 +50,8 @@ class InputEmbedder(eqx.Module):
             )
         elif kind == "clip":
             self.embedder = ClipEmbedder(emb_size, key=key)
+        elif kind == "learned":
+            self.embedder = LearnedEmbedding(emb_size, key=key)
         else:
             raise ValueError(f"Unknown embedder: {kind}")
 

@@ -25,6 +25,7 @@ class Unet(eqx.Module):
         out_channels: int = 2,
         *,
         use_res: bool = False,
+        use_weight_standardized_conv: bool,
         key: PRNGKeyArray,
     ):
         super().__init__()
@@ -34,19 +35,41 @@ class Unet(eqx.Module):
 
         init_key, unet_key, recomb_key, final_key = jr.split(key, 4)
 
-        self.init_conv = ConvNormAct(in_channels, base_channels, kernel_size=1, key=init_key)
-
-        self.unet = UnetModule(
-            base_channels, channel_mults, key=unet_key, block_args={"use_res": use_res}
+        self.init_conv = ConvNormAct(
+            in_channels,
+            base_channels,
+            kernel_size=1,
+            use_weight_standardized_conv=use_weight_standardized_conv,
+            key=init_key,
         )
 
-        self.recomb = Block(base_channels, base_channels, key=recomb_key)
+        self.unet = UnetModule(
+            base_channels,
+            channel_mults,
+            key=unet_key,
+            block_args={
+                "use_res": use_res,
+                "weight_standardized_conv": use_weight_standardized_conv,
+            },
+        )
+
+        self.recomb = Block(
+            base_channels,
+            base_channels,
+            use_weight_standardized_conv=use_weight_standardized_conv,
+            key=recomb_key,
+        )
 
         self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
 
     def __call__(
         self, x: Float[Array, "c_in h w"], *, key: Optional[PRNGKeyArray] = None
     ) -> Float[Array, "c_out h w"]:
+        mean = x.mean()
+        std = x.std()
+
+        x = (x - mean) / std
+
         x = self.init_conv(x)
         x = self.unet(x)
         x = self.recomb(x)

@@ -95,9 +95,9 @@ class HyperNet(eqx.Module):
             c_out, c_in, k1, k2 = leaf.shape
 
             assert k1 == k2 == kernel_size, f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -195,8 +195,8 @@ class HyperNet(eqx.Module):
         return model
 
     def __call__(self, model: Unet, image: Array, label: Array) -> Unet:
-        input_emb = self.input_embedder(image, label)
-        # input_emb = self.input_emb
+        # input_emb = self.input_embedder(image, label)
+        input_emb = self.input_emb
 
         init_conv, unet, recomb, final_conv = (
             model.init_conv,
