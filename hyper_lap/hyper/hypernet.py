@@ -195,8 +195,7 @@ class HyperNet(eqx.Module):
         return model
 
     def __call__(self, model: Unet, image: Array, label: Array) -> Unet:
-        # input_emb = self.input_embedder(image, label)
-        input_emb = self.input_emb
+        input_emb = self.input_embedder(image, label)
 
         init_conv, unet, recomb, final_conv = (
             model.init_conv,
