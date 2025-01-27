@@ -1,3 +1,4 @@
+from jaxtyping import Array, PRNGKeyArray, PyTree
 from typing import Any, Optional, Self, Sequence
 
 import equinox as eqx
@@ -5,7 +6,6 @@ import equinox_hessian.nn as nn
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
-from jaxtyping import Array, PRNGKeyArray, PyTree
 
 from ._util import _channel_to_spatials, _spatials_to_channel
 
@@ -530,7 +530,6 @@ class UnetUp(nn.HessianMixin, eqx.Module):
     def __call__(
         self, x: Array, skips: list[Array], *, key: Optional[PRNGKeyArray] = None
     ) -> Array:
-
         skips = skips.copy()
 
         for up, block in zip(self.ups, self.blocks):
@@ -547,7 +546,6 @@ class UnetUp(nn.HessianMixin, eqx.Module):
     def forward_with_hessian_state(
         self, x: Array, skips: list[Array], *, key: Optional[PRNGKeyArray] = None
     ) -> tuple[Array, PyTree]:
-
         skips = skips.copy()
 
         up_h_states = []

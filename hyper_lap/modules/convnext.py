@@ -1,10 +1,10 @@
+from jaxtyping import Array, Float, PRNGKeyArray
 from typing import Optional
 
 import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.random as jr
-from jaxtyping import Array, Float, PRNGKeyArray
 
 from hyper_lap.modules._util import SiLU
 

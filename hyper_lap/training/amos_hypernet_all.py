@@ -17,7 +17,6 @@ from tqdm import tqdm, trange
 from hyper_lap.datasets import AmosSliced, DegenerateDataset, MultiDataLoader
 from hyper_lap.hyper.hypernet import HyperNet
 from hyper_lap.metrics import dice_score
-from hyper_lap.models import Unet
 from hyper_lap.training.utils import load_amos_datasets, make_hypernet, parse_args, save_hypernet
 
 warnings.simplefilter("ignore")

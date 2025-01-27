@@ -1,7 +1,8 @@
+from jaxtyping import Array, Float, Integer
+
 import jax
 import jax.numpy as jnp
 from chex import assert_equal_shape, assert_equal_shape_suffix, assert_rank, assert_shape
-from jaxtyping import Array, Float, Integer
 
 
 def dice_score(pred: Float[Array, "h w"], label: Integer[Array, "h w"]) -> Array:

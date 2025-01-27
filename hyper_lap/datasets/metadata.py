@@ -122,13 +122,13 @@ class Metadata:
             # spellchecking is totally overrated
             replace_key("relase", "release")
 
-        assert d["num_training"] == len(
-            d["training"]
-        ), f'{d["num_training"]} != {len(d["training"])}'
-        assert d["num_validation"] == len(
-            d["validation"]
-        ), f'{d["num_validation"]} != {len(d["validation"])}'
-        assert d["num_test"] == len(d["test"]), f'{d["num_test"]} != {len(d["test"])}'
+        assert d["num_training"] == len(d["training"]), (
+            f"{d['num_training']} != {len(d['training'])}"
+        )
+        assert d["num_validation"] == len(d["validation"]), (
+            f"{d['num_validation']} != {len(d['validation'])}"
+        )
+        assert d["num_test"] == len(d["test"]), f"{d['num_test']} != {len(d['test'])}"
 
         return Metadata(**d)
 

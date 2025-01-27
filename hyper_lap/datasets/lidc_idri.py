@@ -1,9 +1,10 @@
+from jaxtyping import PyTree
+
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image
-from jaxtyping import PyTree
 import numpy as np
+from PIL import Image
 from torch.utils.data import Dataset
 
 

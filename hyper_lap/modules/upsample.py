@@ -1,9 +1,9 @@
+from jaxtyping import Array, Float, PRNGKeyArray
 from typing import Optional
 
 import equinox as eqx
 import equinox.nn as nn
 import jax
-from jaxtyping import Array, Float, PRNGKeyArray
 
 from ._util import _channel_to_spatials2d
 
