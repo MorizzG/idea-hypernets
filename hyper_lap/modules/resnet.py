@@ -1,10 +1,10 @@
+from jaxtyping import Array, Float, PRNGKeyArray
 from typing import Literal
 
 import equinox as eqx
 import equinox.nn as nn
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Array, Float, PRNGKeyArray
 
 from hyper_lap.modules._util import SiLU
 
@@ -174,7 +174,6 @@ class ResNet(eqx.Module):
             *,
             key: PRNGKeyArray,
         ) -> nn.Sequential:
-
             keys = jr.split(key, depth)
 
             match block_kind:
@@ -219,7 +218,7 @@ class ResNet(eqx.Module):
             ]
         )
 
-    def __call__(self, x: Float[Array, "c h w"]) -> Float[Array, "d"]:
+    def __call__(self, x: Float[Array, "c h w"]) -> Float[Array, " d"]:
         for down, layer in zip(self.downs, self.layers):
             x = down(x)
             x = layer(x)

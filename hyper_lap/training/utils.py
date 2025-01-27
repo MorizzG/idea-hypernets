@@ -21,6 +21,8 @@ class Args:
     epochs: int
     num_workers: int
 
+    embedder: str
+
 
 DEFAULT_BATCH_SIZE = 64
 DEFAULT_EPOCHS = 50
@@ -49,6 +51,9 @@ def parse_args() -> Args:
         type=int,
         default=DEFAULT_NUM_WORKERS,
         help="Number of dataloader worker threads",
+    )
+    parser.add_argument(
+        "--embedder", type=str, choices=["vit", "convnext", "resnet", "clip", "learned"]
     )
 
     args = parser.parse_args()

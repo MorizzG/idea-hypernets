@@ -1,6 +1,7 @@
 from jaxtyping import Array, Float, Integer
 
 import warnings
+from pathlib import Path
 
 import equinox as eqx
 import jax
@@ -30,6 +31,9 @@ def consume():
     return _consume
 
 
+model_name = Path(__file__).stem
+
+
 args = parse_args()
 
 
@@ -57,7 +61,9 @@ train_loader = DataLoader(
 )
 
 
-model = Unet(8, [1, 2, 4], in_channels=1, out_channels=2, key=consume())
+model = Unet(
+    8, [1, 2, 4], in_channels=1, out_channels=2, use_weight_standardized_conv=True, key=consume()
+)
 
 if args.degenerate:
     opt = optax.adamw(1e-4)

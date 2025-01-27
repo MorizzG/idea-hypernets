@@ -49,7 +49,7 @@ class Unet(eqx.Module):
             key=unet_key,
             block_args={
                 "use_res": use_res,
-                "weight_standardized_conv": use_weight_standardized_conv,
+                "use_weight_standardized_conv": use_weight_standardized_conv,
             },
         )
 

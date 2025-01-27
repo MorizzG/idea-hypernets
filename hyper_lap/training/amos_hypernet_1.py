@@ -31,6 +31,9 @@ def consume():
     return _consume
 
 
+model_name = Path(__file__).stem
+
+
 args = parse_args()
 
 
@@ -69,9 +72,9 @@ hyper_params = {
         "channel_mults": [1, 2, 4],
         "in_channels": 1,
         "out_channels": 2,
-        "weight_standardized_conv": True,
+        "use_weight_standardized_conv": True,
     },
-    "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": "clip"},
+    "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": args.embedder},
 }
 
 # unet_key, hypernet_key = jr.split(jr.PRNGKey(hyper_params["seed"]))

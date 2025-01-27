@@ -28,7 +28,7 @@ class MultiDataLoader:
     def __len__(self) -> int:
         return sum(len(dataloader) for dataloader in self.dataloaders)
 
-    def __iter__(self) -> Generator[tuple[int, dict[str, np.ndarray]], None, None]:
+    def __iter__(self) -> Generator[dict[str, np.ndarray], None, None]:
         # iters = [(idx, iter(dataloader)) for idx, dataloader in self.dataloaders]
 
         iters = {i: iter(dataloader) for i, dataloader in enumerate(self.dataloaders)}
@@ -42,6 +42,6 @@ class MultiDataLoader:
             try:
                 batch: dict[str, np.ndarray] = next(next_iter)
 
-                yield idx, batch
+                yield batch
             except StopIteration:
                 iters.pop(idx)
