@@ -1,11 +1,17 @@
 import numpy as np
-from torch.utils.data import Dataset
+
+from .base import Dataset
+from .metadata import Metadata
 
 
 class PreloadedDataset(Dataset):
     dataset: list[dict[str, np.ndarray]]
 
     orig_dataset: Dataset
+
+    @property
+    def metadata(self) -> Metadata:
+        return self.orig_dataset.metadata
 
     def __init__(self, dataset):
         super().__init__()
@@ -19,10 +25,6 @@ class PreloadedDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.dataset)
-
-    def __iter__(self):
-        for i in range(len(self)):
-            yield self[i]
 
     def __getitem__(self, index: int) -> dict[str, np.ndarray]:
         if not 0 <= index < len(self.dataset):

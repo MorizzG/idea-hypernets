@@ -5,8 +5,8 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
-from torch.utils.data import Dataset
 
+from .base import Dataset
 from .metadata import Metadata
 
 

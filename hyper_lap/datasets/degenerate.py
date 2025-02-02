@@ -1,5 +1,7 @@
 import numpy as np
-from torch.utils.data import Dataset
+
+from .base import Dataset
+from .metadata import Metadata
 
 
 class DegenerateDataset(Dataset):
@@ -7,6 +9,10 @@ class DegenerateDataset(Dataset):
     item: dict[str, np.ndarray]
 
     orig_dataset: Dataset
+
+    @property
+    def metadata(self) -> Metadata:
+        return self.orig_dataset.metadata
 
     def __init__(self, dataset, idx: int = 0):
         super().__init__()
@@ -19,10 +25,6 @@ class DegenerateDataset(Dataset):
 
     def __len__(self) -> int:
         return self.len
-
-    def __iter__(self):
-        for i in range(len(self)):
-            yield self[i]
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
         if not 0 <= idx < len(self):

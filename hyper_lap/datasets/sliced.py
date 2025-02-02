@@ -1,8 +1,9 @@
 from typing import Optional
 
 import numpy as np
-from torch.utils.data import Dataset
 
+from .base import Dataset
+from .metadata import Metadata
 from .nifti import NiftiDataset
 
 
@@ -36,6 +37,10 @@ class SlicedDataset(Dataset):
 
         return p
 
+    @property
+    def metadata(self) -> Metadata:
+        return self.dataset.metadata
+
     def __init__(self, dataset: NiftiDataset, target: Optional[int] = None):
         super().__init__()
 
@@ -66,10 +71,6 @@ class SlicedDataset(Dataset):
     def __len__(self) -> int:
         # return self.multiplier * len(self.dataset)
         return len(self.indices)
-
-    def __iter__(self):
-        for i in range(len(self)):
-            yield self[i]
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
         if not 0 <= idx < len(self):
