@@ -11,13 +11,16 @@ import jax.tree as jt
 import optax
 from matplotlib import pyplot as plt
 from optax import OptState
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, PreloadedDataset
-from hyper_lap.hyper.hypernet import HyperNet
+from hyper_lap.datasets import DegenerateDataset, NormalisedDataset, PreloadedDataset
+from hyper_lap.hyper import HyperNet
+from hyper_lap.hyper.hypernet import HyperNetConfig
 from hyper_lap.metrics import dice_score
-from hyper_lap.training.utils import load_medidec_datasets, make_hypernet, parse_args, save_hypernet
+from hyper_lap.models.unet import UnetConfig
+from hyper_lap.serialisation import save_hypernet_safetensors
+from hyper_lap.training.utils import HyperParams, load_medidec_datasets, make_hypernet, parse_args
 
 warnings.simplefilter("ignore")
 
@@ -39,7 +42,10 @@ args = parse_args()
 
 dataset = load_medidec_datasets()[0]
 
-dataset = PreloadedDataset(dataset)
+dataset = NormalisedDataset(dataset)
+
+print(f"Dataset: {dataset.metadata.name}")
+
 
 if args.degenerate:
     print("Using degenerate dataset")
@@ -49,6 +55,8 @@ if args.degenerate:
     for X in dataset:
         assert jnp.all(X["image"] == dataset[0]["image"])
         assert jnp.all(X["label"] == dataset[0]["label"])
+else:
+    dataset = PreloadedDataset(dataset)
 
 
 num_workers = args.num_workers
@@ -57,25 +65,37 @@ print(f"Using {num_workers} workers")
 
 
 train_loader = DataLoader(
-    dataset, batch_size=args.batch_size, shuffle=True, num_workers=num_workers
+    dataset,
+    batch_size=args.batch_size,
+    sampler=RandomSampler(dataset, num_samples=100 * args.batch_size),
+    num_workers=num_workers,
 )
 
 
-gen_image = jnp.asarray(dataset[0]["image"][0:1])
-gen_label = jnp.asarray(dataset[0]["label"])
+# hyper_params = {
+#     "seed": 42,
+#     "unet": {
+#         "base_channels": 8,
+#         "channel_mults": [1, 2, 4],
+#         "in_channels": 1,
+#         "out_channels": 2,
+#         "use_weight_standardized_conv": True,
+#     },
+#     "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": args.embedder},
+# }
 
-
-hyper_params = {
-    "seed": 42,
-    "unet": {
-        "base_channels": 8,
-        "channel_mults": [1, 2, 4],
-        "in_channels": 1,
-        "out_channels": 2,
-        "use_weight_standardized_conv": True,
-    },
-    "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": args.embedder},
-}
+hyper_params = HyperParams(
+    seed=42,
+    unet=UnetConfig(
+        base_channels=8,
+        channel_mults=[1, 2, 4],
+        in_channels=1,
+        out_channels=2,
+        use_res=False,
+        use_weight_standardized_conv=False,
+    ),
+    hypernet=HyperNetConfig(block_size=8, emb_size=512, kernel_size=3, embedder_kind=args.embedder),
+)
 
 # unet_key, hypernet_key = jr.split(jr.PRNGKey(hyper_params["seed"]))
 
@@ -106,14 +126,15 @@ def training_step(
     hypernet: HyperNet,
     batch: dict[str, Array],
     opt_state: OptState,
-    gen_image: Array,
-    gen_label: Array,
 ) -> tuple[Array, HyperNet, OptState]:
     images = batch["image"]
     labels = batch["label"]
 
     images = images[:, 0:1]
-    labels = (labels == 1).astype(jnp.int32)
+    labels = (labels == 1).astype(jnp.uint8)
+
+    gen_image = images[0]
+    gen_label = labels[0]
 
     dynamic_hypernet, static_hypernet = eqx.partition(hypernet, eqx.is_array)
 
@@ -141,6 +162,9 @@ def training_step(
 
 @eqx.filter_jit
 def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
+    gen_image = jnp.asarray(batch["image"][0][0:1])
+    gen_label = jnp.asarray(batch["label"][0])
+
     model = eqx.filter_jit(hypernet)(model_template, gen_image, gen_label)
 
     images = batch["image"]
@@ -166,7 +190,7 @@ for epoch in (pbar := trange(args.epochs)):
     for batch_tensor in tqdm(train_loader, leave=False):
         batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
-        loss, hypernet, opt_state = training_step(hypernet, batch, opt_state, gen_image, gen_label)
+        loss, hypernet, opt_state = training_step(hypernet, batch, opt_state)
 
         losses.append(loss.item())
 
@@ -180,6 +204,9 @@ for epoch in (pbar := trange(args.epochs)):
 
     pbar.write(f"Dice score: {dice:.3}")
     pbar.write("")
+
+gen_image = jnp.asarray(dataset[0]["image"][0:1])
+gen_label = jnp.asarray(dataset[0]["label"])
 
 model = eqx.filter_jit(hypernet)(model_template, gen_image, gen_label)
 
@@ -195,6 +222,9 @@ axs[0].imshow(image[0], cmap="gray")
 axs[1].imshow(label, cmap="gray")
 axs[2].imshow(pred, cmap="gray")
 
+axs[0].axis("off")
+axs[1].axis("off")
+axs[2].axis("off")
 
 model_name = Path(__file__).stem
 
@@ -202,4 +232,4 @@ fig.savefig(f"images/{model_name}.png")
 
 print(f"{logits.mean():.3} +/- {logits.std():.3}")
 
-save_hypernet(f"models/{model_name}.eqx", hyper_params, hypernet)
+save_hypernet_safetensors(f"models/{model_name}.eqx", hyper_params, hypernet)

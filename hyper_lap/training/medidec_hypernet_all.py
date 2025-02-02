@@ -14,10 +14,13 @@ from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, MediDecSliced, MultiDataLoader
+from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.hyper import HyperNet
+from hyper_lap.hyper.hypernet import HyperNetConfig
 from hyper_lap.metrics import dice_score
-from hyper_lap.training.utils import load_medidec_datasets, make_hypernet, parse_args, save_hypernet
+from hyper_lap.models.unet import UnetConfig
+from hyper_lap.serialisation import save_hypernet_safetensors
+from hyper_lap.training.utils import HyperParams, load_medidec_datasets, make_hypernet, parse_args
 
 warnings.simplefilter("ignore")
 
@@ -37,7 +40,7 @@ model_name = Path(__file__).stem
 args = parse_args()
 
 
-datasets = load_medidec_datasets()[:3]
+datasets = load_medidec_datasets()
 
 
 if args.degenerate:
@@ -54,27 +57,42 @@ train_sets = datasets[:-1]
 test_dataset = datasets[-1]
 
 train_loader = MultiDataLoader(
-    *train_sets, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers
+    *train_sets,
+    num_samples=100 * args.batch_size,
+    dataloader_args=dict(batch_size=args.batch_size, num_workers=args.num_workers),
 )
 test_loader = DataLoader(test_dataset, batch_size=128, num_workers=8)
 
 
-hyper_params = {
-    "seed": 42,
-    "unet": {
-        "base_channels": 8,
-        "channel_mults": [1, 2, 4],
-        "in_channels": 1,
-        "out_channels": 2,
-        "use_weight_standardized_conv": True,
-    },
-    "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": args.embedder},
-}
+# hyper_params = {
+#     "seed": 42,
+#     "unet": {
+#         "base_channels": 8,
+#         "channel_mults": [1, 2, 4],
+#         "in_channels": 1,
+#         "out_channels": 2,
+#         "use_weight_standardized_conv": True,
+#     },
+#     "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": args.embedder},
+# }
+
+hyper_params = HyperParams(
+    seed=42,
+    unet=UnetConfig(
+        base_channels=8,
+        channel_mults=[1, 2, 4],
+        in_channels=1,
+        out_channels=2,
+        use_res=False,
+        use_weight_standardized_conv=False,
+    ),
+    hypernet=HyperNetConfig(block_size=8, emb_size=512, kernel_size=3, embedder_kind=args.embedder),
+)
 
 model_template, hypernet = make_hypernet(hyper_params)
 
 
-opt = optax.adamw(1e-5)
+opt = optax.adamw(1e-6)
 
 
 @jax.jit
@@ -150,24 +168,15 @@ def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
     return jnp.mean(dices)
 
 
-def validate(
-    hypernet: HyperNet, datasets: list[MediDecSliced] | list[DegenerateDataset], pbar: tqdm
-):
+def validate(hypernet: HyperNet, pbar: tqdm):
     pbar.write("Validation:\n")
 
     for dataloader in train_loader.dataloaders:
-        dataset: MediDecSliced | DegenerateDataset = dataloader.dataset  # type: ignore
+        dataset: Dataset = dataloader.dataset  # type: ignore
 
-        assert isinstance(dataset, (MediDecSliced, DegenerateDataset))
+        assert isinstance(dataset, Dataset)
 
-        if isinstance(dataset, MediDecSliced):
-            name = dataset.metadata.name
-        elif isinstance(dataset, DegenerateDataset):
-            assert isinstance(dataset.orig_dataset, MediDecSliced)
-
-            name = dataset.orig_dataset.metadata.name
-        else:
-            assert False
+        name = dataset.metadata.name
 
         pbar.write(f"Dataset: {name}")
 
@@ -217,10 +226,14 @@ def main():
 
         # validate(hypernet, train_sets, pbar)
 
-    save_hypernet(f"models/{model_name}.eqx", hyper_params, hypernet)
+    save_hypernet_safetensors(f"models/{model_name}.eqx", hyper_params, hypernet)
+
+    print()
+    print()
 
     for i, dataloader in enumerate(train_loader.dataloaders):
-        print(f"Dataset {i}:")
+        print(f"Dataset {train_loader.datasets[i].metadata.name}")
+        print()
 
         batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
@@ -249,10 +262,11 @@ def main():
         print(f"{logits.mean():.3} +/- {logits.std():.3}")
 
         print()
+        print()
 
     print()
     print()
-    print("Test:")
+    print(f"Test: {test_dataset.metadata.name}")
     print()
 
     batch = jt.map(jnp.asarray, next(iter(test_loader)))

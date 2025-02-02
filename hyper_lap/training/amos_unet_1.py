@@ -39,7 +39,6 @@ args = parse_args()
 
 dataset = load_amos_datasets()[0]
 
-dataset = PreloadedDataset(dataset)
 
 if args.degenerate:
     print("Using degenerate dataset")
@@ -49,6 +48,8 @@ if args.degenerate:
     for X in dataset:
         assert jnp.all(X["image"] == dataset[0]["image"])
         assert jnp.all(X["label"] == dataset[0]["label"])
+else:
+    dataset = PreloadedDataset(dataset)
 
 
 num_workers = args.num_workers

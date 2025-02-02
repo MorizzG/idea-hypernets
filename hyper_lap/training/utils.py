@@ -1,17 +1,17 @@
-import json
+from typing import Any
+
 import multiprocessing
 from argparse import ArgumentParser
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from pprint import pprint
 
-import equinox as eqx
 import jax.random as jr
+import yaml
 
 from hyper_lap.datasets.amos_sliced import AmosSliced
 from hyper_lap.datasets.medidec_sliced import MediDecSliced
-from hyper_lap.hyper.hypernet import HyperNet
-from hyper_lap.models import Unet
+from hyper_lap.hyper.hypernet import HyperNet, HyperNetConfig
+from hyper_lap.models.unet import Unet, UnetConfig
 
 
 @dataclass
@@ -22,6 +22,21 @@ class Args:
     num_workers: int
 
     embedder: str
+
+
+@dataclass
+class HyperParams:
+    seed: int
+
+    unet: UnetConfig
+    hypernet: HyperNetConfig
+
+    def to_dict(self) -> dict[str, Any]:
+        hyper_params_dict = asdict(self)
+        hyper_params_dict["unet"] = hyper_params_dict["unet"].to_dict()
+        hyper_params_dict["hypernet"] = hyper_params_dict["hypernet"].to_dict()
+
+        return hyper_params_dict
 
 
 DEFAULT_BATCH_SIZE = 64
@@ -92,6 +107,12 @@ def load_medidec_datasets() -> list[MediDecSliced]:
         if not sub_dir.is_dir():
             continue
 
+        # exclude Hippocampus dataset: too small
+        # exclude Prostate dataset: bad performance
+        # TODO: figure out why Protate dataset performs so badly
+        if "Hippocampus" in sub_dir.name or "Prostate" in sub_dir.name:
+            continue
+
         dataset = MediDecSliced(sub_dir, split="train")
 
         datasets.append(dataset)
@@ -99,44 +120,17 @@ def load_medidec_datasets() -> list[MediDecSliced]:
     return datasets
 
 
-def make_hypernet(hyper_params: dict) -> tuple[Unet, HyperNet]:
-    pprint(hyper_params)
+def make_hypernet(hyper_params: HyperParams) -> tuple[Unet, HyperNet]:
+    print(
+        yaml.dump(
+            hyper_params.to_dict(), indent=2, width=60, default_flow_style=None, sort_keys=False
+        )
+    )
 
-    unet_key, hypernet_key = jr.split(jr.PRNGKey(hyper_params["seed"]))
+    key = jr.PRNGKey(hyper_params.seed)
+    unet_key, hypernet_key = jr.split(key)
 
-    model_template = Unet(**hyper_params["unet"], key=unet_key)
-    hypernet = HyperNet(model_template, **hyper_params["hypernet"], key=hypernet_key)
+    model_template = Unet(**hyper_params.unet.to_dict(), key=unet_key)
+    hypernet = HyperNet(model_template, **hyper_params.hypernet.to_dict(), key=hypernet_key)
 
     return model_template, hypernet
-
-
-def save_hypernet(path: str | Path, hyper_params: dict, hypernet: HyperNet):
-    if isinstance(path, Path):
-        pass
-    elif isinstance(path, str):
-        path = Path(path)
-    else:
-        raise ValueError(f"invalid path {path}")
-
-    with path.open("wb") as f:
-        hyper_params_str = json.dumps(hyper_params)
-
-        f.write((hyper_params_str + "\n").encode())
-
-        eqx.tree_serialise_leaves(f, hypernet)
-
-
-def load_hypernet(path: str | Path) -> tuple[Unet, HyperNet]:
-    if isinstance(path, Path):
-        pass
-    elif isinstance(path, str):
-        path = Path(path)
-    else:
-        raise ValueError(f"invalid path {path}")
-
-    with path.open("rb") as f:
-        hyper_params = json.loads(f.readline().decode())
-
-        (unet, hypernet) = make_hypernet(hyper_params)
-
-        return unet, eqx.tree_deserialise_leaves(f, hypernet)

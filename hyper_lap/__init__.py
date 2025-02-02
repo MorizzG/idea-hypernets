@@ -1,1 +1,7 @@
-from . import datasets as datasets, hyper as hyper, models as models, modules as modules
+from . import (
+    datasets as datasets,
+    hyper as hyper,
+    models as models,
+    modules as modules,
+    serialisation as serialisation,
+)

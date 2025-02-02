@@ -1,5 +1,7 @@
 from jaxtyping import Array, PRNGKeyArray
-from typing import Literal
+from typing import Any, Literal
+
+from dataclasses import asdict, dataclass
 
 import equinox as eqx
 import jax
@@ -13,6 +15,18 @@ from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.hyper.generator import Conv2dGenerator
 from hyper_lap.models import Unet
 from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
+
+
+@dataclass
+class HyperNetConfig:
+    block_size: int
+
+    emb_size: int
+    kernel_size: int
+    embedder_kind: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class HyperNet(eqx.Module):
