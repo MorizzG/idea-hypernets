@@ -1,11 +1,27 @@
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
+
+from dataclasses import asdict, dataclass
 
 import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
 from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
+
+
+@dataclass
+class UnetConfig:
+    base_channels: int
+    channel_mults: list[int]
+    in_channels: int = 1
+    out_channels: int = 2
+
+    use_res: bool = False
+    use_weight_standardized_conv: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class Unet(eqx.Module):

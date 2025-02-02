@@ -94,7 +94,7 @@ class ConvNeXt(eqx.Module):
         self.act = SiLU()
 
         # first down sampling is done by stem
-        self.downs = [nn.Identity()]
+        self.downs = [nn.Sequential([nn.Identity()])]
 
         stage_key0, key = jr.split(key)
 
@@ -137,7 +137,7 @@ class ConvNeXt(eqx.Module):
             ]
         )
 
-    def __call__(self, x: Float[Array, "c h w"]) -> Float[Array, "d"]:
+    def __call__(self, x: Float[Array, "c h w"]) -> Float[Array, " d"]:
         c, h, w = x.shape
 
         assert h % 4 == 0 and w % 4 == 0, f"h and w must be divisible by 4, bu x.shape={x.shape}"

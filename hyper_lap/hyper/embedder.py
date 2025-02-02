@@ -3,31 +3,21 @@ from typing import Literal
 
 import equinox as eqx
 import jax.numpy as jnp
-import jax.random as jr
 from chex import assert_shape
 
-from hyper_lap.modules.convnext import ConvNeXt
-from hyper_lap.modules.embedder import ClipEmbedder
-from hyper_lap.modules.resnet import ResNet
-from hyper_lap.modules.vit import ViT
-
-
-class LearnedEmbedding(eqx.Module):
-    embedding: Array
-
-    def __init__(self, emb_size: int, *, key: PRNGKeyArray):
-        super().__init__()
-
-        self.embedding = jr.normal(key, (emb_size,))
-
-    def __call__(self, _x: Array) -> Array:
-        return self.embedding
+from hyper_lap.modules.embedder import (
+    ClipEmbedder,
+    ConvNextEmbedder,
+    LearnedEmbedding,
+    ResNetEmbedder,
+    ViTEmbedder,
+)
 
 
 class InputEmbedder(eqx.Module):
     emb_size: int = eqx.field(static=True)
 
-    embedder: ViT | ConvNeXt | ResNet | ClipEmbedder | LearnedEmbedding
+    embedder: ViTEmbedder | ResNetEmbedder | ConvNextEmbedder | ClipEmbedder | LearnedEmbedding
 
     def __init__(
         self,
@@ -41,13 +31,11 @@ class InputEmbedder(eqx.Module):
         self.emb_size = emb_size
 
         if kind == "vit":
-            self.embedder = ViT(512, 3, 16, 6, 8, 64, emb_size, key=key)
+            self.embedder = ViTEmbedder(emb_size, key=key)
         elif kind == "convnext":
-            self.embedder = ConvNeXt(emb_size, 96, in_channels=3, depths=[3, 3, 9, 3], key=key)
+            self.embedder = ConvNextEmbedder(emb_size, key=key)
         elif kind == "resnet":
-            self.embedder = ResNet(
-                emb_size, in_channels=3, depths=[2, 2, 2, 2], block_kind="bottleneck", key=key
-            )
+            self.embedder = ResNetEmbedder(emb_size, key=key)
         elif kind == "clip":
             self.embedder = ClipEmbedder(emb_size, key=key)
         elif kind == "learned":
@@ -56,20 +44,16 @@ class InputEmbedder(eqx.Module):
             raise ValueError(f"Unknown embedder: {kind}")
 
     def __call__(
-        self, image: Float[Array, "1 h w"], label: Integer[Array, "h w"]
+        self, image: Float[Array, "c h w"], label: Integer[Array, "h w"]
     ) -> Float[Array, "*"]:
         c, h, w = image.shape
 
-        assert c == 1
+        assert c == 1 or c == 3
         assert_shape(label, (h, w))
 
-        labels_onehot = jnp.zeros([2, h, w])
-        labels_onehot = labels_onehot.at[label].set(1)
+        if c == 1:
+            image = jnp.repeat(image, 3, 0)
 
-        combined = jnp.concatenate([image, labels_onehot], axis=0)
-
-        assert_shape(combined, (3, h, w))
-
-        emb = self.embedder(combined)
+        emb = self.embedder(image, label)
 
         return emb
