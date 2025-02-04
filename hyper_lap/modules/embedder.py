@@ -128,6 +128,7 @@ class ClipEmbedder(eqx.Module):
         emb_size: int,
         select_layer: int = -2,
         pool: Literal["cls", "mean"] = "cls",
+        clip: Literal["openai"] = "openai",
         *,
         key: PRNGKeyArray,
     ):
@@ -145,9 +146,12 @@ class ClipEmbedder(eqx.Module):
 
         transformers.logging.set_verbosity_error()
 
-        self.clip = FlaxCLIPVisionModel.from_pretrained(
-            "openai/clip-vit-large-patch14-336", from_pt=True
-        )  # type: ignore
+        if clip == "openai":
+            self.clip = FlaxCLIPVisionModel.from_pretrained(
+                "openai/clip-vit-large-patch14-336", from_pt=True
+            )  # type: ignore
+        else:
+            raise RuntimeError(f"Unknown clip variant {clip}")
 
         transformers.logging.set_verbosity(orig_verbosity)
 
