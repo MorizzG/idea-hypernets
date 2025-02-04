@@ -19,7 +19,7 @@ class MediDecSliced(Dataset):
 
     @property
     def name(self) -> str:
-        return "MediDec " + self.metadata.name.split(" ")[1]
+        return "MediDec " + self.metadata.name.split(" ")[0]
 
     def __init__(
         self,
