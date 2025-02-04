@@ -7,11 +7,11 @@ from hyper_lap.hyper.hypernet import HyperNet
 from hyper_lap.models import Unet
 from hyper_lap.training.utils import make_hypernet
 
-from .utils import to_path
+from .utils import as_path
 
 
 def save_hypernet_eqx(path: str | Path, hyper_params: dict, hypernet: HyperNet):
-    path = to_path(path)
+    path = as_path(path)
 
     with path.open("wb") as f:
         hyper_params_str = json.dumps(hyper_params)
@@ -22,7 +22,7 @@ def save_hypernet_eqx(path: str | Path, hyper_params: dict, hypernet: HyperNet):
 
 
 def load_hypernet_eqx(path: str | Path) -> tuple[Unet, HyperNet]:
-    path = to_path(path)
+    path = as_path(path)
 
     if not (path.exists()):
         raise ValueError(f"Path {path} does not exist")

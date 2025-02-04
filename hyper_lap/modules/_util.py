@@ -1,20 +1,24 @@
-from jaxtyping import Array, Shaped
+from jaxtyping import Array, PRNGKeyArray, Shaped
+from typing import Optional
 
 import equinox as eqx
 import jax
 
 
-class ReLU(eqx.nn.Lambda):
+class ReLU(eqx.Module):
     def __init__(self):
-        super().__init__(fn=jax.nn.relu)
+        super().__init__()
 
-    # def __call__(self, x: Array) -> Array:
-    #     return jax.nn.relu(x)
+    def __call__(self, x: Array, *, key: Optional[PRNGKeyArray] = None) -> Array:
+        return jax.nn.relu(x)
 
 
-class SiLU(eqx.nn.Lambda):
+class SiLU(eqx.Module):
     def __init__(self):
-        super().__init__(fn=jax.nn.swish)
+        super().__init__()
+
+    def __call__(self, x: Array, *, key: Optional[PRNGKeyArray] = None) -> Array:
+        return jax.nn.swish(x)
 
 
 def _channel_to_spatials2d(x: Shaped[Array, "c h w"]) -> Shaped[Array, "c h w"]:

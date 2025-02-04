@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-def to_path(path: str | Path):
+def as_path(path: str | Path):
     if isinstance(path, Path):
         pass
     elif isinstance(path, str):

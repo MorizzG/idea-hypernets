@@ -6,23 +6,48 @@ inspired by https://github.com/krypticmouse/saferax
 """
 
 from jaxtyping import Array, PyTree
+from typing import Optional
 
 import json
 from dataclasses import asdict
 from pathlib import Path
 
+import equinox as eqx
 import jax.tree as jt
-from safetensors.flax import load_file, save_file
+from safetensors import safe_open
+from safetensors.flax import save_file
 
 from hyper_lap.hyper.hypernet import HyperNet, HyperNetConfig
 from hyper_lap.models import Unet
 from hyper_lap.models.unet import UnetConfig
 from hyper_lap.training.utils import HyperParams, make_hypernet
 
-from .utils import to_path
+from .utils import as_path
+
+
+def load_file(filename: str | Path, prefix: Optional[str] = None):
+    result = {}
+
+    with safe_open(filename, framework="flax") as f:
+        key: str
+        for key in f.keys():
+            if prefix:
+                if not key.startswith(prefix):
+                    continue
+
+                new_key = key.removeprefix(prefix + ".")
+            else:
+                new_key = key
+
+            result[new_key] = f.get_tensor(key)
+
+    return result
 
 
 def to_state_dict(tree: PyTree) -> dict[str, Array]:
+    # filter out non-arrays
+    tree = eqx.filter(tree, eqx.is_array_like)
+
     paths_and_values = jt.flatten_with_path(tree)[0]
 
     arrays = {}
@@ -46,10 +71,15 @@ def to_state_dict(tree: PyTree) -> dict[str, Array]:
 
 
 def load_state_dict(
-    tree: PyTree, state_dict: dict[str, Array], *, match_exact: bool = True
+    tree: PyTree,
+    state_dict: dict[str, Array],
+    *,
+    match_exact: bool = True,
 ) -> PyTree:
     # we want to modify state_dict, but not the original at the call site
     state_dict = state_dict.copy()
+
+    tree, static = eqx.partition(tree, eqx.is_array_like)
 
     paths_and_values, treedef = jt.flatten_with_path(tree)
 
@@ -82,35 +112,48 @@ def load_state_dict(
         new_values.append(new_value)
 
     if match_exact and state_dict:
-        raise ValueError(f"state dict has unexpected keys {list(state_dict.keys())}")
+        raise ValueError(f"state dict has leftover keys {list(state_dict.keys())}")
 
     new_tree = jt.unflatten(treedef, new_values)
+
+    new_tree = eqx.combine(new_tree, static)
 
     return new_tree
 
 
+def save_pytree(path: str | Path, tree: PyTree):
+    path = as_path(path)
+
+    state_dict = to_state_dict(tree)
+
+    save_file(state_dict, path)
+
+
+def load_pytree(path: str | Path, tree: PyTree, *, prefix: Optional[str] = None) -> PyTree:
+    path = as_path(path)
+
+    state_dict = load_file(path, prefix=prefix)
+
+    tree = load_state_dict(tree, state_dict)
+
+    return tree
+
+
 def save_hypernet_safetensors(path: str | Path, hyper_params: HyperParams, hypernet: HyperNet):
-    path = to_path(path)
+    path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")
     safetensors_path = path.with_suffix(".safetensors")
 
-    hyper_params_dict = asdict(hyper_params)
-
-    hyper_params_dict["unet"] = asdict(hyper_params_dict["unet"])
-    hyper_params_dict["hypernet"] = asdict(hyper_params_dict["hypernet"])
-
     with hyperparams_path.open("wb") as f:
-        hyper_params_str = json.dumps(hyper_params_dict)
+        hyper_params_str = json.dumps(asdict(hyper_params))
         f.write((hyper_params_str).encode())
 
-    state_dict = to_state_dict(hypernet)
-
-    save_file(state_dict, safetensors_path)
+    save_pytree(safetensors_path, hypernet)
 
 
 def load_hypernet_safetensors(path: str | Path) -> tuple[Unet, HyperNet]:
-    path = to_path(path)
+    path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")
     safetensors_path = path.with_suffix(".safetensors")
@@ -132,8 +175,6 @@ def load_hypernet_safetensors(path: str | Path) -> tuple[Unet, HyperNet]:
 
     unet, hypernet = make_hypernet(hyper_params)
 
-    state_dict = load_file(safetensors_path)
-
-    hypernet = load_state_dict(hypernet, state_dict)
+    hypernet = load_pytree(safetensors_path, hypernet)
 
     return unet, hypernet
