@@ -14,6 +14,10 @@ class DegenerateDataset(Dataset):
     def metadata(self) -> Metadata:
         return self.orig_dataset.metadata
 
+    @property
+    def name(self) -> str:
+        return self.orig_dataset.name
+
     def __init__(self, dataset, idx: int = 0):
         super().__init__()
 

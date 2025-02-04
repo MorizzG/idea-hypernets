@@ -11,6 +11,10 @@ class NormalisedDataset(Dataset):
     def metadata(self) -> Metadata:
         return self.dataset.metadata
 
+    @property
+    def name(self) -> str:
+        return self.dataset.name
+
     @staticmethod
     def image_to_imagenet(image: np.ndarray):
         c = image.shape[0]
@@ -29,8 +33,12 @@ class NormalisedDataset(Dataset):
         mean = np.mean(image, axis=spatial_axes, keepdims=True)
         std = np.std(image, axis=spatial_axes, keepdims=True)
 
-        imagenet_mean = np.expand_dims(np.array([0.48145466, 0.4578275, 0.40821073]), spatial_axes)
-        imagenet_std = np.expand_dims(np.array([0.26862954, 0.26130258, 0.27577711]), spatial_axes)
+        imagenet_mean = np.expand_dims(
+            np.array([0.48145466, 0.4578275, 0.40821073], dtype=image.dtype), spatial_axes
+        )
+        imagenet_std = np.expand_dims(
+            np.array([0.26862954, 0.26130258, 0.27577711], dtype=image.dtype), spatial_axes
+        )
 
         image_normed = (image - mean) / (std + 1e-5)
 
@@ -52,6 +60,7 @@ class NormalisedDataset(Dataset):
 
         X = self.dataset[idx]
 
+        # TODO: sth better than just slice out first channel here?
         image = X["image"][0:1, ...]
 
         X["image"] = NormalisedDataset.image_to_imagenet(image)

@@ -46,6 +46,10 @@ class NiftiDataset(Dataset):
     def metadata(self) -> Metadata:
         return self._metadata
 
+    @property
+    def name(self) -> str:
+        return self.metadata.name
+
     def __repr__(self) -> str:
         s = f"{self.__class__.__name__}:\n"
 

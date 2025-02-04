@@ -13,6 +13,10 @@ class Dataset(TorchDataset, ABC):
     @abstractmethod
     def metadata(self) -> Metadata: ...
 
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
+
     @abstractmethod
     def __len__(self) -> int: ...
 

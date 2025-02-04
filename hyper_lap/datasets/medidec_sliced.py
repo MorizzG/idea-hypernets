@@ -17,6 +17,10 @@ class MediDecSliced(Dataset):
     def metadata(self) -> Metadata:
         return self._metadata
 
+    @property
+    def name(self) -> str:
+        return "MediDec " + self.metadata.name.split(" ")[1]
+
     def __init__(
         self,
         root_dir: str | Path,

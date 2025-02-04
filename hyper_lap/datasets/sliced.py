@@ -41,6 +41,10 @@ class SlicedDataset(Dataset):
     def metadata(self) -> Metadata:
         return self.dataset.metadata
 
+    @property
+    def name(self) -> str:
+        return self.dataset.name
+
     def __init__(self, dataset: NiftiDataset, target: Optional[int] = None):
         super().__init__()
 
