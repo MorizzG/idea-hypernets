@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Literal
 
 import multiprocessing
 from argparse import ArgumentParser
@@ -8,14 +8,15 @@ from pathlib import Path
 import jax.random as jr
 import yaml
 
-from hyper_lap.datasets.amos_sliced import AmosSliced
-from hyper_lap.datasets.medidec_sliced import MediDecSliced
-from hyper_lap.hyper.hypernet import HyperNet, HyperNetConfig
-from hyper_lap.models.unet import Unet, UnetConfig
+from hyper_lap.datasets import AmosSliced, Dataset, MediDecSliced, NormalisedDataset
+from hyper_lap.hyper import HyperNet, HyperNetConfig
+from hyper_lap.models import Unet, UnetConfig
 
 
 @dataclass
 class Args:
+    dataset: Literal["amos", "medidec"]
+
     degenerate: bool
     batch_size: int
     epochs: int
@@ -30,13 +31,6 @@ class HyperParams:
 
     unet: UnetConfig
     hypernet: HyperNetConfig
-
-    def to_dict(self) -> dict[str, Any]:
-        hyper_params_dict = asdict(self)
-        hyper_params_dict["unet"] = hyper_params_dict["unet"].to_dict()
-        hyper_params_dict["hypernet"] = hyper_params_dict["hypernet"].to_dict()
-
-        return hyper_params_dict
 
 
 DEFAULT_BATCH_SIZE = 64
@@ -55,6 +49,10 @@ if not dataset_dir.exists():
 
 def parse_args() -> Args:
     parser = ArgumentParser()
+
+    parser.add_argument(
+        "--dataset", type=str, choices=["amos", "medidec"], help="Dataset to train on"
+    )
 
     parser.add_argument("--degenerate", action="store_true", help="Use degenerate dataset")
     parser.add_argument(
@@ -76,7 +74,7 @@ def parse_args() -> Args:
     return Args(**vars(args))
 
 
-def load_amos_datasets() -> list[AmosSliced]:
+def load_amos_datasets(normalised: bool = True) -> list[Dataset]:
     amos_dir = dataset_dir / "AmosSliced"
 
     if not amos_dir.exists():
@@ -90,18 +88,21 @@ def load_amos_datasets() -> list[AmosSliced]:
 
         dataset = AmosSliced(sub_dir, split="train")
 
+        if normalised:
+            dataset = NormalisedDataset(dataset)
+
         datasets.append(dataset)
 
     return datasets
 
 
-def load_medidec_datasets() -> list[MediDecSliced]:
+def load_medidec_datasets(normalised: bool = True) -> list[Dataset]:
     medidec_sliced = dataset_dir / "MediDecSliced"
 
     if not medidec_sliced.exists():
         raise RuntimeError("MediDecSliced dir doesn't exist")
 
-    datasets = []
+    datasets: list[Dataset] = []
 
     for sub_dir in sorted(medidec_sliced.iterdir()):
         if not sub_dir.is_dir():
@@ -115,22 +116,25 @@ def load_medidec_datasets() -> list[MediDecSliced]:
 
         dataset = MediDecSliced(sub_dir, split="train")
 
+        if normalised:
+            dataset = NormalisedDataset(dataset)
+
         datasets.append(dataset)
 
     return datasets
 
 
-def make_hypernet(hyper_params: HyperParams) -> tuple[Unet, HyperNet]:
+def make_hypernet(hyper_params: HyperParams) -> HyperNet:
     print(
         yaml.dump(
-            hyper_params.to_dict(), indent=2, width=60, default_flow_style=None, sort_keys=False
+            asdict(hyper_params), indent=2, width=60, default_flow_style=None, sort_keys=False
         )
     )
 
     key = jr.PRNGKey(hyper_params.seed)
     unet_key, hypernet_key = jr.split(key)
 
-    model_template = Unet(**hyper_params.unet.to_dict(), key=unet_key)
-    hypernet = HyperNet(model_template, **hyper_params.hypernet.to_dict(), key=hypernet_key)
+    unet = Unet(**asdict(hyper_params.unet), key=unet_key)
+    hypernet = HyperNet(unet, **asdict(hyper_params.hypernet), key=hypernet_key)
 
-    return model_template, hypernet
+    return hypernet

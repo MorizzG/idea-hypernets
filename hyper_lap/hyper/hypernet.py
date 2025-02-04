@@ -1,11 +1,10 @@
 from jaxtyping import Array, PRNGKeyArray
-from typing import Any, Literal
+from typing import Literal
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
 from chex import assert_equal_shape, assert_shape
@@ -25,11 +24,10 @@ class HyperNetConfig:
     kernel_size: int
     embedder_kind: str
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 class HyperNet(eqx.Module):
+    unet: Unet = eqx.field(static=True)
+
     kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
 
@@ -46,8 +44,6 @@ class HyperNet(eqx.Module):
     init_kernel: Array
     final_kernel: Array
 
-    input_emb: Array
-
     @staticmethod
     def kernel_shape(
         in_channels: int, out_channels: int, kernel_size: int
@@ -56,25 +52,25 @@ class HyperNet(eqx.Module):
 
     def __init__(
         self,
-        model: Unet,
-        block_size: int,
+        unet: Unet,
         *,
-        emb_size: int = 256,
-        kernel_size: int = 3,
-        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"] = "resnet",
+        block_size: int,
+        emb_size: int,
+        kernel_size: int,
+        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
         key: PRNGKeyArray,
     ):
         super().__init__()
 
-        self.input_emb = jnp.zeros((emb_size,))
+        self.unet = unet
 
         self.kernel_size = kernel_size
-        self.base_channels = model.base_channels
+        self.base_channels = unet.base_channels
 
         self.block_size = block_size
         self.emb_size = emb_size
 
-        base_channels = model.base_channels
+        base_channels = unet.base_channels
 
         key, kernel_key, emb_key, init_key, final_key = jr.split(key, 5)
 
@@ -91,9 +87,9 @@ class HyperNet(eqx.Module):
 
         unet_pos_embs_key, recomb_pos_embs_key = jr.split(key)
 
-        self.unet_pos_embs = self.generate_pos_embs(model.unet, key=unet_pos_embs_key)
+        self.unet_pos_embs = self.generate_pos_embs(unet.unet, key=unet_pos_embs_key)
 
-        self.recomb_embs = self.generate_pos_embs(model.recomb, key=recomb_pos_embs_key)
+        self.recomb_embs = self.generate_pos_embs(unet.recomb, key=recomb_pos_embs_key)
 
     def generate_pos_embs(self, module: eqx.Module, *, key: PRNGKeyArray) -> list[Array]:
         leaves, _ = jt.flatten(eqx.filter(module, eqx.is_array))
@@ -208,14 +204,14 @@ class HyperNet(eqx.Module):
 
         return model
 
-    def __call__(self, model: Unet, image: Array, label: Array) -> Unet:
+    def __call__(self, image: Array, label: Array) -> Unet:
         input_emb = self.input_embedder(image, label)
 
         init_conv, unet, recomb, final_conv = (
-            model.init_conv,
-            model.unet,
-            model.recomb,
-            model.final_conv,
+            self.unet.init_conv,
+            self.unet.unet,
+            self.unet.recomb,
+            self.unet.final_conv,
         )
 
         init_conv = self.gen_init_conv(init_conv)
@@ -226,7 +222,7 @@ class HyperNet(eqx.Module):
 
         model = eqx.tree_at(
             lambda _model: (_model.init_conv, _model.unet, _model.recomb, _model.final_conv),
-            model,
+            self.unet,
             (init_conv, unet, recomb, final_conv),
         )
 

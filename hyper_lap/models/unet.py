@@ -1,7 +1,7 @@
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 import equinox as eqx
 import equinox.nn as nn
@@ -20,9 +20,6 @@ class UnetConfig:
     use_res: bool = False
     use_weight_standardized_conv: bool = False
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 class Unet(eqx.Module):
     base_channels: int = eqx.field(static=True)
@@ -35,12 +32,12 @@ class Unet(eqx.Module):
 
     def __init__(
         self,
+        *,
         base_channels: int,
         channel_mults: Sequence[int],
-        in_channels: int = 1,
-        out_channels: int = 2,
-        *,
-        use_res: bool = False,
+        in_channels: int,
+        out_channels: int,
+        use_res: bool,
         use_weight_standardized_conv: bool,
         key: PRNGKeyArray,
     ):

@@ -1,6 +1,7 @@
 from jaxtyping import Array, Float, Integer
 
 import warnings
+from dataclasses import asdict
 from pathlib import Path
 
 import equinox as eqx
@@ -16,7 +17,7 @@ from tqdm import tqdm, trange
 
 from hyper_lap.datasets import DegenerateDataset, PreloadedDataset
 from hyper_lap.metrics import dice_score
-from hyper_lap.models import Unet
+from hyper_lap.models import Unet, UnetConfig
 from hyper_lap.training.utils import load_amos_datasets, parse_args
 
 warnings.simplefilter("ignore")
@@ -37,7 +38,7 @@ model_name = Path(__file__).stem
 args = parse_args()
 
 
-dataset = load_amos_datasets()[0]
+dataset = load_amos_datasets(normalised=True)[0]
 
 
 if args.degenerate:
@@ -62,9 +63,17 @@ train_loader = DataLoader(
 )
 
 
-model = Unet(
-    8, [1, 2, 4], in_channels=1, out_channels=2, use_weight_standardized_conv=True, key=consume()
+seed = 42
+unet_config = UnetConfig(
+    base_channels=8,
+    channel_mults=[1, 2, 4],
+    in_channels=1,
+    out_channels=2,
+    use_res=False,
+    use_weight_standardized_conv=False,
 )
+
+model = Unet(**asdict(unet_config), key=jr.PRNGKey(seed))
 
 if args.degenerate:
     opt = optax.adamw(1e-4)

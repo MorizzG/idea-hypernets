@@ -14,11 +14,11 @@ from optax import OptState
 from torch.utils.data import DataLoader, RandomSampler
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import DegenerateDataset, NormalisedDataset, PreloadedDataset
+from hyper_lap.datasets import DegenerateDataset, PreloadedDataset
 from hyper_lap.hyper import HyperNet
 from hyper_lap.hyper.hypernet import HyperNetConfig
 from hyper_lap.metrics import dice_score
-from hyper_lap.models.unet import UnetConfig
+from hyper_lap.models import UnetConfig
 from hyper_lap.serialisation import save_hypernet_safetensors
 from hyper_lap.training.utils import HyperParams, load_amos_datasets, make_hypernet, parse_args
 
@@ -40,9 +40,7 @@ model_name = Path(__file__).stem
 args = parse_args()
 
 
-dataset = load_amos_datasets()[0]
-
-dataset = NormalisedDataset(dataset)
+dataset = load_amos_datasets(normalised=True)[0]
 
 print(f"Dataset: {dataset.metadata.name}")
 
@@ -72,18 +70,6 @@ train_loader = DataLoader(
 )
 
 
-# hyper_params = {
-#     "seed": 42,
-#     "unet": {
-#         "base_channels": 8,
-#         "channel_mults": [1, 2, 4],
-#         "in_channels": 1,
-#         "out_channels": 2,
-#         "use_weight_standardized_conv": True,
-#     },
-#     "hypernet": {"block_size": 8, "emb_size": 512, "embedder_kind": args.embedder},
-# }
-
 hyper_params = HyperParams(
     seed=42,
     unet=UnetConfig(
@@ -97,10 +83,6 @@ hyper_params = HyperParams(
     hypernet=HyperNetConfig(block_size=8, emb_size=512, kernel_size=3, embedder_kind=args.embedder),
 )
 
-# unet_key, hypernet_key = jr.split(jr.PRNGKey(hyper_params["seed"]))
-
-# model_template = Unet(**hyper_params["unet"], key=unet_key)
-# hypernet = HyperNet(model_template, **hyper_params, key=hypernet_key)
 model_template, hypernet = make_hypernet(hyper_params)
 
 
@@ -202,7 +184,7 @@ for epoch in (pbar := trange(args.epochs)):
 
     dice = calc_dice_score(hypernet, batch)
 
-    pbar.write(f"Dice score: {dice:.3}")
+    pbar.write(f"Dice score: {dice:.3f}")
     pbar.write("")
 
 gen_image = jnp.asarray(dataset[0]["image"][0:1])
