@@ -20,7 +20,13 @@ from hyper_lap.hyper import HyperNet, HyperNetConfig
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import UnetConfig
 from hyper_lap.serialisation import save_hypernet_safetensors
-from hyper_lap.training.utils import HyperParams, load_amos_datasets, make_hypernet, parse_args
+from hyper_lap.training.utils import (
+    HyperParams,
+    load_amos_datasets,
+    load_medidec_datasets,
+    make_hypernet,
+    parse_args,
+)
 
 warnings.simplefilter("ignore")
 
@@ -230,14 +236,18 @@ def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
 
 
 def main():
-    global hypernet
     global model_name
 
     args = parse_args()
 
     model_name = Path(__file__).stem + "_" + args.embedder
 
-    datasets = load_amos_datasets(normalised=True)
+    if args.dataset == "amos":
+        datasets = load_amos_datasets(normalised=True)
+    elif args.dataset == "medidec":
+        datasets = load_medidec_datasets(normalised=True)
+    else:
+        raise ValueError(f"Invalid dataset {args.dataset}")
 
     if args.degenerate:
         print("Using degenerate dataset")
