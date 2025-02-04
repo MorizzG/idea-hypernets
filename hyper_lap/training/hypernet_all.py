@@ -66,7 +66,7 @@ def training_step(
     labels = batch["label"]
 
     images = images[:, 0:1]
-    labels = (labels == 1).astype(jnp.int32)
+    labels = (labels != 0).astype(jnp.int32)
 
     dynamic_hypernet, static_hypernet = eqx.partition(hypernet, eqx.is_array)
 
@@ -114,24 +114,48 @@ def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
     return jnp.mean(dices)
 
 
+def train(
+    hypernet: HyperNet,
+    train_loader: MultiDataLoader,
+    opt: optax.GradientTransformation,
+    opt_state: optax.OptState,
+    pbar: tqdm,
+) -> tuple[HyperNet, optax.OptState]:
+    pbar.write("Training:\n")
+
+    losses = []
+
+    for batch_tensor in tqdm(train_loader, leave=False):
+        batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
+
+        gen_image = batch["image"][0][0:1]
+        gen_label = batch["label"][0]
+
+        loss, hypernet, opt_state = training_step(
+            hypernet, opt, batch, opt_state, gen_image, gen_label
+        )
+
+        losses.append(loss.item())
+
+    mean_loss = jnp.mean(jnp.array(losses))
+
+    pbar.write(f"Loss: {mean_loss:.3}")
+
+    return hypernet, opt_state
+
+
 def validate(hypernet: HyperNet, train_loader: MultiDataLoader, pbar: tqdm):
     pbar.write("Validation:\n")
 
     for dataloader in train_loader.dataloaders:
-        dataset: Dataset = dataloader.dataset  # type: ignore
+        name: str = dataloader.dataset.name  # type: ignore
 
-        assert isinstance(dataset, Dataset)
-
-        name = dataset.metadata.name
-
-        pbar.write(f"Dataset: {name}")
-
-        batch = jt.map(jnp.array, next(iter(dataloader)))
+        batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
         dice = calc_dice_score(hypernet, batch)
 
-        pbar.write(f"Dice score: {dice:.3}")
-        pbar.write("")
+        pbar.write(f"Dice score {name: <15}: {dice:.3}")
+    pbar.write("")
 
 
 def make_plots(hypernet, train_loader: MultiDataLoader, test_loader: DataLoader):
@@ -293,37 +317,9 @@ def main():
     for epoch in (pbar := trange(args.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
 
-        pbar.write("Training:\n")
+        hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar)
 
-        losses = []
-
-        for batch_tensor in tqdm(train_loader, leave=False):
-            batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
-
-            gen_image = batch["image"][0][0:1]
-            gen_label = batch["label"][0]
-
-            loss, hypernet, opt_state = training_step(
-                hypernet, opt, batch, opt_state, gen_image, gen_label
-            )
-
-            losses.append(loss.item())
-
-        mean_loss = jnp.mean(jnp.array(losses))
-
-        pbar.write(f"Loss: {mean_loss:.3}")
-
-        for dataloader in train_loader.dataloaders:
-            name: str = dataloader.dataset.name  # type: ignore
-
-            batch = jt.map(jnp.asarray, next(iter(dataloader)))
-
-            dice = calc_dice_score(hypernet, batch)
-
-            pbar.write(f"Dice score {name: <15}: {dice:.3}")
-        pbar.write("")
-
-        # validate(hypernet, train_sets, pbar)
+        validate(hypernet, train_loader, pbar)
 
     save_hypernet_safetensors(f"models/{model_name}", hyper_params, hypernet)
 
