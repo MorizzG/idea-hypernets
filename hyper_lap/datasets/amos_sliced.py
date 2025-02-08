@@ -19,7 +19,8 @@ class AmosSliced(Dataset):
 
     @property
     def name(self) -> str:
-        return "AMOS " + self.metadata.name.split(" ")[1]
+        # "AMOS " +
+        return self.metadata.name.split(" ")[1]
 
     def __init__(
         self,

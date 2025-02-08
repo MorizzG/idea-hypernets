@@ -65,4 +65,6 @@ class NormalisedDataset(Dataset):
 
         X["image"] = NormalisedDataset.image_to_imagenet(image)
 
+        X["label"] = (X["label"] != 0).astype(np.uint8)
+
         return X
