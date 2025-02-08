@@ -1,6 +1,7 @@
 from jaxtyping import Array, Float, Integer
 
 import warnings
+from dataclasses import asdict
 from pathlib import Path
 
 import equinox as eqx
@@ -8,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
+import numpy as np
 import optax
 from matplotlib import pyplot as plt
 from optax import OptState
@@ -15,17 +17,19 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 from umap import UMAP
 
+import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.hyper import HyperNet, HyperNetConfig
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import UnetConfig
 from hyper_lap.serialisation import save_hypernet_safetensors
 from hyper_lap.training.utils import (
-    HyperParams,
+    Config,
     load_amos_datasets,
     load_medidec_datasets,
     make_hypernet,
     parse_args,
+    to_PIL,
 )
 
 warnings.simplefilter("ignore")
@@ -65,9 +69,6 @@ def training_step(
     images = batch["image"]
     labels = batch["label"]
 
-    images = images[:, 0:1]
-    labels = (labels != 0).astype(jnp.int32)
-
     dynamic_hypernet, static_hypernet = eqx.partition(hypernet, eqx.is_array)
 
     def grad_fn(dynamic_hypernet: HyperNet) -> Array:
@@ -94,7 +95,7 @@ def training_step(
 
 @eqx.filter_jit
 def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
-    gen_image = batch["image"][0][0:1]
+    gen_image = batch["image"][0]
     gen_label = batch["label"][0]
 
     model = eqx.filter_jit(hypernet)(gen_image, gen_label)
@@ -102,7 +103,6 @@ def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
     images = batch["image"]
     labels = batch["label"]
 
-    images = images[:, 0:1]
     labels = (labels == 1).astype(jnp.int32)
 
     logits = eqx.filter_jit(jax.vmap(model))(images)
@@ -119,7 +119,9 @@ def train(
     train_loader: MultiDataLoader,
     opt: optax.GradientTransformation,
     opt_state: optax.OptState,
+    *,
     pbar: tqdm,
+    epoch: int,
 ) -> tuple[HyperNet, optax.OptState]:
     pbar.write("Training:\n")
 
@@ -128,7 +130,7 @@ def train(
     for batch_tensor in tqdm(train_loader, leave=False):
         batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
-        gen_image = batch["image"][0][0:1]
+        gen_image = batch["image"][0]
         gen_label = batch["label"][0]
 
         loss, hypernet, opt_state = training_step(
@@ -137,14 +139,24 @@ def train(
 
         losses.append(loss.item())
 
-    mean_loss = jnp.mean(jnp.array(losses))
+    loss_mean = jnp.mean(jnp.array(losses)).item()
+    loss_std = jnp.std(jnp.array(losses)).item()
 
-    pbar.write(f"Loss: {mean_loss:.3}")
+    pbar.write(f"Loss: {loss_mean:.3}")
+
+    if wandb.run is not None:
+        wandb.run.log(
+            {
+                "epoch": epoch,
+                "loss/train/mean": loss_mean,
+                "loss/train/std": loss_std,
+            }
+        )
 
     return hypernet, opt_state
 
 
-def validate(hypernet: HyperNet, train_loader: MultiDataLoader, pbar: tqdm):
+def validate(hypernet: HyperNet, train_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("Validation:\n")
 
     for dataloader in train_loader.dataloaders:
@@ -155,6 +167,15 @@ def validate(hypernet: HyperNet, train_loader: MultiDataLoader, pbar: tqdm):
         dice = calc_dice_score(hypernet, batch)
 
         pbar.write(f"Dice score {name: <15}: {dice:.3}")
+
+        if wandb.run is not None:
+            wandb.run.log(
+                {
+                    "epoch": epoch,
+                    f"dice/{name}": dice,
+                }
+            )
+
     pbar.write("")
 
 
@@ -165,12 +186,12 @@ def make_plots(hypernet, train_loader: MultiDataLoader, test_loader: DataLoader)
 
         batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-        gen_image = jnp.asarray(batch["image"][0][0:1])
+        gen_image = jnp.asarray(batch["image"][0])
         gen_label = jnp.asarray(batch["label"][0])
 
         model = eqx.filter_jit(hypernet)(gen_image, gen_label)
 
-        image = jnp.asarray(batch["image"][1][0:1])
+        image = jnp.asarray(batch["image"][1])
         label = jnp.asarray(batch["label"][1])
 
         logits = eqx.filter_jit(model)(image)
@@ -178,7 +199,7 @@ def make_plots(hypernet, train_loader: MultiDataLoader, test_loader: DataLoader)
 
         fig, axs = plt.subplots(ncols=3)
 
-        axs[0].imshow(image[0], cmap="gray")
+        axs[0].imshow(image.mean(axis=0), cmap="gray")
         axs[1].imshow(label, cmap="gray")
         axs[2].imshow(pred, cmap="gray")
 
@@ -187,19 +208,35 @@ def make_plots(hypernet, train_loader: MultiDataLoader, test_loader: DataLoader)
         dice_score = calc_dice_score(hypernet, batch)
 
         print(f"Dice score: {dice_score:.3f}")
-        print(f"{logits.mean():.3} +/- {logits.std():.3}")
+        # print(f"{logits.mean():.3} +/- {logits.std():.3}")
 
         print()
         print()
 
+        if wandb.run is not None:
+            class_labels = {0: "background", 1: "foreground"}
+
+            image = wandb.Image(
+                to_PIL(image),
+                caption="Input image",
+                masks={
+                    "ground_truth": {"mask_data": np.asarray(label), "class_labels": class_labels},
+                    "prediction": {"mask_data": np.asarray(pred), "class_labels": class_labels},
+                },
+            )
+
+            wandb.run.log({f"images/train/{dataset.name}": image})
+
+    assert isinstance(test_loader.dataset, Dataset)
+
     print()
     print()
-    print(f"Test: {test_loader.dataset.name}")  # type: ignore
+    print(f"Test: {test_loader.dataset.name}")
     print()
 
     batch = jt.map(jnp.asarray, next(iter(test_loader)))
 
-    gen_image = jnp.asarray(batch["image"][0][0:1])
+    gen_image = jnp.asarray(batch["image"][0])
     gen_label = jnp.asarray(batch["label"][0])
 
     dice = calc_dice_score(hypernet, batch)
@@ -208,7 +245,7 @@ def make_plots(hypernet, train_loader: MultiDataLoader, test_loader: DataLoader)
 
     model = eqx.filter_jit(hypernet)(gen_image, gen_label)
 
-    image = jnp.asarray(batch["image"][1][0:1])
+    image = jnp.asarray(batch["image"][1])
     label = jnp.asarray(batch["label"][1])
 
     logits = eqx.filter_jit(model)(image)
@@ -216,11 +253,25 @@ def make_plots(hypernet, train_loader: MultiDataLoader, test_loader: DataLoader)
 
     fig, axs = plt.subplots(ncols=3)
 
-    axs[0].imshow(image[0], cmap="gray")
+    axs[0].imshow(image.mean(axis=0), cmap="gray")
     axs[1].imshow(label, cmap="gray")
     axs[2].imshow(pred, cmap="gray")
 
-    fig.savefig(f"images/{model_name}_test.pdf")
+    fig.savefig(f"images/{model_name}_{test_loader.dataset.name}_test.pdf")
+
+    if wandb.run is not None:
+        class_labels = {0: "background", 1: "foreground"}
+
+        image = wandb.Image(
+            to_PIL(image),
+            caption="Input image",
+            masks={
+                "ground_truth": {"mask_data": np.asarray(label), "class_labels": class_labels},
+                "prediction": {"mask_data": np.asarray(pred), "class_labels": class_labels},
+            },
+        )
+
+        wandb.run.log({f"images/test/{test_loader.dataset.name}": image})
 
 
 def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
@@ -235,7 +286,7 @@ def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
     )
 
     samples = {
-        dataset.metadata.name: jt.map(jnp.asarray, next(iter(dataloader)))
+        dataset.name: jt.map(jnp.asarray, next(iter(dataloader)))
         for dataset, dataloader in zip(multi_dataloader.datasets, multi_dataloader.dataloaders)
     }
 
@@ -249,7 +300,7 @@ def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
     fig, ax = plt.subplots()
 
     for name, proj in projs.items():
-        ax.scatter(proj[:, 0], proj[:, 1], 4.0, label=name.split(" ")[1])
+        ax.scatter(proj[:, 0], proj[:, 1], 4.0, label=name)
 
     pos = ax.get_position()
     ax.set_position((pos.x0, pos.y0, pos.width * 0.75, pos.height))
@@ -258,18 +309,71 @@ def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
 
     fig.savefig(f"./images/{model_name}_umap.pdf")
 
+    if wandb.run is not None:
+        fig.canvas.draw()
+
+        image_flat = np.frombuffer(fig.canvas.buffer_rgba(), dtype="uint8")  # type: ignore
+        # NOTE: reversed converts (W, H) from get_width_height to (H, W)
+        # convert from (H * W * 4,) to (H, W, 4)
+        image = image_flat.reshape(*reversed(fig.canvas.get_width_height()), 4)
+
+        image = wandb.Image(fig, mode="RGBA", caption="UMAP")
+
+        wandb.run.log({"images/umap": image})
+
 
 def main():
     global model_name
 
     args = parse_args()
 
-    model_name = Path(__file__).stem + "_" + args.embedder
+    config = Config(
+        seed=42,
+        dataset=args.dataset,
+        embedder=args.embedder,
+        epochs=args.epochs,
+        learning_rate=1e-7,
+        unet=UnetConfig(
+            base_channels=16,
+            channel_mults=[1, 2, 4],
+            in_channels=3,
+            out_channels=2,
+            use_res=False,
+            use_weight_standardized_conv=False,
+        ),
+        hypernet=HyperNetConfig(
+            block_size=8, emb_size=3 * 1024, kernel_size=3, embedder_kind=args.embedder
+        ),
+    )
+
+    model_name = f"hypernet_all_{config.dataset}_{config.embedder}"
+
+    if args.wandb:
+        wandb.init(
+            project="idea-laplacian-hypernet",
+            config=asdict(config),
+            # sync_tensorboard=True,
+        )
 
     if args.dataset == "amos":
         datasets = load_amos_datasets(normalised=True)
+
+        testset = datasets.pop("liver")
+
+        trainsets = list(datasets.values())
     elif args.dataset == "medidec":
         datasets = load_medidec_datasets(normalised=True)
+
+        # only use CT datasets
+        datasets = {
+            name: dataset
+            for name, dataset in datasets.items()
+            if dataset.metadata.modality["0"] == "CT"
+        }
+
+        testset = datasets.pop("HepaticVessel")
+
+        trainsets = list(datasets.values())
     else:
         raise ValueError(f"Invalid dataset {args.dataset}")
 
@@ -283,51 +387,45 @@ def main():
                 assert jnp.all(X["image"] == dataset[0]["image"])
                 assert jnp.all(X["label"] == dataset[0]["label"])
 
-    train_sets = datasets[:-1]
-    test_dataset = datasets[-1]
-
     train_loader = MultiDataLoader(
-        *train_sets,
+        *trainsets,
         num_samples=100 * args.batch_size,
         dataloader_args=dict(batch_size=args.batch_size, num_workers=args.num_workers),
     )
-    test_loader = DataLoader(test_dataset, batch_size=128, num_workers=8)
 
-    hyper_params = HyperParams(
-        seed=42,
-        unet=UnetConfig(
-            base_channels=8,
-            channel_mults=[1, 2, 4],
-            in_channels=1,
-            out_channels=2,
-            use_res=False,
-            use_weight_standardized_conv=False,
-        ),
-        hypernet=HyperNetConfig(
-            block_size=8, emb_size=512, kernel_size=3, embedder_kind=args.embedder
-        ),
-    )
+    # use 2 * batch_size for test loader since we need no grad here
+    test_loader = DataLoader(testset, batch_size=2 * args.batch_size, num_workers=8)
 
-    hypernet = make_hypernet(hyper_params)
+    hypernet = make_hypernet(config)
 
-    opt = optax.adamw(1e-6)
+    opt = optax.adamw(config.learning_rate)
 
     opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
-    for epoch in (pbar := trange(args.epochs)):
+    for epoch in (pbar := trange(config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
 
-        hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar)
+        hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
 
-        validate(hypernet, train_loader, pbar)
+        validate(hypernet, train_loader, pbar=pbar, epoch=epoch)
 
-    save_hypernet_safetensors(f"models/{model_name}", hyper_params, hypernet)
+    model_path = Path(f"models/{model_name}")
+
+    save_hypernet_safetensors(model_path, config, hypernet)
+
+    if wandb.run is not None:
+        model_artifact = wandb.Artifact("model-" + wandb.run.name, type="model")
+
+        model_artifact.add_file(str(model_path.with_suffix(".json")))
+        model_artifact.add_file(str(model_path.with_suffix(".safetensors")))
+
+        wandb.run.log_artifact(model_artifact)
 
     print()
     print()
 
     make_plots(hypernet, train_loader, test_loader)
-    make_umap(hypernet, train_sets + [test_dataset])
+    make_umap(hypernet, trainsets + [testset])
 
 
 if __name__ == "__main__":

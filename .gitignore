@@ -1,6 +1,7 @@
 /datasets/
 /images/
 /models/
+/wandb/
 
 # Python-generated files
 __pycache__/
