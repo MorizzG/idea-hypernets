@@ -1,3 +1,4 @@
+from jaxtyping import Array
 from typing import Literal
 
 import multiprocessing
@@ -6,6 +7,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import jax.random as jr
+import numpy as np
+import PIL.Image as Image
 import yaml
 
 from hyper_lap.datasets import AmosSliced, Dataset, MediDecSliced, NormalisedDataset
@@ -18,16 +21,25 @@ class Args:
     dataset: Literal["amos", "medidec"]
 
     degenerate: bool
+    wandb: bool
+
     batch_size: int
     epochs: int
     num_workers: int
 
-    embedder: str
+    embedder: Literal["vit", "convnext", "resnet", "clip", "learned"]
 
 
 @dataclass
-class HyperParams:
+class Config:
     seed: int
+
+    dataset: Literal["amos", "medidec"]
+    embedder: Literal["vit", "convnext", "resnet", "clip", "learned"]
+
+    epochs: int
+
+    learning_rate: float
 
     unet: UnetConfig
     hypernet: HyperNetConfig
@@ -55,6 +67,8 @@ def parse_args() -> Args:
     )
 
     parser.add_argument("--degenerate", action="store_true", help="Use degenerate dataset")
+    parser.add_argument("--wandb", action="store_true", help="Run with W&B logging")
+
     parser.add_argument(
         "--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of epochs to train for"
     )
@@ -74,13 +88,13 @@ def parse_args() -> Args:
     return Args(**vars(args))
 
 
-def load_amos_datasets(normalised: bool = True) -> list[Dataset]:
+def load_amos_datasets(normalised: bool = True) -> dict[str, Dataset]:
     amos_dir = dataset_dir / "AmosSliced"
 
     if not amos_dir.exists():
         raise RuntimeError("AmosSliced dir doesn't exist")
 
-    datasets = []
+    datasets = {}
 
     for sub_dir in sorted(amos_dir.iterdir()):
         if not sub_dir.is_dir():
@@ -91,18 +105,18 @@ def load_amos_datasets(normalised: bool = True) -> list[Dataset]:
         if normalised:
             dataset = NormalisedDataset(dataset)
 
-        datasets.append(dataset)
+        datasets[dataset.name] = dataset
 
     return datasets
 
 
-def load_medidec_datasets(normalised: bool = True) -> list[Dataset]:
+def load_medidec_datasets(normalised: bool = True) -> dict[str, Dataset]:
     medidec_sliced = dataset_dir / "MediDecSliced"
 
     if not medidec_sliced.exists():
         raise RuntimeError("MediDecSliced dir doesn't exist")
 
-    datasets: list[Dataset] = []
+    datasets = {}
 
     for sub_dir in sorted(medidec_sliced.iterdir()):
         if not sub_dir.is_dir():
@@ -119,22 +133,33 @@ def load_medidec_datasets(normalised: bool = True) -> list[Dataset]:
         if normalised:
             dataset = NormalisedDataset(dataset)
 
-        datasets.append(dataset)
+        datasets[dataset.name] = dataset
 
     return datasets
 
 
-def make_hypernet(hyper_params: HyperParams) -> HyperNet:
-    print(
-        yaml.dump(
-            asdict(hyper_params), indent=2, width=60, default_flow_style=None, sort_keys=False
-        )
-    )
+def make_hypernet(config: Config) -> HyperNet:
+    print(yaml.dump(asdict(config), indent=2, width=60, default_flow_style=None, sort_keys=False))
 
-    key = jr.PRNGKey(hyper_params.seed)
+    key = jr.PRNGKey(config.seed)
     unet_key, hypernet_key = jr.split(key)
 
-    unet = Unet(**asdict(hyper_params.unet), key=unet_key)
-    hypernet = HyperNet(unet, **asdict(hyper_params.hypernet), key=hypernet_key)
+    unet = Unet(**asdict(config.unet), key=unet_key)
+    hypernet = HyperNet(unet, **asdict(config.hypernet), key=hypernet_key)
 
     return hypernet
+
+
+def to_PIL(img: np.ndarray | Array) -> Image.Image:
+    image: np.ndarray = np.array(img)
+
+    assert image.ndim == 3 and image.shape[0] == 3
+
+    image -= image.min()
+    image /= image.max()
+
+    image = (255 * image).astype(np.uint8)
+
+    image = image.transpose(1, 2, 0)
+
+    return Image.fromarray(image, mode="RGB")

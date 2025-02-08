@@ -18,9 +18,8 @@ from safetensors import safe_open
 from safetensors.flax import save_file
 
 from hyper_lap.hyper.hypernet import HyperNet, HyperNetConfig
-from hyper_lap.models import Unet
 from hyper_lap.models.unet import UnetConfig
-from hyper_lap.training.utils import HyperParams, make_hypernet
+from hyper_lap.training.utils import Config, make_hypernet
 
 from .utils import as_path
 
@@ -139,7 +138,7 @@ def load_pytree(path: str | Path, tree: PyTree, *, prefix: Optional[str] = None)
     return tree
 
 
-def save_hypernet_safetensors(path: str | Path, hyper_params: HyperParams, hypernet: HyperNet):
+def save_hypernet_safetensors(path: str | Path, hyper_params: Config, hypernet: HyperNet):
     path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")
@@ -152,7 +151,7 @@ def save_hypernet_safetensors(path: str | Path, hyper_params: HyperParams, hyper
     save_pytree(safetensors_path, hypernet)
 
 
-def load_hypernet_safetensors(path: str | Path) -> tuple[Unet, HyperNet]:
+def load_hypernet_safetensors(path: str | Path) -> HyperNet:
     path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")
@@ -167,14 +166,13 @@ def load_hypernet_safetensors(path: str | Path) -> tuple[Unet, HyperNet]:
     with hyperparams_path.open("rb") as f:
         hyper_params_dict = json.loads(f.read().decode())
 
-    seed = hyper_params_dict.pop("seed")
-    unet_params = UnetConfig(**hyper_params_dict.pop("unet"))
-    hypernet_params = HyperNetConfig(**hyper_params_dict.pop("hypernet"))
+    unet_config = UnetConfig(**hyper_params_dict.pop("unet"))
+    hypernet_config = HyperNetConfig(**hyper_params_dict.pop("hypernet"))
 
-    hyper_params = HyperParams(seed=seed, unet=unet_params, hypernet=hypernet_params)
+    config = Config(unet=unet_config, hypernet=hypernet_config, **hyper_params_dict)
 
-    unet, hypernet = make_hypernet(hyper_params)
+    hypernet = make_hypernet(config)
 
     hypernet = load_pytree(safetensors_path, hypernet)
 
-    return unet, hypernet
+    return hypernet
