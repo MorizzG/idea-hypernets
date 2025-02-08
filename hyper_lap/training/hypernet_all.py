@@ -63,8 +63,6 @@ def training_step(
     opt: optax.GradientTransformation,
     batch: dict[str, Array],
     opt_state: OptState,
-    gen_image: Array,
-    gen_label: Array,
 ) -> tuple[Array, HyperNet, OptState]:
     images = batch["image"]
     labels = batch["label"]
@@ -74,7 +72,7 @@ def training_step(
     def grad_fn(dynamic_hypernet: HyperNet) -> Array:
         hypernet = eqx.combine(dynamic_hypernet, static_hypernet)
 
-        model = hypernet(gen_image, gen_label)
+        model = hypernet(images[0], labels[0])
 
         logits = jax.vmap(model)(images)
 
@@ -130,12 +128,7 @@ def train(
     for batch_tensor in tqdm(train_loader, leave=False):
         batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
-        gen_image = batch["image"][0]
-        gen_label = batch["label"][0]
-
-        loss, hypernet, opt_state = training_step(
-            hypernet, opt, batch, opt_state, gen_image, gen_label
-        )
+        loss, hypernet, opt_state = training_step(hypernet, opt, batch, opt_state)
 
         losses.append(loss.item())
 
@@ -352,6 +345,7 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             config=asdict(config),
+            tags=[config.dataset, config.embedder],
             # sync_tensorboard=True,
         )
 
