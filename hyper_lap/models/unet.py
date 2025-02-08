@@ -22,6 +22,9 @@ class UnetConfig:
 
 
 class Unet(eqx.Module):
+    in_channels: int = eqx.field(static=True)
+    out_channels: int = eqx.field(static=True)
+
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
@@ -42,6 +45,9 @@ class Unet(eqx.Module):
         key: PRNGKeyArray,
     ):
         super().__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
 
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)

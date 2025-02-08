@@ -2,8 +2,6 @@ from jaxtyping import Array, Float, Integer, PRNGKeyArray
 from typing import Literal
 
 import equinox as eqx
-import jax.numpy as jnp
-from chex import assert_shape
 
 from hyper_lap.modules.embedder import (
     ClipEmbedder,
@@ -44,15 +42,9 @@ class InputEmbedder(eqx.Module):
             raise ValueError(f"Unknown embedder: {kind}")
 
     def __call__(
-        self, image: Float[Array, "c h w"], label: Integer[Array, "h w"]
+        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
     ) -> Float[Array, "*"]:
-        c, h, w = image.shape
-
-        assert c == 1 or c == 3
-        assert_shape(label, (h, w))
-
-        if c == 1:
-            image = jnp.repeat(image, 3, 0)
+        assert image.shape[0] == 3
 
         emb = self.embedder(image, label)
 

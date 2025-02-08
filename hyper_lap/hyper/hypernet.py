@@ -1,4 +1,4 @@
-from jaxtyping import Array, PRNGKeyArray
+from jaxtyping import Array, Float, Integer, PRNGKeyArray
 from typing import Literal
 
 from dataclasses import dataclass
@@ -80,8 +80,12 @@ class HyperNet(eqx.Module):
             block_size, block_size, kernel_size, 2 * emb_size, key=kernel_key
         )
 
-        self.init_kernel = jr.normal(init_key, self.kernel_shape(1, base_channels, 1))
-        self.final_kernel = jr.normal(final_key, self.kernel_shape(base_channels, 2, 1))
+        self.init_kernel = jr.normal(
+            init_key, self.kernel_shape(unet.in_channels, base_channels, 1)
+        )
+        self.final_kernel = jr.normal(
+            final_key, self.kernel_shape(base_channels, unet.out_channels, 1)
+        )
 
         # generate positional embeddings for unet module
 
@@ -204,7 +208,7 @@ class HyperNet(eqx.Module):
 
         return model
 
-    def __call__(self, image: Array, label: Array) -> Unet:
+    def __call__(self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]) -> Unet:
         input_emb = self.input_embedder(image, label)
 
         init_conv, unet, recomb, final_conv = (
