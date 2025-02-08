@@ -43,7 +43,7 @@ class InputEmbedder(eqx.Module):
 
     def __call__(
         self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
-    ) -> Float[Array, "*"]:
+    ) -> Float[Array, " self.emb_size"]:
         assert image.shape[0] == 3
 
         emb = self.embedder(image, label)

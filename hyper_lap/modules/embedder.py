@@ -116,12 +116,12 @@ class ClipEmbedder(eqx.Module):
     select_layer: int = eqx.field(static=True)
     pool: Literal["cls", "mean"] = eqx.field(static=True)
 
-    # image_embedder: FlaxCLIPVisionModel = eqx.field(static=True)
-    # label_embedder: FlaxCLIPVisionModel = eqx.field(static=True)
+    clip_vision: FlaxCLIPVisionModel = eqx.field(static=True)
 
-    clip: FlaxCLIPVisionModel = eqx.field(static=True)
+    # tokenizer: CLIPTokenizerFast = eqx.field(static=True)
+    # clip_text: FlaxCLIPTextModel = eqx.field(static=True)
 
-    projection: nn.Linear
+    projection: nn.Linear | nn.Identity
 
     def __init__(
         self,
@@ -147,15 +147,31 @@ class ClipEmbedder(eqx.Module):
         transformers.logging.set_verbosity_error()
 
         if clip == "openai":
-            self.clip = FlaxCLIPVisionModel.from_pretrained(
+            clip_vision = FlaxCLIPVisionModel.from_pretrained(
                 "openai/clip-vit-large-patch14-336", from_pt=True
-            )  # type: ignore
+            )
+            assert isinstance(clip_vision, FlaxCLIPVisionModel)
+            self.clip_vision = clip_vision
+
+            # tokenizer = CLIPTokenizerFast.from_pretrained(
+            #     "openai/clip-vit-large-patch14-336", from_pt=True
+            # )
+            # assert isinstance(tokenizer, CLIPTokenizerFast), (
+            #     f"expected CLIPTokenizerFast, found {type(tokenizer)}"
+            # )
+            # self.tokenizer = tokenizer
+
+            # clip_text = FlaxCLIPTextModel.from_pretrained(
+            #     "openai/clip-vit-large-patch14-336", from_pt=True
+            # )
+            # assert isinstance(clip_text, FlaxCLIPTextModel)
+            # self.clip_text = clip_text
         else:
             raise RuntimeError(f"Unknown clip variant {clip}")
 
         transformers.logging.set_verbosity(orig_verbosity)
 
-        self.num_layers = len(self.clip.params["vision_model"]["encoder"]["layers"])
+        self.num_layers = len(self.clip_vision.params["vision_model"]["encoder"]["layers"])
         # self.num_layers = 24
 
         if not -self.num_layers <= select_layer < self.num_layers:
@@ -163,7 +179,8 @@ class ClipEmbedder(eqx.Module):
                 f"select_layer {select_layer} is out of range for {self.num_layers} layers"
             )
 
-        self.projection = nn.Linear(2 * 1024, emb_size, key=key)
+        self.projection = nn.Linear(3 * 1024, emb_size, key=key)
+        # self.projection = nn.Identity(key=key)
 
     def __call__(
         self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
@@ -173,37 +190,16 @@ class ClipEmbedder(eqx.Module):
         assert c == 3
         assert_shape(label, [h, w])
 
-        # label = jnp.expand_dims(label, 0).astype(image.dtype)
-        # label = image * jnp.expand_dims(label, 0).astype(image.dtype)
+        pos_masked_image = (label != 0) * image
+        neg_masked_image = (label == 0) * image
 
-        # duplicate image along new axis
-        image_double = jnp.repeat(jnp.expand_dims(image, 0), 2, 0)
+        input = jnp.stack([image, pos_masked_image, neg_masked_image])
 
-        # multiply second copy with label -> hadamard image
-        image_double = image_double.at[1, ...].multiply(
-            jnp.expand_dims(label, 0).astype(image.dtype)
-        )
+        assert input.shape[:2] == (3, 3)
 
-        # image = jax.image.resize(image, (3, 336, 336), method="bilinear")
-        # label = jax.image.resize(label, (3, 336, 336), method="bilinear")
-        image_double = jax.image.resize(image_double, (2, 3, 336, 336), method="bilinear")
+        input = jax.image.resize(input, (3, 3, 336, 336), method="bicubic")
 
-        # image_output = self.clip(image[None, ...], output_hidden_states=True)
-        # label_output = self.clip(label[None, ...], output_hidden_states=True)
-
-        # ignore first hidden state, as it's just the input
-        # image_hidden_states = image_output["hidden_states"][1:]  # type: ignore
-        # label_hidden_states = label_output["hidden_states"][1:]  # type: ignore
-
-        # assert (
-        #     len(image_hidden_states) == self.num_layers
-        #     and len(label_hidden_states) == self.num_layers
-        # )
-
-        # image_hidden_state = image_hidden_states[self.select_layer]
-        # label_hidden_state = label_hidden_states[self.select_layer]
-
-        output = self.clip(image_double, output_hidden_states=True)
+        output = self.clip_vision(input, output_hidden_states=True)
 
         hidden_states: list[Array] = output["hidden_states"][1:]  # type: ignore
 
@@ -211,30 +207,21 @@ class ClipEmbedder(eqx.Module):
 
         hidden_state = hidden_states[self.select_layer]
 
-        assert_shape([hidden_state], (2, 577, 1024))
-
-        # if self.pool == "cls":
-        #     image_emb = image_hidden_state[0, 0, :]
-        #     label_emb = label_hidden_state[0, 0, :]
-        # elif self.pool == "mean":
-        #     image_emb = image_hidden_state[0].mean(axis=0)
-        #     label_emb = label_hidden_state[0].mean(axis=0)
-        # else:
-        #     assert False, f"self.pool has unexpected value {self.pool}"
-
-        # assert_shape([image_emb, label_emb], (1024,))
-
-        # output_emb = jnp.concat([image_emb, label_emb])
+        assert_shape([hidden_state], (3, 577, 1024))
 
         if self.pool == "cls":
-            output_emb = hidden_state[:, 0, :].ravel()
+            vision_emb = hidden_state[:, 0, :].ravel()
         elif self.pool == "mean":
-            output_emb = hidden_state.mean(axis=1).ravel()
+            vision_emb = hidden_state.mean(axis=1).ravel()
         else:
             assert False
 
-        assert_shape(output_emb, (2 * 1024,))
+        assert_shape(vision_emb, (3 * 1024,))
 
-        emb = self.projection(output_emb)
+        # inputs = self.tokenizer(text=text, return_tensors="jax")
+
+        # text_emb = self.clip_text(input_ids=inputs["input_ids"]).pooler_output[0]  # type: ignore
+
+        emb = self.projection(vision_emb)
 
         return lax.stop_gradient(emb)
