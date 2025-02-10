@@ -138,38 +138,49 @@ def load_pytree(path: str | Path, tree: PyTree, *, prefix: Optional[str] = None)
     return tree
 
 
-def save_hypernet_safetensors(path: str | Path, hyper_params: Config, hypernet: HyperNet):
+def save_with_config_safetensors(path: str | Path, config: Config, pytree: PyTree):
     path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")
     safetensors_path = path.with_suffix(".safetensors")
 
     with hyperparams_path.open("wb") as f:
-        hyper_params_str = json.dumps(asdict(hyper_params))
+        hyper_params_str = json.dumps(asdict(config))
         f.write((hyper_params_str).encode())
 
-    save_pytree(safetensors_path, hypernet)
+    save_pytree(safetensors_path, pytree)
+
+
+def load_config(path: str | Path) -> Config:
+    path = as_path(path)
+
+    if not path.exists():
+        raise ValueError(f"Path {path} does not exist")
+
+    if not path.suffix == ".json":
+        raise ValueError(f"Expected .json file, got {path.suffix} instead")
+
+    with path.open("rb") as f:
+        config_dict = json.loads(f.read().decode())
+
+    unet_config = UnetConfig(**config_dict.pop("unet"))
+    hypernet_config = HyperNetConfig(**config_dict.pop("hypernet"))
+
+    config = Config(unet=unet_config, hypernet=hypernet_config, **config_dict)
+
+    return config
 
 
 def load_hypernet_safetensors(path: str | Path) -> HyperNet:
     path = as_path(path)
 
-    hyperparams_path = path.with_suffix(".json")
+    config_path = path.with_suffix(".json")
     safetensors_path = path.with_suffix(".safetensors")
-
-    if not (hyperparams_path.exists()):
-        raise ValueError(f"Path {hyperparams_path} does not exist")
 
     if not (safetensors_path.exists()):
         raise ValueError(f"Path {safetensors_path} does not exist")
 
-    with hyperparams_path.open("rb") as f:
-        hyper_params_dict = json.loads(f.read().decode())
-
-    unet_config = UnetConfig(**hyper_params_dict.pop("unet"))
-    hypernet_config = HyperNetConfig(**hyper_params_dict.pop("hypernet"))
-
-    config = Config(unet=unet_config, hypernet=hypernet_config, **hyper_params_dict)
+    config = load_config(config_path)
 
     hypernet = make_hypernet(config)
 

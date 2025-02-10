@@ -22,7 +22,7 @@ from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.hyper import HyperNet, HyperNetConfig
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import UnetConfig
-from hyper_lap.serialisation import save_hypernet_safetensors
+from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.training.utils import (
     Config,
     load_amos_datasets,
@@ -405,7 +405,7 @@ def main():
 
     model_path = Path(f"models/{model_name}")
 
-    save_hypernet_safetensors(model_path, config, hypernet)
+    save_with_config_safetensors(model_path, config, hypernet)
 
     if wandb.run is not None:
         model_artifact = wandb.Artifact("model-" + wandb.run.name, type="model")

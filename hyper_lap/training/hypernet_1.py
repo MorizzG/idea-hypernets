@@ -19,9 +19,9 @@ from hyper_lap.datasets.preloaded import PreloadedDataset
 from hyper_lap.hyper import HyperNet, HyperNetConfig
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import UnetConfig
-from hyper_lap.serialisation import save_hypernet_safetensors
+from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.training.utils import (
-    HyperParams,
+    Config,
     load_amos_datasets,
     load_medidec_datasets,
     make_hypernet,
@@ -221,7 +221,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    hyper_params = HyperParams(
+    hyper_params = Config(
         seed=42,
         unet=UnetConfig(
             base_channels=8,
@@ -249,7 +249,7 @@ def main():
 
         validate(hypernet, train_loader, pbar)
 
-    save_hypernet_safetensors(f"models/{model_name}", hyper_params, hypernet)
+    save_with_config_safetensors(f"models/{model_name}", hyper_params, hypernet)
 
     print()
     print()
