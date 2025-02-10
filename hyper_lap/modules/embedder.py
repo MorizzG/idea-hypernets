@@ -3,7 +3,6 @@ from typing import Literal
 
 import equinox as eqx
 import equinox.nn as nn
-import jax
 import jax.numpy as jnp
 import jax.random as jr
 import transformers
@@ -17,10 +16,14 @@ from hyper_lap.modules.vit import ViT
 
 
 class LearnedEmbedding(eqx.Module):
+    emb_size: int = eqx.field(static=True)
+
     embedding: Array
 
     def __init__(self, emb_size: int, *, key: PRNGKeyArray):
         super().__init__()
+
+        self.emb_size = emb_size
 
         self.embedding = jr.normal(key, (emb_size,))
 
@@ -197,7 +200,9 @@ class ClipEmbedder(eqx.Module):
 
         assert input.shape[:2] == (3, 3)
 
-        input = jax.image.resize(input, (3, 3, 336, 336), method="bicubic")
+        # input = jax.image.resize(input, (3, 3, 336, 336), method="bicubic")
+
+        assert_shape(input, (3, 3, 336, 336))
 
         output = self.clip_vision(input, output_hidden_states=True)
 
