@@ -67,26 +67,20 @@ def training_step(
     images = batch["image"]
     labels = batch["label"]
 
-    dynamic_hypernet, static_hypernet = eqx.partition(hypernet, eqx.is_array)
-
-    def grad_fn(dynamic_hypernet: HyperNet) -> Array:
-        hypernet = eqx.combine(dynamic_hypernet, static_hypernet)
-
+    def grad_fn(hypernet: HyperNet) -> Array:
         model = hypernet(images[0], labels[0])
 
         logits = jax.vmap(model)(images)
 
-        loss = jax.vmap(loss_fn)(logits, labels).sum()
+        loss = jax.vmap(loss_fn)(logits, labels).mean()
 
         return loss
 
     loss, grads = eqx.filter_value_and_grad(grad_fn)(hypernet)
 
-    updates, opt_state = opt.update(grads, opt_state, dynamic_hypernet)
+    updates, opt_state = opt.update(grads, opt_state, hypernet)  # type: ignore
 
-    dynamic_hypernet = eqx.apply_updates(dynamic_hypernet, updates)
-
-    hypernet = eqx.combine(dynamic_hypernet, static_hypernet)
+    hypernet = eqx.apply_updates(hypernet, updates)
 
     return loss, hypernet, opt_state
 
@@ -332,7 +326,7 @@ def main():
             in_channels=3,
             out_channels=2,
             use_res=False,
-            use_weight_standardized_conv=False,
+            use_weight_standardized_conv=True,
         ),
         hypernet=HyperNetConfig(
             block_size=8, emb_size=3 * 1024, kernel_size=3, embedder_kind=args.embedder
