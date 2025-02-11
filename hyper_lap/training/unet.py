@@ -10,15 +10,16 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
 import optax
+import torch
 from matplotlib import pyplot as plt
 from optax import OptState
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import DegenerateDataset, PreloadedDataset
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import Unet, UnetConfig
-from hyper_lap.training.utils import load_medidec_datasets, parse_args
+from hyper_lap.training.utils import load_amos_datasets, load_medidec_datasets, parse_args
 
 warnings.simplefilter("ignore")
 
@@ -37,8 +38,12 @@ model_name = Path(__file__).stem
 
 args = parse_args()
 
-
-dataset = load_medidec_datasets(normalised=True)[0]
+if args.dataset == "medidec":
+    dataset = load_medidec_datasets(normalised=True)["Colon"]
+elif args.dataset == "amos":
+    dataset = load_amos_datasets(normalised=True)["liver"]
+else:
+    raise ValueError(f"Invalid dataset {args.dataset}")
 
 
 if args.degenerate:
@@ -58,10 +63,13 @@ num_workers = args.num_workers
 print(f"Using {num_workers} workers")
 
 
-train_loader = DataLoader(
-    dataset, batch_size=args.batch_size, shuffle=True, num_workers=num_workers
-)
+generator = torch.Generator()
+generator.manual_seed(42)
+sampler = RandomSampler(dataset, num_samples=100 * args.batch_size, generator=generator)
 
+train_loader = DataLoader(
+    dataset, sampler=sampler, batch_size=args.batch_size, num_workers=num_workers
+)
 
 seed = 42
 unet_config = UnetConfig(
@@ -75,7 +83,7 @@ unet_config = UnetConfig(
 
 model = Unet(**asdict(unet_config), key=jr.PRNGKey(seed))
 
-opt = optax.adamw(1e-5)
+opt = optax.adamw(5e-5)
 
 opt_state = opt.init(eqx.filter(model, eqx.is_array))
 
