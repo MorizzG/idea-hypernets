@@ -13,6 +13,8 @@ from hyper_lap.modules.embedder import (
 
 
 class InputEmbedder(eqx.Module):
+    type EmbedderKind = Literal["vit", "convnext", "resnet", "clip", "learned"]
+
     emb_size: int = eqx.field(static=True)
 
     embedder: ViTEmbedder | ResNetEmbedder | ConvNextEmbedder | ClipEmbedder | LearnedEmbedding
@@ -21,7 +23,7 @@ class InputEmbedder(eqx.Module):
         self,
         emb_size: int,
         *,
-        kind: Literal["vit", "convnext", "resnet", "clip", "learned"] = "resnet",
+        kind: EmbedderKind = "resnet",
         key: PRNGKeyArray,
     ):
         super().__init__()
