@@ -31,7 +31,7 @@ class Args:
 
 
 @dataclass
-class Config:
+class HyperConfig:
     seed: int
 
     dataset: Literal["amos", "medidec"]
@@ -138,7 +138,7 @@ def load_medidec_datasets(normalised: bool = True) -> dict[str, Dataset]:
     return datasets
 
 
-def make_hypernet(config: Config) -> HyperNet:
+def make_hypernet(config: HyperConfig) -> HyperNet:
     print(yaml.dump(asdict(config), indent=2, width=60, default_flow_style=None, sort_keys=False))
 
     key = jr.PRNGKey(config.seed)

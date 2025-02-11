@@ -1,7 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
 import warnings
-from dataclasses import asdict
 from pathlib import Path
 
 import equinox as eqx
@@ -19,18 +18,10 @@ from umap import UMAP
 
 import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
-from hyper_lap.hyper import HyperNet, HyperNetConfig
 from hyper_lap.metrics import dice_score
-from hyper_lap.models import UnetConfig
-from hyper_lap.serialisation import save_with_config_safetensors
-from hyper_lap.training.utils import (
-    HyperConfig,
-    load_amos_datasets,
-    load_medidec_datasets,
-    make_hypernet,
-    parse_args,
-    to_PIL,
-)
+from hyper_lap.models import FilmUnet
+from hyper_lap.serialisation.safetensors import save_pytree
+from hyper_lap.training.utils import load_amos_datasets, load_medidec_datasets, parse_args, to_PIL
 
 warnings.simplefilter("ignore")
 
@@ -59,43 +50,43 @@ def loss_fn(logits: Float[Array, "c h w"], labels: Integer[Array, "h w"]) -> Arr
 
 @eqx.filter_jit
 def training_step(
-    hypernet: HyperNet,
+    film_unet: FilmUnet,
     opt: optax.GradientTransformation,
     batch: dict[str, Array],
     opt_state: OptState,
-) -> tuple[Array, HyperNet, OptState]:
+) -> tuple[Array, FilmUnet, OptState]:
     images = batch["image"]
     labels = batch["label"]
 
-    def grad_fn(hypernet: HyperNet) -> Array:
-        model = hypernet(images[0], labels[0])
+    def grad_fn(film_unet: FilmUnet) -> Array:
+        cond_emb = film_unet.embedder(images[0], labels[0])
 
-        logits = jax.vmap(model)(images)
+        logits = jax.vmap(film_unet, in_axes=(0, None))(images, cond_emb)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
 
         return loss
 
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(hypernet)
+    loss, grads = eqx.filter_value_and_grad(grad_fn)(film_unet)
 
-    updates, opt_state = opt.update(grads, opt_state, hypernet)  # type: ignore
+    updates, opt_state = opt.update(grads, opt_state, film_unet)  # type: ignore
 
-    hypernet = eqx.apply_updates(hypernet, updates)
+    film_unet = eqx.apply_updates(film_unet, updates)
 
-    return loss, hypernet, opt_state
+    return loss, film_unet, opt_state
 
 
 @eqx.filter_jit
-def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
+def calc_dice_score(film_unet: FilmUnet, batch: dict[str, Array]):
     gen_image = batch["image"][0]
     gen_label = batch["label"][0]
 
-    model = eqx.filter_jit(hypernet)(gen_image, gen_label)
+    cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
 
     images = batch["image"]
     labels = batch["label"]
 
-    logits = eqx.filter_jit(jax.vmap(model))(images)
+    logits = eqx.filter_jit(jax.vmap(film_unet, in_axes=(0, None)))(images, cond_emb)
 
     preds = jnp.argmax(logits, axis=1)
 
@@ -105,14 +96,14 @@ def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
 
 
 def train(
-    hypernet: HyperNet,
+    film_unet: FilmUnet,
     train_loader: MultiDataLoader,
     opt: optax.GradientTransformation,
     opt_state: optax.OptState,
     *,
     pbar: tqdm,
     epoch: int,
-) -> tuple[HyperNet, optax.OptState]:
+) -> tuple[FilmUnet, optax.OptState]:
     pbar.write("Training:\n")
 
     losses = []
@@ -120,7 +111,7 @@ def train(
     for batch_tensor in tqdm(train_loader, leave=False):
         batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
-        loss, hypernet, opt_state = training_step(hypernet, opt, batch, opt_state)
+        loss, film_unet, opt_state = training_step(film_unet, opt, batch, opt_state)
 
         losses.append(loss.item())
 
@@ -138,10 +129,10 @@ def train(
             }
         )
 
-    return hypernet, opt_state
+    return film_unet, opt_state
 
 
-def validate(hypernet: HyperNet, train_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
+def validate(film_unet: FilmUnet, train_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("Validation:\n")
 
     for dataloader in train_loader.dataloaders:
@@ -149,7 +140,7 @@ def validate(hypernet: HyperNet, train_loader: MultiDataLoader, *, pbar: tqdm, e
 
         batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-        dice = calc_dice_score(hypernet, batch)
+        dice = calc_dice_score(film_unet, batch)
 
         pbar.write(f"Dice score {name: <15}: {dice:.3}")
 
@@ -164,7 +155,7 @@ def validate(hypernet: HyperNet, train_loader: MultiDataLoader, *, pbar: tqdm, e
     pbar.write("")
 
 
-def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: DataLoader):
+def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: DataLoader):
     for dataset, dataloader in zip(train_loader.datasets, train_loader.dataloaders):
         print(f"Dataset {dataset.name}")
         print()
@@ -174,12 +165,12 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
         gen_image = jnp.asarray(batch["image"][0])
         gen_label = jnp.asarray(batch["label"][0])
 
-        model = eqx.filter_jit(hypernet)(gen_image, gen_label)
+        cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
 
         image = jnp.asarray(batch["image"][1])
         label = jnp.asarray(batch["label"][1])
 
-        logits = eqx.filter_jit(model)(image)
+        logits = eqx.filter_jit(film_unet)(image, cond_emb)
         pred = jnp.argmax(logits, axis=0)
 
         fig, axs = plt.subplots(ncols=3)
@@ -190,7 +181,7 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
 
         fig.savefig(f"images/{model_name}_{dataset.name}.pdf")
 
-        dice_score = calc_dice_score(hypernet, batch)
+        dice_score = calc_dice_score(film_unet, batch)
 
         print(f"Dice score: {dice_score:.3f}")
         # print(f"{logits.mean():.3} +/- {logits.std():.3}")
@@ -224,16 +215,16 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
     gen_image = jnp.asarray(batch["image"][0])
     gen_label = jnp.asarray(batch["label"][0])
 
-    dice = calc_dice_score(hypernet, batch)
+    dice = calc_dice_score(film_unet, batch)
 
     print((f"Dice score: {dice:.3f}"))
 
-    model = eqx.filter_jit(hypernet)(gen_image, gen_label)
+    cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
 
     image = jnp.asarray(batch["image"][1])
     label = jnp.asarray(batch["label"][1])
 
-    logits = eqx.filter_jit(model)(image)
+    logits = eqx.filter_jit(film_unet)(image, cond_emb)
     pred = jnp.argmax(logits, axis=0)
 
     fig, axs = plt.subplots(ncols=3)
@@ -259,8 +250,8 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
         wandb.run.log({f"images/test/{test_loader.dataset.name}": image})
 
 
-def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
-    embedder = hypernet.input_embedder
+def make_umap(film_unet: FilmUnet, datasets: list[Dataset]):
+    embedder = film_unet.embedder
 
     embedder = eqx.filter_jit(eqx.filter_vmap(embedder))
 
@@ -295,12 +286,12 @@ def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
     fig.savefig(f"./images/{model_name}_umap.pdf")
 
     if wandb.run is not None:
-        fig.canvas.draw()
+        # fig.canvas.draw()
 
-        image_flat = np.frombuffer(fig.canvas.buffer_rgba(), dtype="uint8")  # type: ignore
-        # NOTE: reversed converts (W, H) from get_width_height to (H, W)
-        # convert from (H * W * 4,) to (H, W, 4)
-        image = image_flat.reshape(*reversed(fig.canvas.get_width_height()), 4)
+        # image_flat = np.frombuffer(fig.canvas.buffer_rgba(), dtype="uint8")  # type: ignore
+        # # NOTE: reversed converts (W, H) from get_width_height to (H, W)
+        # # convert from (H * W * 4,) to (H, W, 4)
+        # image = image_flat.reshape(*reversed(fig.canvas.get_width_height()), 4)
 
         image = wandb.Image(fig, mode="RGBA", caption="UMAP")
 
@@ -312,32 +303,32 @@ def main():
 
     args = parse_args()
 
-    config = HyperConfig(
-        seed=42,
-        dataset=args.dataset,
-        embedder=args.embedder,
-        epochs=args.epochs,
-        learning_rate=1e-7,
-        unet=UnetConfig(
-            base_channels=16,
-            channel_mults=[1, 2, 4],
-            in_channels=3,
-            out_channels=2,
-            use_res=False,
-            use_weight_standardized_conv=False,
-        ),
-        hypernet=HyperNetConfig(
-            block_size=8, emb_size=3 * 1024, kernel_size=3, embedder_kind=args.embedder
-        ),
-    )
+    config = {
+        "seed": 42,
+        "dataset": args.dataset,
+        "embedder": args.embedder,
+        "learning_rate": 1e-4,
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "film_unet": {
+            "base_channels": 16,
+            "channel_mults": [1, 2, 4],
+            "in_channels": 3,
+            "out_channels": 2,
+            "emb_size": 3 * 1024,
+            "emb_kind": "clip",
+            "use_res": False,
+            "use_weight_standardized_conv": False,
+        },
+    }
 
-    model_name = f"hypernet_all_{config.dataset}_{config.embedder}"
+    model_name = f"film_unet_all_{config['dataset']}_{config['embedder']}"
 
     if args.wandb:
         wandb.init(
             project="idea-laplacian-hypernet",
-            config=asdict(config),
-            tags=[config.dataset, config.embedder],
+            config=config,
+            tags=[config["dataset"], config["embedder"]],
             # sync_tensorboard=True,
         )
 
@@ -359,6 +350,10 @@ def main():
 
         testset = datasets.pop("HepaticVessel")
 
+        datasets = {
+            name: dataset for name, dataset in datasets.items() if name in {"Liver", "Spleen"}
+        }
+
         trainsets = list(datasets.values())
     else:
         raise ValueError(f"Invalid dataset {args.dataset}")
@@ -376,28 +371,30 @@ def main():
     train_loader = MultiDataLoader(
         *trainsets,
         num_samples=100 * args.batch_size,
-        dataloader_args=dict(batch_size=args.batch_size, num_workers=args.num_workers),
+        dataloader_args=dict(batch_size=config["batch_size"], num_workers=args.num_workers),
     )
 
     # use 2 * batch_size for test loader since we need no grad here
     test_loader = DataLoader(testset, batch_size=2 * args.batch_size, num_workers=8)
 
-    hypernet = make_hypernet(config)
+    film_unet = FilmUnet(**config["film_unet"], key=jr.PRNGKey(config["seed"]))
 
-    opt = optax.adamw(config.learning_rate)
+    opt = optax.adamw(config["learning_rate"])
 
-    opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
+    opt_state = opt.init(eqx.filter(film_unet, eqx.is_array_like))
 
-    for epoch in (pbar := trange(config.epochs)):
+    for epoch in (pbar := trange(config["epochs"])):
         pbar.write(f"Epoch {epoch:02}\n")
 
-        hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
+        film_unet, opt_state = train(
+            film_unet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch
+        )
 
-        validate(hypernet, train_loader, pbar=pbar, epoch=epoch)
+        validate(film_unet, train_loader, pbar=pbar, epoch=epoch)
 
     model_path = Path(f"models/{model_name}")
 
-    save_with_config_safetensors(model_path, config, hypernet)
+    save_pytree(model_path, film_unet)
 
     if wandb.run is not None:
         model_artifact = wandb.Artifact("model-" + wandb.run.name, type="model")
@@ -410,8 +407,8 @@ def main():
     print()
     print()
 
-    make_plots(hypernet, train_loader, test_loader)
-    make_umap(hypernet, trainsets + [testset])
+    make_plots(film_unet, train_loader, test_loader)
+    # make_umap(film_unet, trainsets + [testset])
 
 
 if __name__ == "__main__":

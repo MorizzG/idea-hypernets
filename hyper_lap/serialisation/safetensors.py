@@ -19,7 +19,7 @@ from safetensors.flax import save_file
 
 from hyper_lap.hyper.hypernet import HyperNet, HyperNetConfig
 from hyper_lap.models.unet import UnetConfig
-from hyper_lap.training.utils import Config, make_hypernet
+from hyper_lap.training.utils import HyperConfig, make_hypernet
 
 from .utils import as_path
 
@@ -138,7 +138,7 @@ def load_pytree(path: str | Path, tree: PyTree, *, prefix: Optional[str] = None)
     return tree
 
 
-def save_with_config_safetensors(path: str | Path, config: Config, pytree: PyTree):
+def save_with_config_safetensors(path: str | Path, config: HyperConfig, pytree: PyTree):
     path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")
@@ -151,7 +151,7 @@ def save_with_config_safetensors(path: str | Path, config: Config, pytree: PyTre
     save_pytree(safetensors_path, pytree)
 
 
-def load_config(path: str | Path) -> Config:
+def load_config(path: str | Path) -> HyperConfig:
     path = as_path(path)
 
     if not path.exists():
@@ -166,7 +166,7 @@ def load_config(path: str | Path) -> Config:
     unet_config = UnetConfig(**config_dict.pop("unet"))
     hypernet_config = HyperNetConfig(**config_dict.pop("hypernet"))
 
-    config = Config(unet=unet_config, hypernet=hypernet_config, **config_dict)
+    config = HyperConfig(unet=unet_config, hypernet=hypernet_config, **config_dict)
 
     return config
 
