@@ -50,13 +50,18 @@ DEFAULT_BATCH_SIZE = 64
 DEFAULT_EPOCHS = 50
 DEFAULT_NUM_WORKERS = min(multiprocessing.cpu_count() // 2, 64)
 
+dataset_paths = [
+    "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets",
+    "/media/LinuxData/datasets",
+    "./datasets",
+]
 
-dataset_dir = Path("/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets")
+for dataset_path in dataset_paths:
+    dataset_dir = Path(dataset_path)
 
-if not dataset_dir.exists():
-    dataset_dir = Path("/media/LinuxData/datasets")
-
-if not dataset_dir.exists():
+    if dataset_dir.exists():
+        break
+else:
     raise RuntimeError("Could not determine root_dir")
 
 
