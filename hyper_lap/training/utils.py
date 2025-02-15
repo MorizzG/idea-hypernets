@@ -23,6 +23,7 @@ class Args:
     degenerate: bool
     wandb: bool
 
+    lr: float
     batch_size: int
     epochs: int
     num_workers: int
@@ -69,6 +70,7 @@ def parse_args() -> Args:
     parser.add_argument("--degenerate", action="store_true", help="Use degenerate dataset")
     parser.add_argument("--wandb", action="store_true", help="Run with W&B logging")
 
+    parser.add_argument("--lr", type=float)
     parser.add_argument(
         "--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of epochs to train for"
     )

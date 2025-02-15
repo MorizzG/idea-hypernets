@@ -359,9 +359,16 @@ def main():
 
         testset = datasets.pop("HepaticVessel")
 
+        datasets = {
+            name: dataset for name, dataset in datasets.items() if name in {"Liver", "Spleen"}
+        }
+
         trainsets = list(datasets.values())
     else:
         raise ValueError(f"Invalid dataset {args.dataset}")
+
+    print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
+    print(f"Testset: {testset.name}")
 
     if args.degenerate:
         print("Using degenerate dataset")

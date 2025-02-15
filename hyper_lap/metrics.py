@@ -1,22 +1,31 @@
-from jaxtyping import Array, Float, Integer
+from jaxtyping import Array, Bool, jaxtyped
 
 import jax
+import jax.core
 import jax.numpy as jnp
-from chex import assert_equal_shape, assert_equal_shape_suffix, assert_rank, assert_shape
+import numpy as np
+import skimage.metrics
+from beartype import beartype
+from chex import (
+    assert_equal_shape,
+    assert_equal_shape_suffix,
+    assert_rank,
+    assert_shape,
+    assert_type,
+)
 
 
-def dice_score(pred: Float[Array, "h w"], label: Integer[Array, "h w"]) -> Array:
+# @jaxtyped(typechecker=beartype)
+def dice_score(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
     """
     Calculate Dice score (F1 score).
     """
 
     assert_rank([pred, label], 2)
     assert_equal_shape([pred, label])
+    assert_type([pred, label], jnp.bool)
 
     eps = 1e-10
-
-    pred = pred.astype(bool)
-    label = label.astype(bool)
 
     true_pos = jnp.count_nonzero(pred & label)
 
@@ -31,18 +40,17 @@ def dice_score(pred: Float[Array, "h w"], label: Integer[Array, "h w"]) -> Array
     return dice_score
 
 
-def jaccard_index(pred: Integer[Array, "h w"], label: Integer[Array, "h w"]) -> Array:
+@jaxtyped(typechecker=beartype)
+def jaccard_index(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
     """
     Calculate Jaccard index (Intersection over Union).
     """
 
     assert_rank([pred, label], 2)
     assert_equal_shape([pred, label])
+    assert_type([pred, label], jnp.bool)
 
     eps = 1e-10
-
-    pred = pred.astype(bool)
-    label = label.astype(bool)
 
     intersection = jnp.count_nonzero(pred & label)
 
@@ -56,14 +64,14 @@ def jaccard_index(pred: Integer[Array, "h w"], label: Integer[Array, "h w"]) -> 
     return jaccard_index
 
 
-def generalised_energy_distance(
-    preds: Integer[Array, "n h w"], labels: Integer[Array, "m h w"]
-) -> Array:
+@jaxtyped(typechecker=beartype)
+def generalised_energy_distance(preds: Bool[Array, "n h w"], labels: Bool[Array, "m h w"]) -> Array:
     """
     Calculate generalised energy distance (GED).
     """
     assert_rank([preds, labels], 3)
     assert_equal_shape_suffix([preds, labels], 2)
+    assert_type([preds, labels], jnp.bool)
 
     # vmap first axis of each input separately, dist = 1 - IoU
     def dist_fn(x, y):
@@ -81,3 +89,25 @@ def generalised_energy_distance(
     ged = 2 * pred_label_dist - pred_pred_dist - label_label_dist
 
     return ged
+
+
+@jaxtyped(typechecker=beartype)
+def hausdorff_distance(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> float:
+    """
+    Calculate Hausdorff distance.
+    """
+
+    assert_rank([pred, label], 2)
+    assert_equal_shape([pred, label])
+    assert_type([pred, label], jnp.bool)
+
+    assert not isinstance(pred, jax.core.Tracer), "Can't use hausdorff inside JIT"
+
+    pred_np = np.asarray(pred)
+    label_np = np.asarray(label)
+
+    d = skimage.metrics.hausdorff_distance(pred_np, label_np)
+
+    assert isinstance(d, float)
+
+    return d

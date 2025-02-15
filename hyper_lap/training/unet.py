@@ -39,12 +39,18 @@ model_name = Path(__file__).stem
 args = parse_args()
 
 if args.dataset == "medidec":
+    # Bad CT: Colon
+    # Good CT: Liver Lung Spleen Pancreas HepaticVessel
     dataset = load_medidec_datasets(normalised=True)["Colon"]
 elif args.dataset == "amos":
-    dataset = load_amos_datasets(normalised=True)["liver"]
+    # bad:  left-kidney gall esophagus liver stomach aorta postcava pancreas duodenum
+    #      bladder prostate-uterus
+    # good: spleen right-kidney
+    dataset = load_amos_datasets(normalised=True)["spleen"]
 else:
     raise ValueError(f"Invalid dataset {args.dataset}")
 
+print(dataset.name)
 
 if args.degenerate:
     print("Using degenerate dataset")
@@ -83,7 +89,8 @@ unet_config = UnetConfig(
 
 model = Unet(**asdict(unet_config), key=jr.PRNGKey(seed))
 
-opt = optax.adamw(5e-5)
+# opt = optax.adamw(1e-4)
+opt = optax.adamw(args.lr)
 
 opt_state = opt.init(eqx.filter(model, eqx.is_array))
 

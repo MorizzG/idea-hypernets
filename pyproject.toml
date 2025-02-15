@@ -21,6 +21,7 @@ dependencies = [
     "numba>=0.61.0",
     "safetensors>=0.5.2",
     "wandb>=0.19.6",
+    "scikit-image>=0.25.1",
 ]
 
 

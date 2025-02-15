@@ -1,5 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
+import shutil
 import warnings
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from umap import UMAP
 
 import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
-from hyper_lap.metrics import dice_score
+from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models import FilmUnet
 from hyper_lap.serialisation.safetensors import save_pytree
 from hyper_lap.training.utils import load_amos_datasets, load_medidec_datasets, parse_args, to_PIL
@@ -33,6 +34,28 @@ def consume():
     global _key
     _key, _consume = jr.split(_key)
     return _consume
+
+
+def calc_metrics(film_unet: FilmUnet, batch: dict[str, Array]) -> dict[str, Array]:
+    images = batch["image"]
+    labels = batch["label"]
+
+    cond_emb = eqx.filter_jit(film_unet.embedder)(images[0], labels[0])
+
+    logits = eqx.filter_jit(jax.vmap(film_unet, in_axes=(0, None)))(images, cond_emb)
+
+    preds = jnp.argmax(logits, axis=1)
+
+    preds = preds != 0
+    labels = labels != 0
+
+    dice = jax.jit(jax.vmap(dice_score))(preds, labels).mean()
+
+    iou = jax.jit(jax.vmap(jaccard_index))(preds, labels).mean()
+
+    hd = np.array([hausdorff_distance(preds[i], labels[i]) for i in range(preds.shape[0])]).mean()
+
+    return {"dice": dice, "iou": iou, "hausdorff": hd}
 
 
 @jax.jit
@@ -76,25 +99,6 @@ def training_step(
     return loss, film_unet, opt_state
 
 
-@eqx.filter_jit
-def calc_dice_score(film_unet: FilmUnet, batch: dict[str, Array]):
-    gen_image = batch["image"][0]
-    gen_label = batch["label"][0]
-
-    cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
-
-    images = batch["image"]
-    labels = batch["label"]
-
-    logits = eqx.filter_jit(jax.vmap(film_unet, in_axes=(0, None)))(images, cond_emb)
-
-    preds = jnp.argmax(logits, axis=1)
-
-    dices = jax.jit(jax.vmap(dice_score))(preds, labels)
-
-    return jnp.mean(dices)
-
-
 def train(
     film_unet: FilmUnet,
     train_loader: MultiDataLoader,
@@ -135,27 +139,46 @@ def train(
 def validate(film_unet: FilmUnet, train_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("Validation:\n")
 
+    all_metrics: dict[str, dict[str, Array]] = {}
+
     for dataloader in train_loader.dataloaders:
-        name: str = dataloader.dataset.name  # type: ignore
+        dataset_name: str = dataloader.dataset.name  # type: ignore
 
         batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-        dice = calc_dice_score(film_unet, batch)
+        metrics = calc_metrics(film_unet, batch)
 
-        pbar.write(f"Dice score {name: <15}: {dice:.3}")
+        pbar.write(f"Dataset: {dataset_name}")
+        pbar.write(f"    Dice score: {metrics['dice']:.3f}")
+        pbar.write(f"    IoU score : {metrics['iou']:.3f}")
+        pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
+        pbar.write("")
 
-        if wandb.run is not None:
-            wandb.run.log(
-                {
-                    "epoch": epoch,
-                    f"dice/{name}": dice,
-                }
-            )
+        all_metrics[dataset_name] = metrics
+
+    if wandb.run is not None:
+        wandb.run.log(
+            {
+                "epoch": epoch,
+            }
+            | {
+                f"{metric}/{dataset_name}": val.item()
+                for dataset_name, metrics in all_metrics.items()
+                for metric, val in metrics.items()
+            }
+        )
 
     pbar.write("")
 
 
 def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: DataLoader):
+    image_folder = Path(f"./images/{model_name}")
+
+    if image_folder.exists():
+        shutil.rmtree(image_folder)
+
+    image_folder.mkdir(parents=True)
+
     for dataset, dataloader in zip(train_loader.datasets, train_loader.dataloaders):
         print(f"Dataset {dataset.name}")
         print()
@@ -179,11 +202,13 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
         axs[1].imshow(label, cmap="gray")
         axs[2].imshow(pred, cmap="gray")
 
-        fig.savefig(f"images/{model_name}_{dataset.name}.pdf")
+        fig.savefig(image_folder / f"{dataset.name}.pdf")
 
-        dice_score = calc_dice_score(film_unet, batch)
+        metrics = calc_metrics(film_unet, batch)
 
-        print(f"Dice score: {dice_score:.3f}")
+        print(f"Dice score: {metrics['dice']:.3f}")
+        print(f"IoU       : {metrics['iou']:.3f}")
+        print(f"Hausdorff : {metrics['hausdorff']:.3f}")
         # print(f"{logits.mean():.3} +/- {logits.std():.3}")
 
         print()
@@ -215,9 +240,12 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
     gen_image = jnp.asarray(batch["image"][0])
     gen_label = jnp.asarray(batch["label"][0])
 
-    dice = calc_dice_score(film_unet, batch)
+    metrics = calc_metrics(film_unet, batch)
 
-    print((f"Dice score: {dice:.3f}"))
+    print(f"Dice score: {metrics['dice']:.3f}")
+    print(f"IoU       : {metrics['iou']:.3f}")
+    print(f"Hausdorff : {metrics['hausdorff']:.3f}")
+    print()
 
     cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
 
@@ -233,7 +261,7 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
     axs[1].imshow(label, cmap="gray")
     axs[2].imshow(pred, cmap="gray")
 
-    fig.savefig(f"images/{model_name}_{test_loader.dataset.name}_test.pdf")
+    fig.savefig(image_folder / f"{test_loader.dataset.name}_test.pdf")
 
     if wandb.run is not None:
         class_labels = {0: "background", 1: "foreground"}
@@ -251,6 +279,10 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
 
 
 def make_umap(film_unet: FilmUnet, datasets: list[Dataset]):
+    image_folder = Path(f"./images/{model_name}")
+
+    assert image_folder.exists()
+
     embedder = film_unet.embedder
 
     embedder = eqx.filter_jit(eqx.filter_vmap(embedder))
@@ -283,7 +315,7 @@ def make_umap(film_unet: FilmUnet, datasets: list[Dataset]):
 
     fig.legend(loc="outside center right")
 
-    fig.savefig(f"./images/{model_name}_umap.pdf")
+    fig.savefig(image_folder / f"/{model_name}_umap.pdf")
 
     if wandb.run is not None:
         # fig.canvas.draw()
@@ -307,7 +339,7 @@ def main():
         "seed": 42,
         "dataset": args.dataset,
         "embedder": args.embedder,
-        "learning_rate": 1e-4,
+        "learning_rate": args.lr,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "film_unet": {
@@ -337,6 +369,12 @@ def main():
 
         testset = datasets.pop("liver")
 
+        datasets = {
+            name: dataset
+            for name, dataset in datasets.items()
+            if name in {"spleen", "pancreas"}  #
+        }
+
         trainsets = list(datasets.values())
     elif args.dataset == "medidec":
         datasets = load_medidec_datasets(normalised=True)
@@ -348,15 +386,22 @@ def main():
             if dataset.metadata.modality["0"] == "CT"
         }
 
-        testset = datasets.pop("HepaticVessel")
+        # CT datasets: Liver, Lung, Pancreas, HepaticVessel, Spleen, Colon
+
+        testset = datasets.pop("Spleen")
 
         datasets = {
-            name: dataset for name, dataset in datasets.items() if name in {"Liver", "Spleen"}
+            name: dataset
+            for name, dataset in datasets.items()
+            if name in {"Liver", "Pancreas", "Lung"}
         }
 
         trainsets = list(datasets.values())
     else:
         raise ValueError(f"Invalid dataset {args.dataset}")
+
+    print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
+    print(f"Testset:   {testset.name}")
 
     if args.degenerate:
         print("Using degenerate dataset")
@@ -382,6 +427,9 @@ def main():
     opt = optax.adamw(config["learning_rate"])
 
     opt_state = opt.init(eqx.filter(film_unet, eqx.is_array_like))
+
+    print()
+    print()
 
     for epoch in (pbar := trange(config["epochs"])):
         pbar.write(f"Epoch {epoch:02}\n")
