@@ -20,7 +20,7 @@ class AmosSliced(Dataset):
     @property
     def name(self) -> str:
         # "AMOS " +
-        return self.metadata.name.split(" ")[1]
+        return " ".join(self.metadata.name.split(" ")[1:-1])
 
     def __init__(
         self,

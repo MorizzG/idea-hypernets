@@ -1,4 +1,9 @@
+import concurrent.futures
+from os import cpu_count
+
 import numpy as np
+from tqdm import tqdm
+from tqdm.contrib.concurrent import thread_map
 
 from .base import Dataset
 from .metadata import Metadata
@@ -20,12 +25,19 @@ class PreloadedDataset(Dataset):
     def __init__(self, dataset):
         super().__init__()
 
-        from tqdm import tqdm
-
-        self.dataset = []
-        self.dataset.extend(tqdm(dataset))
-
         self.orig_dataset = dataset
+
+        # self.dataset = []
+        # self.dataset.extend(tqdm(dataset))
+
+        n = len(dataset)
+
+        max_workers = min((cpu_count() or 32) + 4, 32)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            self.dataset = list(tqdm(executor.map(lambda i: dataset[i], range(n)), total=n))
+
+        # self.dataset = thread_map(lambda i: dataset[i], range(len(dataset)))
 
     def __len__(self) -> int:
         return len(self.dataset)
