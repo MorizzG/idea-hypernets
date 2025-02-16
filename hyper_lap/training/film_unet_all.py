@@ -316,7 +316,7 @@ def make_umap(film_unet: FilmUnet, datasets: list[Dataset]):
 
     fig.legend(loc="outside center right")
 
-    fig.savefig(image_folder / f"/{model_name}_umap.pdf")
+    fig.savefig(image_folder / "/umap.pdf")
 
     if wandb.run is not None:
         image = wandb.Image(fig, mode="RGBA", caption="UMAP")
@@ -354,7 +354,7 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             config=config,
-            tags=[config["dataset"], config["embedder"]],
+            tags=[config["dataset"], config["embedder"], "film"],
             # sync_tensorboard=True,
         )
 

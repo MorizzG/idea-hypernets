@@ -365,7 +365,7 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             config=asdict(config),
-            tags=[config.dataset, config.embedder],
+            tags=[config.dataset, config.embedder, "hypernet"],
             # sync_tensorboard=True,
         )
 
