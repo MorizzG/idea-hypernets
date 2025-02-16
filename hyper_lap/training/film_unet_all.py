@@ -440,7 +440,9 @@ def main():
 
         validate(film_unet, train_loader, pbar=pbar, epoch=epoch)
 
-    model_path = Path(f"models/{model_name}")
+    model_path = Path(f"./models/{model_name}")
+
+    model_path.parent.mkdir(exist_ok=True)
 
     save_pytree(model_path, film_unet)
 
