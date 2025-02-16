@@ -150,9 +150,9 @@ def validate(film_unet: FilmUnet, train_loader: MultiDataLoader, *, pbar: tqdm, 
         metrics = calc_metrics(film_unet, batch)
 
         pbar.write(f"Dataset: {dataset_name}")
-        pbar.write(f"    Dice score: {metrics['dice']:.3f}")
-        pbar.write(f"    IoU score : {metrics['iou']:.3f}")
-        pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
+        pbar.write(f"    Dice score: {metrics['dice']:.3}")
+        pbar.write(f"    IoU score : {metrics['iou']:.3}")
+        pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3}")
         pbar.write("")
 
         all_metrics[dataset_name] = metrics
@@ -207,10 +207,10 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
 
         metrics = calc_metrics(film_unet, batch)
 
-        print(f"Dice score: {metrics['dice']:.3f}")
-        print(f"IoU       : {metrics['iou']:.3f}")
-        print(f"Hausdorff : {metrics['hausdorff']:.3f}")
-        # print(f"{logits.mean():.3} +/- {logits.std():.3}")
+        print(f"Dataset {dataset.name}:")
+        print(f"    Dice score: {metrics['dice']:.3}")
+        print(f"    IoU score : {metrics['iou']:.3}")
+        print(f"    Hausdorff : {metrics['hausdorff']:.3}")
 
         print()
         print()
@@ -243,9 +243,9 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
 
     metrics = calc_metrics(film_unet, batch)
 
-    print(f"Dice score: {metrics['dice']:.3f}")
-    print(f"IoU       : {metrics['iou']:.3f}")
-    print(f"Hausdorff : {metrics['hausdorff']:.3f}")
+    print(f"Dice score: {metrics['dice']:.3}")
+    print(f"IoU       : {metrics['iou']:.3}")
+    print(f"Hausdorff : {metrics['hausdorff']:.3}")
     print()
 
     cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
@@ -319,13 +319,6 @@ def make_umap(film_unet: FilmUnet, datasets: list[Dataset]):
     fig.savefig(image_folder / f"/{model_name}_umap.pdf")
 
     if wandb.run is not None:
-        # fig.canvas.draw()
-
-        # image_flat = np.frombuffer(fig.canvas.buffer_rgba(), dtype="uint8")  # type: ignore
-        # # NOTE: reversed converts (W, H) from get_width_height to (H, W)
-        # # convert from (H * W * 4,) to (H, W, 4)
-        # image = image_flat.reshape(*reversed(fig.canvas.get_width_height()), 4)
-
         image = wandb.Image(fig, mode="RGBA", caption="UMAP")
 
         wandb.run.log({"images/umap": image})
@@ -463,7 +456,7 @@ def main():
     print()
 
     make_plots(film_unet, train_loader, test_loader)
-    # make_umap(film_unet, trainsets + [testset])
+    make_umap(film_unet, trainsets + [testset])
 
 
 if __name__ == "__main__":

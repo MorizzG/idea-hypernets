@@ -1,5 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
+import shutil
 import warnings
 from dataclasses import asdict
 from pathlib import Path
@@ -20,7 +21,7 @@ from umap import UMAP
 import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.hyper import HyperNet, HyperNetConfig
-from hyper_lap.metrics import dice_score
+from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models import UnetConfig
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.training.utils import (
@@ -42,6 +43,31 @@ def consume():
     global _key
     _key, _consume = jr.split(_key)
     return _consume
+
+
+def calc_metrics(hypernet: HyperNet, batch: dict[str, Array]) -> dict[str, Array]:
+    images = batch["image"]
+    labels = batch["label"]
+
+    gen_image = images[0]
+    gen_label = labels[0]
+
+    model = eqx.filter_jit(hypernet)(gen_image, gen_label)
+
+    logits = eqx.filter_jit(jax.vmap(model))(images)
+
+    preds = jnp.argmax(logits, axis=1)
+
+    preds = preds != 0
+    labels = labels != 0
+
+    dice = jax.jit(jax.vmap(dice_score))(preds, labels).mean()
+
+    iou = jax.jit(jax.vmap(jaccard_index))(preds, labels).mean()
+
+    hd = np.array([hausdorff_distance(preds[i], labels[i]) for i in range(preds.shape[0])]).mean()
+
+    return {"dice": dice, "iou": iou, "hausdorff": hd}
 
 
 @jax.jit
@@ -85,25 +111,6 @@ def training_step(
     return loss, hypernet, opt_state
 
 
-@eqx.filter_jit
-def calc_dice_score(hypernet: HyperNet, batch: dict[str, Array]):
-    gen_image = batch["image"][0]
-    gen_label = batch["label"][0]
-
-    model = eqx.filter_jit(hypernet)(gen_image, gen_label)
-
-    images = batch["image"]
-    labels = batch["label"]
-
-    logits = eqx.filter_jit(jax.vmap(model))(images)
-
-    preds = jnp.argmax(logits, axis=1)
-
-    dices = jax.jit(jax.vmap(dice_score))(preds, labels)
-
-    return jnp.mean(dices)
-
-
 def train(
     hypernet: HyperNet,
     train_loader: MultiDataLoader,
@@ -144,27 +151,47 @@ def train(
 def validate(hypernet: HyperNet, train_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("Validation:\n")
 
+    all_metrics: dict[str, dict[str, Array]] = {}
+
     for dataloader in train_loader.dataloaders:
-        name: str = dataloader.dataset.name  # type: ignore
+        dataset_name: str = dataloader.dataset.name  # type: ignore
 
         batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-        dice = calc_dice_score(hypernet, batch)
+        # dice = calc_dice_score(hypernet, batch)
+        metrics = calc_metrics(hypernet, batch)
 
-        pbar.write(f"Dice score {name: <15}: {dice:.3}")
+        pbar.write(f"Dataset: {dataset_name}:")
+        pbar.write(f"    Dice score: {metrics['dice']:.3}")
+        pbar.write(f"    IoU score : {metrics['iou']:.3}")
+        pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3}")
+        pbar.write("")
 
-        if wandb.run is not None:
-            wandb.run.log(
-                {
-                    "epoch": epoch,
-                    f"dice/{name}": dice,
-                }
-            )
+        all_metrics[dataset_name] = metrics
+
+    if wandb.run is not None:
+        wandb.run.log(
+            {
+                "epoch": epoch,
+            }
+            | {
+                f"{metric}/{dataset_name}": val.item()
+                for dataset_name, metrics in all_metrics.items()
+                for metric, val in metrics.items()
+            }
+        )
 
     pbar.write("")
 
 
 def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: DataLoader):
+    image_folder = Path(f"./images/{model_name}")
+
+    if image_folder.exists():
+        shutil.rmtree(image_folder)
+
+    image_folder.mkdir(parents=True)
+
     for dataset, dataloader in zip(train_loader.datasets, train_loader.dataloaders):
         print(f"Dataset {dataset.name}")
         print()
@@ -188,12 +215,14 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
         axs[1].imshow(label, cmap="gray")
         axs[2].imshow(pred, cmap="gray")
 
-        fig.savefig(f"images/{model_name}_{dataset.name}.pdf")
+        fig.savefig(image_folder / f"{dataset.name}.pdf")
 
-        dice_score = calc_dice_score(hypernet, batch)
+        metrics = calc_metrics(hypernet, batch)
 
-        print(f"Dice score: {dice_score:.3f}")
-        # print(f"{logits.mean():.3} +/- {logits.std():.3}")
+        print(f"Dataset {dataset.name}:")
+        print(f"    Dice score: {metrics['dice']:.3}")
+        print(f"    IoU score : {metrics['iou']:.3}")
+        print(f"    Hausdorff : {metrics['hausdorff']:.3}")
 
         print()
         print()
@@ -224,9 +253,11 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
     gen_image = jnp.asarray(batch["image"][0])
     gen_label = jnp.asarray(batch["label"][0])
 
-    dice = calc_dice_score(hypernet, batch)
+    metrics = calc_metrics(hypernet, batch)
 
-    print((f"Dice score: {dice:.3f}"))
+    print(f"Dice score: {metrics['dice']:.3}")
+    print(f"IoU       : {metrics['iou']:.3}")
+    print(f"Hausdorff : {metrics['hausdorff']:.3}")
 
     model = eqx.filter_jit(hypernet)(gen_image, gen_label)
 
@@ -242,7 +273,7 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
     axs[1].imshow(label, cmap="gray")
     axs[2].imshow(pred, cmap="gray")
 
-    fig.savefig(f"images/{model_name}_{test_loader.dataset.name}_test.pdf")
+    fig.savefig(image_folder / f"{test_loader.dataset.name}_test.pdf")
 
     if wandb.run is not None:
         class_labels = {0: "background", 1: "foreground"}
@@ -260,6 +291,10 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
 
 
 def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
+    image_folder = Path(f"./images/{model_name}")
+
+    assert image_folder.exists()
+
     embedder = hypernet.input_embedder
 
     embedder = eqx.filter_jit(eqx.filter_vmap(embedder))
@@ -292,16 +327,9 @@ def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
 
     fig.legend(loc="outside center right")
 
-    fig.savefig(f"./images/{model_name}_umap.pdf")
+    fig.savefig(image_folder / "umap.pdf")
 
     if wandb.run is not None:
-        fig.canvas.draw()
-
-        image_flat = np.frombuffer(fig.canvas.buffer_rgba(), dtype="uint8")  # type: ignore
-        # NOTE: reversed converts (W, H) from get_width_height to (H, W)
-        # convert from (H * W * 4,) to (H, W, 4)
-        image = image_flat.reshape(*reversed(fig.canvas.get_width_height()), 4)
-
         image = wandb.Image(fig, mode="RGBA", caption="UMAP")
 
         wandb.run.log({"images/umap": image})
@@ -346,6 +374,12 @@ def main():
 
         testset = datasets.pop("liver")
 
+        datasets = {
+            name: dataset
+            for name, dataset in datasets.items()
+            if name in {"spleen", "pancreas"}  #
+        }
+
         trainsets = list(datasets.values())
     elif args.dataset == "medidec":
         datasets = load_medidec_datasets(normalised=True)
@@ -357,10 +391,12 @@ def main():
             if dataset.metadata.modality["0"] == "CT"
         }
 
-        testset = datasets.pop("HepaticVessel")
+        testset = datasets.pop("Spleen")
 
         datasets = {
-            name: dataset for name, dataset in datasets.items() if name in {"Liver", "Spleen"}
+            name: dataset
+            for name, dataset in datasets.items()
+            if name in {"Liver", "Pancreas", "Lung"}
         }
 
         trainsets = list(datasets.values())
@@ -368,7 +404,7 @@ def main():
         raise ValueError(f"Invalid dataset {args.dataset}")
 
     print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
-    print(f"Testset: {testset.name}")
+    print(f"Testset:   {testset.name}")
 
     if args.degenerate:
         print("Using degenerate dataset")
@@ -402,7 +438,9 @@ def main():
 
         validate(hypernet, train_loader, pbar=pbar, epoch=epoch)
 
-    model_path = Path(f"models/{model_name}")
+    model_path = Path(f"./models/{model_name}.safetensors")
+
+    model_path.parent.mkdir(exist_ok=True)
 
     save_with_config_safetensors(model_path, config, hypernet)
 
