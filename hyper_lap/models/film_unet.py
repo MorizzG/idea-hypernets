@@ -86,11 +86,6 @@ class FilmUnet(eqx.Module):
     def __call__(
         self, x: Float[Array, "c_in h w"], cond: Array, *, key: Optional[PRNGKeyArray] = None
     ) -> Float[Array, "c_out h w"]:
-        mean = x.mean()
-        std = x.std()
-
-        x = (x - mean) / std
-
         x = self.init_conv(x)
         x = self.unet(x, cond)
         x = self.recomb(x)

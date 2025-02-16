@@ -84,11 +84,6 @@ class Unet(eqx.Module):
     def __call__(
         self, x: Float[Array, "c_in h w"], *, key: Optional[PRNGKeyArray] = None
     ) -> Float[Array, "c_out h w"]:
-        mean = x.mean()
-        std = x.std()
-
-        x = (x - mean) / std
-
         x = self.init_conv(x)
         x = self.unet(x)
         x = self.recomb(x)
