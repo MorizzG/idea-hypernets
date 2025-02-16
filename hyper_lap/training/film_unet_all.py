@@ -1,5 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
+import json
 import shutil
 import warnings
 from pathlib import Path
@@ -440,11 +441,15 @@ def main():
 
         validate(film_unet, train_loader, pbar=pbar, epoch=epoch)
 
-    model_path = Path(f"./models/{model_name}")
+    model_path = Path(f"./models/{model_name}.safetensors")
 
     model_path.parent.mkdir(exist_ok=True)
 
     save_pytree(model_path, film_unet)
+
+    with model_path.with_suffix(".json").open("wb") as f:
+        hyper_params_str = json.dumps(config)
+        f.write((hyper_params_str).encode())
 
     if wandb.run is not None:
         model_artifact = wandb.Artifact("model-" + wandb.run.name, type="model")
