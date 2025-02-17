@@ -30,6 +30,7 @@ from hyper_lap.training.utils import (
     load_medidec_datasets,
     make_hypernet,
     parse_args,
+    print_config,
     to_PIL,
 )
 
@@ -368,6 +369,8 @@ def main():
             tags=[config.dataset, config.embedder, "hypernet"],
             # sync_tensorboard=True,
         )
+
+    print_config(config)
 
     if args.dataset == "amos":
         datasets = load_amos_datasets(normalised=True)

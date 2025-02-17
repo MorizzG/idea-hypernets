@@ -28,6 +28,7 @@ from hyper_lap.training.utils import (
     load_model_artifact,
     make_hypernet,
     parse_args,
+    print_config,
 )
 
 warnings.simplefilter("ignore")
@@ -228,6 +229,8 @@ def main():
             assert False
 
     del args
+
+    print_config(config)
 
     model_name = Path(__file__).stem + "_" + config["embedder"]
 

@@ -30,6 +30,7 @@ from hyper_lap.training.utils import (
     load_medidec_datasets,
     load_model_artifact,
     parse_args,
+    print_config,
     to_PIL,
 )
 
@@ -382,6 +383,8 @@ def main():
         )
 
     del args
+
+    print_config(config)
 
     model_name = f"film_unet_all_{config['dataset']}_{config['embedder']}"
 

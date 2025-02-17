@@ -108,6 +108,10 @@ def parse_args() -> TrainArgs | ResumeArgs:
             raise RuntimeError(f"Found unexpected command {cmd}")
 
 
+def print_config(config: dict):
+    print(yaml.dump(config, indent=2, width=60, default_flow_style=None, sort_keys=False))
+
+
 def load_amos_datasets(normalised: bool = True) -> dict[str, Dataset]:
     amos_dir = dataset_dir / "AmosSliced"
 
@@ -159,8 +163,6 @@ def load_medidec_datasets(normalised: bool = True) -> dict[str, Dataset]:
 
 
 def make_hypernet(config: dict[str, Any]) -> HyperNet:
-    print(yaml.dump(config, indent=2, width=60, default_flow_style=None, sort_keys=False))
-
     key = jr.PRNGKey(config["seed"])
     unet_key, hypernet_key = jr.split(key)
 
