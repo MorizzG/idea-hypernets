@@ -2,7 +2,6 @@ from jaxtyping import Array, Float, Integer
 
 import shutil
 import warnings
-from dataclasses import asdict
 from pathlib import Path
 
 import equinox as eqx
@@ -13,6 +12,7 @@ import jax.tree as jt
 import numpy as np
 import optax
 from matplotlib import pyplot as plt
+from omegaconf import MISSING, OmegaConf
 from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
@@ -20,14 +20,14 @@ from umap import UMAP
 
 import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
-from hyper_lap.hyper import HyperNet, HyperNetConfig
+from hyper_lap.hyper import HyperNet
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
-from hyper_lap.models import UnetConfig
 from hyper_lap.serialisation import save_with_config_safetensors
+from hyper_lap.serialisation.safetensors import load_pytree
 from hyper_lap.training.utils import (
-    HyperConfig,
     load_amos_datasets,
     load_medidec_datasets,
+    load_model_artifact,
     make_hypernet,
     parse_args,
     print_config,
@@ -150,7 +150,8 @@ def train(
 
 
 def validate(hypernet: HyperNet, train_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
-    pbar.write("Validation:\n")
+    pbar.write("Validation:")
+    pbar.write("")
 
     all_metrics: dict[str, dict[str, Array]] = {}
 
@@ -159,7 +160,6 @@ def validate(hypernet: HyperNet, train_loader: MultiDataLoader, *, pbar: tqdm, e
 
         batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-        # dice = calc_dice_score(hypernet, batch)
         metrics = calc_metrics(hypernet, batch)
 
         pbar.write(f"Dataset: {dataset_name}:")
@@ -257,7 +257,7 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
     metrics = calc_metrics(hypernet, batch)
 
     print(f"Dice score: {metrics['dice']:.3}")
-    print(f"IoU       : {metrics['iou']:.3}")
+    print(f"IoU score : {metrics['iou']:.3}")
     print(f"Hausdorff : {metrics['hausdorff']:.3}")
 
     model = eqx.filter_jit(hypernet)(gen_image, gen_label)
@@ -339,98 +339,135 @@ def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
 def main():
     global model_name
 
-    args = parse_args()
-
-    config = HyperConfig(
-        seed=42,
-        dataset=args.dataset,
-        embedder=args.embedder,
-        epochs=args.epochs,
-        learning_rate=1e-7,
-        unet=UnetConfig(
-            base_channels=16,
-            channel_mults=[1, 2, 4],
-            in_channels=3,
-            out_channels=2,
-            use_res=False,
-            use_weight_standardized_conv=False,
-        ),
-        hypernet=HyperNetConfig(
-            block_size=8, emb_size=3 * 1024, kernel_size=3, embedder_kind=args.embedder
-        ),
+    base_config = OmegaConf.create(
+        {
+            "seed": 42,
+            "dataset": MISSING,
+            "degenerate": False,
+            "epochs": MISSING,
+            "lr": MISSING,
+            "batch_size": MISSING,
+            "embedder": MISSING,
+            "unet": {
+                "base_channels": 16,
+                "channel_mults": [1, 2, 4],
+                "in_channels": 3,
+                "out_channels": 2,
+                "use_res": False,
+                "use_weight_standardized_conv": False,
+            },
+            "hypernet": {
+                "block_size": 8,
+                "emb_size": 3 * 1024,
+                "kernel_size": 3,
+                "embedder_kind": "${embedder}",
+            },
+        }
     )
 
-    model_name = f"hypernet_all_{config.dataset}_{config.embedder}"
+    OmegaConf.set_readonly(base_config, True)
+    OmegaConf.set_struct(base_config, True)
+
+    args, arg_config = parse_args()
+
+    match args.command:
+        case "train":
+            config = OmegaConf.merge(base_config, arg_config)
+
+            if missing_keys := OmegaConf.missing_keys(config):
+                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+
+            hypernet = make_hypernet(OmegaConf.to_object(config))  # type: ignore
+
+        case "resume":
+            assert args.artifact is not None
+
+            loaded_config, weights_path = load_model_artifact(args.artifact)
+
+            config = OmegaConf.merge(loaded_config, arg_config)
+
+            if missing_keys := OmegaConf.missing_keys(config):
+                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+
+            hypernet = make_hypernet(OmegaConf.to_object(config))  # type: ignore
+
+            hypernet = load_pytree(weights_path, hypernet)
+
+        case cmd:
+            raise RuntimeError(f"Unrecognised command {cmd}")
+
+    print_config(OmegaConf.to_object(config))
 
     if args.wandb:
         wandb.init(
             project="idea-laplacian-hypernet",
-            config=asdict(config),
+            config=OmegaConf.to_object(config),  # type: ignore
             tags=[config.dataset, config.embedder, "hypernet"],
             # sync_tensorboard=True,
         )
 
-    print_config(config)
+    model_name = f"hypernet_all_{config.dataset}_{config.hypernet.embedder_kind}"
 
-    if args.dataset == "amos":
-        datasets = load_amos_datasets(normalised=True)
+    match config.dataset:
+        case "amos":
+            datasets = load_amos_datasets(normalised=True)
 
-        testset = datasets.pop("liver")
+            testset = datasets.pop("liver")
 
-        datasets = {
-            name: dataset
-            for name, dataset in datasets.items()
-            if name in {"spleen", "pancreas"}  #
-        }
+            datasets = {
+                name: dataset
+                for name, dataset in datasets.items()
+                if name in {"spleen", "pancreas"}  #
+            }
 
-        trainsets = list(datasets.values())
-    elif args.dataset == "medidec":
-        datasets = load_medidec_datasets(normalised=True)
+            trainsets = list(datasets.values())
+        case "medidec":
+            datasets = load_medidec_datasets(normalised=True)
 
-        # only use CT datasets
-        datasets = {
-            name: dataset
-            for name, dataset in datasets.items()
-            if dataset.metadata.modality["0"] == "CT"
-        }
+            # only use CT datasets
+            datasets = {
+                name: dataset
+                for name, dataset in datasets.items()
+                if dataset.metadata.modality["0"] == "CT"
+            }
 
-        testset = datasets.pop("Spleen")
+            testset = datasets.pop("Spleen")
 
-        datasets = {
-            name: dataset
-            for name, dataset in datasets.items()
-            if name in {"Liver", "Pancreas", "Lung"}
-        }
+            datasets = {
+                name: dataset
+                for name, dataset in datasets.items()
+                if name in {"Liver", "Pancreas", "Lung"}
+            }
 
-        trainsets = list(datasets.values())
-    else:
-        raise ValueError(f"Invalid dataset {args.dataset}")
+            trainsets = list(datasets.values())
+        case _:
+            raise RuntimeError(f"Invalid dataset {config.dataset}")
 
     print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
     print(f"Testset:   {testset.name}")
 
-    if args.degenerate:
+    if config.degenerate:
         print("Using degenerate dataset")
 
         datasets = [DegenerateDataset(dataset) for dataset in datasets]
 
         for dataset in datasets:
             for X in dataset:
-                assert jnp.all(X["image"] == dataset[0]["image"])
-                assert jnp.all(X["label"] == dataset[0]["label"])
+                # assert jnp.all(X["image"] == dataset[0]["image"])
+                # assert jnp.all(X["label"] == dataset[0]["label"])
+
+                assert eqx.tree_equal(X, dataset[0])
 
     train_loader = MultiDataLoader(
         *trainsets,
-        num_samples=100 * args.batch_size,
-        dataloader_args=dict(batch_size=args.batch_size, num_workers=args.num_workers),
+        num_samples=100 * config.batch_size,
+        dataloader_args=dict(batch_size=config.batch_size, num_workers=args.num_workers),
     )
 
     # use 2 * batch_size for test loader since we need no grad here
-    test_loader = DataLoader(testset, batch_size=2 * args.batch_size, num_workers=8)
+    test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
-    hypernet = make_hypernet(config)
-
-    opt = optax.adamw(config.learning_rate)
+    opt = optax.adamw(config.lr)
 
     opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
@@ -445,7 +482,7 @@ def main():
 
     model_path.parent.mkdir(exist_ok=True)
 
-    save_with_config_safetensors(model_path, config, hypernet)
+    save_with_config_safetensors(model_path, OmegaConf.to_object(config), hypernet)
 
     if wandb.run is not None:
         model_artifact = wandb.Artifact("model-" + wandb.run.name, type="model")

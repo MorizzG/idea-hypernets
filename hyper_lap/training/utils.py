@@ -1,52 +1,36 @@
 from jaxtyping import Array
-from typing import Any, Literal
+from typing import Any
 
 import json
-import multiprocessing
 from argparse import ArgumentParser
 from dataclasses import dataclass
+from multiprocessing import cpu_count
 from pathlib import Path
 
 import jax.random as jr
 import numpy as np
 import PIL.Image as Image
 import yaml
+from omegaconf import DictConfig, OmegaConf
 
 import wandb
 from hyper_lap.datasets import AmosSliced, Dataset, MediDecSliced, NormalisedDataset
 from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
 
+DEFAULT_NUM_WORKERS = min((cpu_count() or -1) // 2, 64)
+
 
 @dataclass
-class CommonArgs:
+class Args:
     wandb: bool
 
-    degenerate: bool
-
-    lr: float
-    batch_size: int
-    epochs: int
     num_workers: int
 
+    command: str
 
-@dataclass
-class TrainArgs(CommonArgs):
-    dataset: Literal["amos", "medidec"]
+    artifact: str | None = None
 
-    embedder: Literal["vit", "convnext", "resnet", "clip", "learned"]
-
-    resume: str | None
-
-
-@dataclass
-class ResumeArgs(CommonArgs):
-    artifact: str
-
-
-DEFAULT_BATCH_SIZE = 64
-DEFAULT_EPOCHS = 50
-DEFAULT_NUM_WORKERS = min(multiprocessing.cpu_count() // 2, 64)
 
 dataset_paths = [
     "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets",
@@ -63,18 +47,11 @@ else:
     raise RuntimeError("Could not determine root_dir")
 
 
-def parse_args() -> TrainArgs | ResumeArgs:
+def parse_args() -> tuple[Args, DictConfig]:
     parser = ArgumentParser()
 
     parser.add_argument("--wandb", action="store_true", help="Run with W&B logging")
 
-    parser.add_argument("--degenerate", action="store_true", help="Use degenerate dataset")
-
-    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Batch size")
-    parser.add_argument("--lr", type=float)
-    parser.add_argument(
-        "--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of epochs to train for"
-    )
     parser.add_argument(
         "--num-workers",
         type=int,
@@ -82,33 +59,22 @@ def parse_args() -> TrainArgs | ResumeArgs:
         help="Number of dataloader worker threads",
     )
 
-    subparsers = parser.add_subparsers(required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    train_parser = subparsers.add_parser("train")
+    _train_parser = subparsers.add_parser("train")
 
-    train_parser.add_argument(
-        "--dataset", type=str, choices=["amos", "medidec"], help="Dataset to train on"
-    )
-    train_parser.add_argument(
-        "--embedder", type=str, choices=["vit", "convnext", "resnet", "clip", "learned"]
-    )
-
-    resume_parser = subparsers.add_parser("resume")
+    resume_parser = subparsers.add_parser("resume", help="Resume training from an artifact")
 
     resume_parser.add_argument("artifact", type=str)
 
-    args = vars(parser.parse_args())
+    args, unknown_args = parser.parse_known_args()
 
-    match args.pop("command"):
-        case "train":
-            return TrainArgs(**args)
-        case "resume":
-            return ResumeArgs(**args)
-        case cmd:
-            raise RuntimeError(f"Found unexpected command {cmd}")
+    arg_config = OmegaConf.from_cli(unknown_args)
+
+    return Args(**vars(args)), arg_config
 
 
-def print_config(config: dict):
+def print_config(config: Any):
     print(yaml.dump(config, indent=2, width=60, default_flow_style=None, sort_keys=False))
 
 

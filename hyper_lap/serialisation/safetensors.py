@@ -6,7 +6,7 @@ inspired by https://github.com/krypticmouse/saferax
 """
 
 from jaxtyping import Array, PyTree
-from typing import Optional
+from typing import Any, Optional
 
 import json
 from pathlib import Path
@@ -136,7 +136,7 @@ def load_pytree(path: str | Path, tree: PyTree, *, strip_prefix: Optional[str] =
     return tree
 
 
-def save_with_config_safetensors(path: str | Path, config: dict, pytree: PyTree):
+def save_with_config_safetensors(path: str | Path, config: Any, pytree: PyTree):
     path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")

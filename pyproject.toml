@@ -24,6 +24,7 @@ dependencies = [
     "tqdm>=4.67.0",
     "matplotlib>=3.10.0",
     "wandb>=0.19.6",
+    "omegaconf>=2.3.0",
 ]
 
 

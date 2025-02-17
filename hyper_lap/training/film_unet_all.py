@@ -1,6 +1,5 @@
 from jaxtyping import Array, Float, Integer
 
-import json
 import shutil
 import warnings
 from pathlib import Path
@@ -13,6 +12,7 @@ import jax.tree as jt
 import numpy as np
 import optax
 from matplotlib import pyplot as plt
+from omegaconf import MISSING, OmegaConf
 from optax import OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
@@ -22,10 +22,8 @@ import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models import FilmUnet
-from hyper_lap.serialisation.safetensors import load_pytree, save_pytree
+from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
 from hyper_lap.training.utils import (
-    ResumeArgs,
-    TrainArgs,
     load_amos_datasets,
     load_medidec_datasets,
     load_model_artifact,
@@ -158,7 +156,7 @@ def validate(film_unet: FilmUnet, train_loader: MultiDataLoader, *, pbar: tqdm, 
 
         metrics = calc_metrics(film_unet, batch)
 
-        pbar.write(f"Dataset: {dataset_name}")
+        pbar.write(f"Dataset: {dataset_name}:")
         pbar.write(f"    Dice score: {metrics['dice']:.3}")
         pbar.write(f"    IoU score : {metrics['iou']:.3}")
         pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3}")
@@ -253,9 +251,8 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
     metrics = calc_metrics(film_unet, batch)
 
     print(f"Dice score: {metrics['dice']:.3}")
-    print(f"IoU       : {metrics['iou']:.3}")
+    print(f"IoU score : {metrics['iou']:.3}")
     print(f"Hausdorff : {metrics['hausdorff']:.3}")
-    print()
 
     cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
 
@@ -325,7 +322,7 @@ def make_umap(film_unet: FilmUnet, datasets: list[Dataset]):
 
     fig.legend(loc="outside center right")
 
-    fig.savefig(image_folder / "/umap.pdf")
+    fig.savefig(image_folder / "umap.pdf")
 
     if wandb.run is not None:
         image = wandb.Image(fig, mode="RGBA", caption="UMAP")
@@ -336,124 +333,134 @@ def make_umap(film_unet: FilmUnet, datasets: list[Dataset]):
 def main():
     global model_name
 
-    args = parse_args()
+    base_config = OmegaConf.create(
+        {
+            "seed": 42,
+            "dataset": MISSING,
+            "degenerate": False,
+            "epochs": MISSING,
+            "lr": MISSING,
+            "batch_size": MISSING,
+            "embedder": MISSING,
+            "film_unet": {
+                "base_channels": 16,
+                "channel_mults": [1, 2, 4],
+                "in_channels": 3,
+                "out_channels": 2,
+                "emb_size": 3 * 1024,
+                "emb_kind": "${embedder}",
+                "use_res": False,
+                "use_weight_standardized_conv": False,
+            },
+        }
+    )
 
-    match args:
-        case TrainArgs():
-            config = {
-                "seed": 42,
-                "dataset": args.dataset,
-                "degenerate": args.degenerate,
-                "embedder": args.embedder,
-                "learning_rate": args.lr,
-                "epochs": args.epochs,
-                "batch_size": args.batch_size,
-                "film_unet": {
-                    "base_channels": 16,
-                    "channel_mults": [1, 2, 4],
-                    "in_channels": 3,
-                    "out_channels": 2,
-                    "emb_size": 3 * 1024,
-                    "emb_kind": args.embedder,
-                    "use_res": False,
-                    "use_weight_standardized_conv": False,
-                },
-            }
+    OmegaConf.set_readonly(base_config, True)
+    OmegaConf.set_struct(base_config, True)
 
-            film_unet = FilmUnet(**config["film_unet"], key=jr.PRNGKey(config["seed"]))
-        case ResumeArgs(artifact=artifact_name):
-            config, weights_path = load_model_artifact(artifact_name)
+    args, arg_config = parse_args()
 
-            film_unet = FilmUnet(**config["film_unet"], key=jr.PRNGKey(config["seed"]))
+    match args.command:
+        case "train":
+            config = OmegaConf.merge(base_config, arg_config)
 
-            load_pytree(weights_path, film_unet)
+            if missing_keys := OmegaConf.missing_keys(config):
+                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            config |= {
-                "degenerate": args.degenerate,
-                "learning_rate": args.lr,
-                "epochs": args.epochs,
-                "batch_size": args.batch_size,
-            }
+            film_unet = FilmUnet(**config.film_unet, key=jr.PRNGKey(config.seed))
+
+        case "resume":
+            assert args.artifact is not None
+
+            loaded_config, weights_path = load_model_artifact(args.artifact)
+
+            config = OmegaConf.merge(loaded_config, arg_config)
+
+            if missing_keys := OmegaConf.missing_keys(config):
+                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+
+            film_unet = FilmUnet(**config.film_unet, key=jr.PRNGKey(config.seed))
+
+            film_unet = load_pytree(weights_path, film_unet)
+
+        case cmd:
+            raise RuntimeError(f"Unrecognised command {cmd}")
+
+    print_config(OmegaConf.to_object(config))
     if args.wandb:
         wandb.init(
             project="idea-laplacian-hypernet",
-            config=config,
-            tags=[config["dataset"], config["embedder"], "film"],
+            config=OmegaConf.to_object(config),  # type: ignore
+            tags=[config.dataset, config.embedder, "film"],
             # sync_tensorboard=True,
         )
 
-    del args
+    model_name = f"film_unet_all_{config.dataset}_{config.embedder}"
 
-    print_config(config)
+    match config.dataset:
+        case "amos":
+            datasets = load_amos_datasets(normalised=True)
 
-    model_name = f"film_unet_all_{config['dataset']}_{config['embedder']}"
+            testset = datasets.pop("liver")
 
-    if config["dataset"] == "amos":
-        datasets = load_amos_datasets(normalised=True)
+            datasets = {
+                name: dataset
+                for name, dataset in datasets.items()
+                if name in {"spleen", "pancreas"}  #
+            }
 
-        testset = datasets.pop("liver")
+            trainsets = list(datasets.values())
+        case "medidec":
+            datasets = load_medidec_datasets(normalised=True)
 
-        datasets = {
-            name: dataset
-            for name, dataset in datasets.items()
-            if name in {"spleen", "pancreas"}  #
-        }
+            # only use CT datasets
+            datasets = {
+                name: dataset
+                for name, dataset in datasets.items()
+                if dataset.metadata.modality["0"] == "CT"
+            }
 
-        trainsets = list(datasets.values())
-    elif config["dataset"] == "medidec":
-        datasets = load_medidec_datasets(normalised=True)
+            testset = datasets.pop("Spleen")
 
-        # only use CT datasets
-        datasets = {
-            name: dataset
-            for name, dataset in datasets.items()
-            if dataset.metadata.modality["0"] == "CT"
-        }
+            datasets = {
+                name: dataset
+                for name, dataset in datasets.items()
+                if name in {"Liver", "Pancreas", "Lung"}
+            }
 
-        # CT datasets: Liver, Lung, Pancreas, HepaticVessel, Spleen, Colon
-
-        testset = datasets.pop("Spleen")
-
-        datasets = {
-            name: dataset
-            for name, dataset in datasets.items()
-            if name in {"Liver", "Pancreas", "Lung"}
-        }
-
-        trainsets = list(datasets.values())
-    else:
-        raise ValueError(f"Invalid dataset {config['dataset']}")
+            trainsets = list(datasets.values())
+        case _:
+            raise RuntimeError(f"Invalid dataset {config.dataset}")
 
     print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
     print(f"Testset:   {testset.name}")
 
-    if config["degenerate"]:
+    if config.degenerate:
         print("Using degenerate dataset")
 
         datasets = [DegenerateDataset(dataset) for dataset in datasets]
 
         for dataset in datasets:
             for X in dataset:
-                assert jnp.all(X["image"] == dataset[0]["image"])
-                assert jnp.all(X["label"] == dataset[0]["label"])
+                # assert jnp.all(X["image"] == dataset[0]["image"])
+                # assert jnp.all(X["label"] == dataset[0]["label"])
+
+                assert eqx.tree_equal(X, dataset[0])
 
     train_loader = MultiDataLoader(
         *trainsets,
-        num_samples=100 * config["batch_size"],
-        dataloader_args=dict(batch_size=config["batch_size"], num_workers=config["num_workers"]),
+        num_samples=100 * config.batch_size,
+        dataloader_args=dict(batch_size=config.batch_size, num_workers=args.num_workers),
     )
 
     # use 2 * batch_size for test loader since we need no grad here
-    test_loader = DataLoader(testset, batch_size=2 * config["batch_size"], num_workers=8)
+    test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
-    opt = optax.adamw(config["learning_rate"])
+    opt = optax.adamw(config.lr)
 
     opt_state = opt.init(eqx.filter(film_unet, eqx.is_array_like))
 
-    print()
-    print()
-
-    for epoch in (pbar := trange(config["epochs"])):
+    for epoch in (pbar := trange(config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
 
         film_unet, opt_state = train(
@@ -466,11 +473,7 @@ def main():
 
     model_path.parent.mkdir(exist_ok=True)
 
-    save_pytree(model_path, film_unet)
-
-    with model_path.with_suffix(".json").open("wb") as f:
-        hyper_params_str = json.dumps(config)
-        f.write((hyper_params_str).encode())
+    save_with_config_safetensors(model_path, OmegaConf.to_object(config), film_unet)
 
     if wandb.run is not None:
         model_artifact = wandb.Artifact("model-" + wandb.run.name, type="model")
