@@ -22,8 +22,16 @@ import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models import FilmUnet
-from hyper_lap.serialisation.safetensors import save_pytree
-from hyper_lap.training.utils import load_amos_datasets, load_medidec_datasets, parse_args, to_PIL
+from hyper_lap.serialisation.safetensors import load_pytree, save_pytree
+from hyper_lap.training.utils import (
+    ResumeArgs,
+    TrainArgs,
+    load_amos_datasets,
+    load_medidec_datasets,
+    load_model_artifact,
+    parse_args,
+    to_PIL,
+)
 
 warnings.simplefilter("ignore")
 
@@ -329,27 +337,42 @@ def main():
 
     args = parse_args()
 
-    config = {
-        "seed": 42,
-        "dataset": args.dataset,
-        "embedder": args.embedder,
-        "learning_rate": args.lr,
-        "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "film_unet": {
-            "base_channels": 16,
-            "channel_mults": [1, 2, 4],
-            "in_channels": 3,
-            "out_channels": 2,
-            "emb_size": 3 * 1024,
-            "emb_kind": "clip",
-            "use_res": False,
-            "use_weight_standardized_conv": False,
-        },
-    }
+    match args:
+        case TrainArgs():
+            config = {
+                "seed": 42,
+                "dataset": args.dataset,
+                "degenerate": args.degenerate,
+                "embedder": args.embedder,
+                "learning_rate": args.lr,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "film_unet": {
+                    "base_channels": 16,
+                    "channel_mults": [1, 2, 4],
+                    "in_channels": 3,
+                    "out_channels": 2,
+                    "emb_size": 3 * 1024,
+                    "emb_kind": args.embedder,
+                    "use_res": False,
+                    "use_weight_standardized_conv": False,
+                },
+            }
 
-    model_name = f"film_unet_all_{config['dataset']}_{config['embedder']}"
+            film_unet = FilmUnet(**config["film_unet"], key=jr.PRNGKey(config["seed"]))
+        case ResumeArgs(artifact=artifact_name):
+            config, weights_path = load_model_artifact(artifact_name)
 
+            film_unet = FilmUnet(**config["film_unet"], key=jr.PRNGKey(config["seed"]))
+
+            load_pytree(weights_path, film_unet)
+
+            config |= {
+                "degenerate": args.degenerate,
+                "learning_rate": args.lr,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+            }
     if args.wandb:
         wandb.init(
             project="idea-laplacian-hypernet",
@@ -358,7 +381,11 @@ def main():
             # sync_tensorboard=True,
         )
 
-    if args.dataset == "amos":
+    del args
+
+    model_name = f"film_unet_all_{config['dataset']}_{config['embedder']}"
+
+    if config["dataset"] == "amos":
         datasets = load_amos_datasets(normalised=True)
 
         testset = datasets.pop("liver")
@@ -370,7 +397,7 @@ def main():
         }
 
         trainsets = list(datasets.values())
-    elif args.dataset == "medidec":
+    elif config["dataset"] == "medidec":
         datasets = load_medidec_datasets(normalised=True)
 
         # only use CT datasets
@@ -392,12 +419,12 @@ def main():
 
         trainsets = list(datasets.values())
     else:
-        raise ValueError(f"Invalid dataset {args.dataset}")
+        raise ValueError(f"Invalid dataset {config['dataset']}")
 
     print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
     print(f"Testset:   {testset.name}")
 
-    if args.degenerate:
+    if config["degenerate"]:
         print("Using degenerate dataset")
 
         datasets = [DegenerateDataset(dataset) for dataset in datasets]
@@ -409,14 +436,12 @@ def main():
 
     train_loader = MultiDataLoader(
         *trainsets,
-        num_samples=100 * args.batch_size,
-        dataloader_args=dict(batch_size=config["batch_size"], num_workers=args.num_workers),
+        num_samples=100 * config["batch_size"],
+        dataloader_args=dict(batch_size=config["batch_size"], num_workers=config["num_workers"]),
     )
 
     # use 2 * batch_size for test loader since we need no grad here
-    test_loader = DataLoader(testset, batch_size=2 * args.batch_size, num_workers=8)
-
-    film_unet = FilmUnet(**config["film_unet"], key=jr.PRNGKey(config["seed"]))
+    test_loader = DataLoader(testset, batch_size=2 * config["batch_size"], num_workers=8)
 
     opt = optax.adamw(config["learning_rate"])
 

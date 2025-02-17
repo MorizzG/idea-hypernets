@@ -1,8 +1,6 @@
 from jaxtyping import Array, Float, Integer, PRNGKeyArray
 from typing import Literal
 
-from dataclasses import dataclass
-
 import equinox as eqx
 import jax
 import jax.random as jr
@@ -14,15 +12,6 @@ from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.hyper.generator import Conv2dGenerator
 from hyper_lap.models import Unet
 from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
-
-
-@dataclass
-class HyperNetConfig:
-    block_size: int
-
-    emb_size: int
-    kernel_size: int
-    embedder_kind: str
 
 
 class HyperNet(eqx.Module):

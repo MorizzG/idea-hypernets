@@ -16,14 +16,16 @@ from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset, DegenerateDataset
 from hyper_lap.datasets.preloaded import PreloadedDataset
-from hyper_lap.hyper import HyperNet, HyperNetConfig
+from hyper_lap.hyper import HyperNet
 from hyper_lap.metrics import dice_score
-from hyper_lap.models import UnetConfig
 from hyper_lap.serialisation import save_with_config_safetensors
+from hyper_lap.serialisation.safetensors import load_pytree
 from hyper_lap.training.utils import (
-    HyperConfig,
+    ResumeArgs,
+    TrainArgs,
     load_amos_datasets,
     load_medidec_datasets,
+    load_model_artifact,
     make_hypernet,
     parse_args,
 )
@@ -194,16 +196,49 @@ def main():
 
     args = parse_args()
 
-    model_name = Path(__file__).stem + "_" + args.embedder
+    match args:
+        case TrainArgs():
+            config = {
+                "seed": 42,
+                "dataset": args.dataset,
+                "unet": {
+                    "base_channels": 8,
+                    "channel_mults": [1, 2, 4],
+                    "in_channels": 1,
+                    "out_channels": 2,
+                    "use_res": False,
+                    "use_weight_standardized_conv": False,
+                },
+                "hypernet": {
+                    "block_size": 8,
+                    "emb_size": 512,
+                    "kernel_size": 3,
+                    "embedder_kind": args.embedder,
+                },
+            }
 
-    if args.dataset == "amos":
-        dataset = load_amos_datasets(normalised=True)[0]
-    elif args.dataset == "medidec":
-        dataset = load_medidec_datasets(normalised=True)[0]
+            hypernet = make_hypernet(config)
+        case ResumeArgs(artifact=artifact_name):
+            config, weights_path = load_model_artifact(artifact_name)
+
+            hypernet = make_hypernet(config)
+
+            load_pytree(weights_path, hypernet)
+        case _:
+            assert False
+
+    del args
+
+    model_name = Path(__file__).stem + "_" + config["embedder"]
+
+    if config["dataset"] == "amos":
+        dataset = load_amos_datasets(normalised=True)["liver"]
+    elif config["dataset"] == "medidec":
+        dataset = load_medidec_datasets(normalised=True)["Liver"]
     else:
-        raise ValueError(f"Invalid dataset {args.dataset}")
+        raise ValueError(f"Invalid dataset {config['dataset']}")
 
-    if args.degenerate:
+    if config["degenerate"]:
         print("Using degenerate dataset")
 
         dataset = DegenerateDataset(dataset)
@@ -216,40 +251,23 @@ def main():
 
     train_loader = DataLoader(
         dataset,
-        batch_size=args.batch_size,
-        sampler=RandomSampler(dataset, num_samples=100 * args.batch_size),
-        num_workers=args.num_workers,
+        batch_size=config["batch_size"],
+        sampler=RandomSampler(dataset, num_samples=100 * config["batch_size"]),
+        num_workers=config["num_workers"],
     )
 
-    hyper_params = HyperConfig(
-        seed=42,
-        unet=UnetConfig(
-            base_channels=8,
-            channel_mults=[1, 2, 4],
-            in_channels=1,
-            out_channels=2,
-            use_res=False,
-            use_weight_standardized_conv=False,
-        ),
-        hypernet=HyperNetConfig(
-            block_size=8, emb_size=512, kernel_size=3, embedder_kind=args.embedder
-        ),
-    )
-
-    hypernet = make_hypernet(hyper_params)
-
-    opt = optax.adamw(1e-6)
+    opt = optax.adamw(config["lr"])
 
     opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
-    for epoch in (pbar := trange(args.epochs)):
+    for epoch in (pbar := trange(config["epochs"])):
         pbar.write(f"Epoch {epoch:02}\n")
 
         hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar)
 
         validate(hypernet, train_loader, pbar)
 
-    save_with_config_safetensors(f"models/{model_name}", hyper_params, hypernet)
+    save_with_config_safetensors(f"models/{model_name}", config, hypernet)
 
     print()
     print()

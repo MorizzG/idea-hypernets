@@ -9,7 +9,6 @@ from jaxtyping import Array, PyTree
 from typing import Optional
 
 import json
-from dataclasses import asdict
 from pathlib import Path
 
 import equinox as eqx
@@ -17,24 +16,23 @@ import jax.tree as jt
 from safetensors import safe_open
 from safetensors.flax import save_file
 
-from hyper_lap.hyper.hypernet import HyperNet, HyperNetConfig
-from hyper_lap.models.unet import UnetConfig
-from hyper_lap.training.utils import HyperConfig, make_hypernet
+from hyper_lap.hyper.hypernet import HyperNet
+from hyper_lap.training.utils import make_hypernet
 
 from .utils import as_path
 
 
-def load_file(filename: str | Path, prefix: Optional[str] = None):
+def load_file(filename: str | Path, strip_prefix: Optional[str] = None):
     result = {}
 
     with safe_open(filename, framework="flax") as f:
         key: str
         for key in f.keys():
-            if prefix:
-                if not key.startswith(prefix):
+            if strip_prefix:
+                if not key.startswith(strip_prefix):
                     continue
 
-                new_key = key.removeprefix(prefix + ".")
+                new_key = key.removeprefix(strip_prefix + ".")
             else:
                 new_key = key
 
@@ -128,30 +126,30 @@ def save_pytree(path: str | Path, tree: PyTree):
     save_file(state_dict, path)
 
 
-def load_pytree(path: str | Path, tree: PyTree, *, prefix: Optional[str] = None) -> PyTree:
+def load_pytree(path: str | Path, tree: PyTree, *, strip_prefix: Optional[str] = None) -> PyTree:
     path = as_path(path)
 
-    state_dict = load_file(path, prefix=prefix)
+    state_dict = load_file(path, strip_prefix=strip_prefix)
 
     tree = load_state_dict(tree, state_dict)
 
     return tree
 
 
-def save_with_config_safetensors(path: str | Path, config: HyperConfig, pytree: PyTree):
+def save_with_config_safetensors(path: str | Path, config: dict, pytree: PyTree):
     path = as_path(path)
 
     hyperparams_path = path.with_suffix(".json")
     safetensors_path = path.with_suffix(".safetensors")
 
     with hyperparams_path.open("wb") as f:
-        hyper_params_str = json.dumps(asdict(config))
+        hyper_params_str = json.dumps(config)
         f.write((hyper_params_str).encode())
 
     save_pytree(safetensors_path, pytree)
 
 
-def load_config(path: str | Path) -> HyperConfig:
+def load_config(path: str | Path) -> dict:
     path = as_path(path)
 
     if not path.exists():
@@ -161,12 +159,7 @@ def load_config(path: str | Path) -> HyperConfig:
         raise ValueError(f"Expected .json file, got {path.suffix} instead")
 
     with path.open("rb") as f:
-        config_dict = json.loads(f.read().decode())
-
-    unet_config = UnetConfig(**config_dict.pop("unet"))
-    hypernet_config = HyperNetConfig(**config_dict.pop("hypernet"))
-
-    config = HyperConfig(unet=unet_config, hypernet=hypernet_config, **config_dict)
+        config = json.loads(f.read().decode())
 
     return config
 
