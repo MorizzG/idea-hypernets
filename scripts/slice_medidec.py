@@ -116,8 +116,11 @@ def make_slice_dist(label: Array | None) -> Array | None:
 
 @partial(jax.jit, static_argnums=(2, 3))
 def normalise(
-    image: Array, label: Optional[Array], target_shape: tuple[int, int], num_classes: int  # type: ignore
-) -> tuple[Array, Optional[Array]] | None:
+    image: Array,
+    label: Optional[Array],
+    target_shape: tuple[int, int],
+    num_classes: int,  # type: ignore
+) -> tuple[Array, Optional[Array]]:
     c, h, w, d = image.shape
 
     target_h, target_w = target_shape
@@ -125,30 +128,22 @@ def normalise(
     if label is not None:
         assert label.shape == (h, w, d)
 
-    # if h < 256 and w < 256:
-    #     # volume too small -> continue
-    #     return None
-
     if h != target_h or w != target_w:
-        # one-hot encode
-
-        # resize
-
         image = jax.image.resize(image, (c, target_h, target_w, d), method="cubic")
 
         if label is not None:
-            label = jax.nn.one_hot(label, num_classes, dtype=jnp.float32)
+            label_onehot = jax.nn.one_hot(label, num_classes, dtype=jnp.float32)
 
-            assert label.shape == (h, w, d, num_classes)
+            assert label_onehot.shape == (h, w, d, num_classes)
 
-            label: Array = jax.image.resize(
-                label, (target_h, target_w, d, num_classes), method="cubic"
+            label_onehot = jax.image.resize(
+                label_onehot, (target_h, target_w, d, num_classes), method="cubic"
             )
 
             # label = (label > 0.5).astype(jnp.uint8)
 
             # undo one-hot encoding
-            label = label.argmax(axis=-1)
+            label = jnp.argmax(label_onehot, axis=-1)
 
             assert label.shape == (target_h, target_w, d), f"{label.shape=}"
 
@@ -168,7 +163,9 @@ def make_slices(dataset: Dataset, split: Literal["train", "test"]):
     split_folder.mkdir(parents=True, exist_ok=False)
 
     for n_item, X in enumerate(
-        (pbar := tqdm(dataset.split_medidec[split], leave=True, desc=f"{dataset.name} {split}"))  # type: ignore
+        (
+            pbar := tqdm(dataset.split_medidec[split], leave=True, desc=f"{dataset.name} {split}")  # type: ignore
+        )
     ):
         image = jnp.asarray(X["image"])
 
