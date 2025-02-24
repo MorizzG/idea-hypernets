@@ -18,18 +18,7 @@ jax.config.update("jax_platform_name", "cpu")
 
 BASE_FOLDER = Path("./datasets/MediDecSliced")
 
-TARGET_SHAPES: dict[str, tuple[int, int]] = {
-    "BrainTumour": (240, 240),
-    "Colon": (512, 512),
-    "Spleen": (512, 512),
-    "HepaticVessel": (512, 512),
-    "Pancreas": (512, 512),
-    "Lung": (512, 512),
-    "Prostate": (320, 320),
-    "Hippocampus": (36, 50),
-    "Liver": (512, 512),
-    "Heart": (320, 320),
-}
+TARGET_SHAPE = (336, 366)
 
 _key = jr.PRNGKey(0)
 
@@ -46,7 +35,6 @@ class Dataset:
     i: int
     name: str
 
-    target_shape: tuple[int, int]
     num_classes: int
 
     orig_dataset_folder: Path
@@ -56,8 +44,6 @@ class Dataset:
     split_medidec: dict[str, MediDec]
 
     split_folders: dict[str, Path]
-
-    counters: dict[str, int]
 
 
 def make_datasets():
@@ -79,18 +65,18 @@ def make_datasets():
 
         train_folder = dataset_folder / "training"
 
+        val_folder = dataset_folder / "validation"
+
         test_folder = dataset_folder / "test"
 
         dataset = Dataset(
             i=i,
             name=name,
-            target_shape=TARGET_SHAPES[name],
             num_classes=len(trainset.metadata.labels),
             split_medidec=dict(train=trainset, test=testset),
             orig_dataset_folder=folder,
             sliced_dataset_folder=dataset_folder,
-            split_folders=dict(train=train_folder, test=test_folder),
-            counters=dict(train=0, test=0),
+            split_folders=dict(train=train_folder, validation=val_folder, test=test_folder),
         )
 
         datasets.append(dataset)
@@ -114,16 +100,15 @@ def make_slice_dist(label: Array | None) -> Array | None:
     return counts / counts.sum()
 
 
-@partial(jax.jit, static_argnums=(2, 3))
+@partial(jax.jit, static_argnums=(2,))
 def normalise(
     image: Array,
     label: Optional[Array],
-    target_shape: tuple[int, int],
     num_classes: int,  # type: ignore
 ) -> tuple[Array, Optional[Array]]:
     c, h, w, d = image.shape
 
-    target_h, target_w = target_shape
+    target_h, target_w = TARGET_SHAPE
 
     if label is not None:
         assert label.shape == (h, w, d)
@@ -150,7 +135,7 @@ def normalise(
     return image, label
 
 
-def make_slices(dataset: Dataset, split: Literal["train", "test"]):
+def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"]):
     n = 0
 
     split_folder = dataset.split_folders[split]
@@ -162,11 +147,27 @@ def make_slices(dataset: Dataset, split: Literal["train", "test"]):
 
     split_folder.mkdir(parents=True, exist_ok=False)
 
-    for n_item, X in enumerate(
-        (
-            pbar := tqdm(dataset.split_medidec[split], leave=True, desc=f"{dataset.name} {split}")  # type: ignore
-        )
-    ):
+    match split:
+        case "train":
+            items = dataset.split_medidec["train"]
+
+            n = len(items)
+
+            cutoff = int(0.8 * n)
+
+            items = [items[i] for i in range(0, cutoff)]
+        case "validation":
+            items = dataset.split_medidec["train"]
+
+            n = len(items)
+
+            cutoff = int(0.8 * n)
+
+            items = [items[i] for i in range(cutoff, n)]
+        case "test":
+            items = dataset.split_medidec["test"]
+
+    for n_item, X in enumerate(pbar := tqdm(items, leave=True, desc=f"{dataset.name} {split}")):  # type: ignore
         image = jnp.asarray(X["image"])
 
         if "label" in X:
@@ -174,7 +175,7 @@ def make_slices(dataset: Dataset, split: Literal["train", "test"]):
         else:
             label = None
 
-        result = normalise(image, label, dataset.target_shape, dataset.num_classes)
+        result = normalise(image, label, dataset.num_classes)
 
         if result is None:
             continue
@@ -247,7 +248,7 @@ def make_json(datasets: list[Dataset]):
         splits = {}
         nums = {}
 
-        for split in ["training", "test"]:
+        for split in ["training", "validation", "test"]:
             folder = dataset_folder / split
             assert folder.exists(), f"folder {folder} doesn't exist"
 
@@ -266,12 +267,13 @@ def make_json(datasets: list[Dataset]):
 
 
 def main():
-    BASE_FOLDER.mkdir(parents=True, exist_ok=False)
+    BASE_FOLDER.mkdir(parents=True, exist_ok=True)
 
     datasets = make_datasets()
 
     for dataset in datasets:
         make_slices(dataset, "train")
+        make_slices(dataset, "validation")
         make_slices(dataset, "test")
 
     make_json(datasets)
