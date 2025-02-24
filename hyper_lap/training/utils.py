@@ -78,35 +78,40 @@ def print_config(config: Any):
     print(yaml.dump(config, indent=2, width=60, default_flow_style=None, sort_keys=False))
 
 
-def load_amos_datasets(normalised: bool = True) -> dict[str, Dataset]:
+def load_amos_datasets(normalised: bool = True) -> tuple[dict[str, Dataset], dict[str, Dataset]]:
     amos_dir = dataset_dir / "AmosSliced"
 
     if not amos_dir.exists():
         raise RuntimeError("AmosSliced dir doesn't exist")
 
-    datasets = {}
+    trainsets = {}
+    valsets = {}
 
     for sub_dir in sorted(amos_dir.iterdir()):
         if not sub_dir.is_dir():
             continue
 
-        dataset = AmosSliced(sub_dir, split="train")
+        trainset = AmosSliced(sub_dir, split="train")
+        valset = AmosSliced(sub_dir, split="validation")
 
         if normalised:
-            dataset = NormalisedDataset(dataset)
+            trainset = NormalisedDataset(trainset)
+            valset = NormalisedDataset(valset)
 
-        datasets[dataset.name] = dataset
+        trainsets[trainset.name] = trainset
+        valsets[valset.name] = valset
 
-    return datasets
+    return trainsets, valsets
 
 
-def load_medidec_datasets(normalised: bool = True) -> dict[str, Dataset]:
+def load_medidec_datasets(normalised: bool = True) -> tuple[dict[str, Dataset], dict[str, Dataset]]:
     medidec_sliced = dataset_dir / "MediDecSliced"
 
     if not medidec_sliced.exists():
         raise RuntimeError("MediDecSliced dir doesn't exist")
 
-    datasets = {}
+    trainsets = {}
+    valsets = {}
 
     for sub_dir in sorted(medidec_sliced.iterdir()):
         if not sub_dir.is_dir():
@@ -118,14 +123,17 @@ def load_medidec_datasets(normalised: bool = True) -> dict[str, Dataset]:
         if "Hippocampus" in sub_dir.name or "Prostate" in sub_dir.name:
             continue
 
-        dataset = MediDecSliced(sub_dir, split="train")
+        trainset = MediDecSliced(sub_dir, split="train")
+        valset = MediDecSliced(sub_dir, split="validation")
 
         if normalised:
-            dataset = NormalisedDataset(dataset)
+            trainset = NormalisedDataset(trainset)
+            valset = NormalisedDataset(valset)
 
-        datasets[dataset.name] = dataset
+        trainsets[trainset.name] = trainset
+        valsets[valset.name] = valset
 
-    return datasets
+    return trainsets, valsets
 
 
 def make_hypernet(config: dict[str, Any]) -> HyperNet:

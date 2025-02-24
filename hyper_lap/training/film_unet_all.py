@@ -399,36 +399,37 @@ def main():
 
     match config.dataset:
         case "amos":
-            datasets = load_amos_datasets(normalised=True)
+            trainsets, valsets = load_amos_datasets(normalised=True)
 
-            testset = datasets.pop("liver")
+            trainset_names = {"spleen", "pancreas"}
+            testset_name = "liver"
 
-            datasets = {
-                name: dataset
-                for name, dataset in datasets.items()
-                if name in {"spleen", "pancreas"}  #
+            testset = trainsets.pop(testset_name)
+            valsets.pop(testset_name)
+
+            trainsets = {
+                name: dataset for name, dataset in trainsets.items() if name in trainset_names
             }
+            valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
 
-            trainsets = list(datasets.values())
+            trainsets = list(trainsets.values())
+            valsets = list(valsets.values())
         case "medidec":
-            datasets = load_medidec_datasets(normalised=True)
+            trainsets, valsets = load_medidec_datasets(normalised=True)
 
-            # only use CT datasets
-            datasets = {
-                name: dataset
-                for name, dataset in datasets.items()
-                if dataset.metadata.modality["0"] == "CT"
+            trainset_names = {"Liver", "Pancreas", "Lung"}
+            testset_name = "Spleen"
+
+            testset = trainsets.pop(testset_name)
+            valsets.pop(testset_name)
+
+            trainsets = {
+                name: dataset for name, dataset in trainsets.items() if name in trainset_names
             }
+            valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
 
-            testset = datasets.pop("Spleen")
-
-            datasets = {
-                name: dataset
-                for name, dataset in datasets.items()
-                if name in {"Liver", "Pancreas", "Lung"}
-            }
-
-            trainsets = list(datasets.values())
+            trainsets = list(trainsets.values())
+            valsets = list(valsets.values())
         case _:
             raise RuntimeError(f"Invalid dataset {config.dataset}")
 
@@ -438,9 +439,9 @@ def main():
     if config.degenerate:
         print("Using degenerate dataset")
 
-        datasets = [DegenerateDataset(dataset) for dataset in datasets]
+        trainsets = [DegenerateDataset(dataset) for dataset in trainsets]
 
-        for dataset in datasets:
+        for dataset in trainsets:
             for X in dataset:
                 # assert jnp.all(X["image"] == dataset[0]["image"])
                 # assert jnp.all(X["label"] == dataset[0]["label"])
@@ -451,6 +452,12 @@ def main():
         *trainsets,
         num_samples=100 * config.batch_size,
         dataloader_args=dict(batch_size=config.batch_size, num_workers=args.num_workers),
+    )
+
+    val_loader = MultiDataLoader(
+        *valsets,
+        num_samples=2 * config.batch_size,
+        dataloader_args=dict(batch_size=2 * config.batch_size, num_workers=args.num_workers),
     )
 
     # use 2 * batch_size for test loader since we need no grad here
@@ -467,7 +474,7 @@ def main():
             film_unet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch
         )
 
-        validate(film_unet, train_loader, pbar=pbar, epoch=epoch)
+        validate(film_unet, val_loader, pbar=pbar, epoch=epoch)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 

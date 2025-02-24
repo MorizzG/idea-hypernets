@@ -25,7 +25,7 @@ class MediDecSliced(Dataset):
     def __init__(
         self,
         root_dir: str | Path,
-        split: Literal["train", "test"] = "train",
+        split: Literal["train", "validation", "test"] = "train",
         # preload: bool = False,
     ):
         super().__init__()
@@ -41,7 +41,8 @@ class MediDecSliced(Dataset):
             case "train":
                 self._dataset = self.metadata.training
             case "validation":
-                raise ValueError("MediDec sliced dataset has no validation set")
+                # raise ValueError("MediDec sliced dataset has no validation set")
+                self._dataset = self.metadata.validation
             case "test":
                 self._dataset = self.metadata.test
             case _:
