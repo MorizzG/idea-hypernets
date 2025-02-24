@@ -32,9 +32,6 @@ def dice_score(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
     pred_pos = jnp.count_nonzero(pred)
     label_pos = jnp.count_nonzero(label)
 
-    # if pred_pos + label_pos == 0:
-    #     warnings.warn("both prediction and label are empty")
-
     dice_score = 2 * true_pos / (pred_pos + label_pos + eps)
 
     return dice_score
@@ -56,10 +53,7 @@ def jaccard_index(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
 
     union = jnp.count_nonzero(pred | label)
 
-    # if union == 0:
-    #     warnings.warn("both prediction and label are empty")
-
-    jaccard_index = (intersection + eps) / (union + eps)
+    jaccard_index = intersection / (union + eps)
 
     return jaccard_index
 
@@ -106,8 +100,19 @@ def hausdorff_distance(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> f
     pred_np = np.asarray(pred)
     label_np = np.asarray(label)
 
+    if np.count_nonzero(pred_np) == 0 or np.count_nonzero(label_np) == 0:
+        return 1.0
+
     d = skimage.metrics.hausdorff_distance(pred_np, label_np)
+
+    if d == float("inf"):
+        print("found inf")
+        return 1.0
 
     assert isinstance(d, float)
 
-    return d
+    h, w = pred_np.shape
+
+    diag = np.sqrt(h**2 + w**2)
+
+    return d / diag
