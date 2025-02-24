@@ -157,9 +157,9 @@ def validate(film_unet: FilmUnet, train_loader: MultiDataLoader, *, pbar: tqdm, 
         metrics = calc_metrics(film_unet, batch)
 
         pbar.write(f"Dataset: {dataset_name}:")
-        pbar.write(f"    Dice score: {metrics['dice']:.3}")
-        pbar.write(f"    IoU score : {metrics['iou']:.3}")
-        pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3}")
+        pbar.write(f"    Dice score: {metrics['dice']:.3f}")
+        pbar.write(f"    IoU score : {metrics['iou']:.3f}")
+        pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
         pbar.write("")
 
         all_metrics[dataset_name] = metrics
@@ -215,9 +215,9 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
         metrics = calc_metrics(film_unet, batch)
 
         print(f"Dataset {dataset.name}:")
-        print(f"    Dice score: {metrics['dice']:.3}")
-        print(f"    IoU score : {metrics['iou']:.3}")
-        print(f"    Hausdorff : {metrics['hausdorff']:.3}")
+        print(f"    Dice score: {metrics['dice']:.3f}")
+        print(f"    IoU score : {metrics['iou']:.3f}")
+        print(f"    Hausdorff : {metrics['hausdorff']:.3f}")
 
         print()
         print()
@@ -250,9 +250,9 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
 
     metrics = calc_metrics(film_unet, batch)
 
-    print(f"Dice score: {metrics['dice']:.3}")
-    print(f"IoU score : {metrics['iou']:.3}")
-    print(f"Hausdorff : {metrics['hausdorff']:.3}")
+    print(f"Dice score: {metrics['dice']:.3f}")
+    print(f"IoU score : {metrics['iou']:.3f}")
+    print(f"Hausdorff : {metrics['hausdorff']:.3f}")
 
     cond_emb = eqx.filter_jit(film_unet.embedder)(gen_image, gen_label)
 
