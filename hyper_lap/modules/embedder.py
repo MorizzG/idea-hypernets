@@ -223,10 +223,12 @@ class ClipEmbedder(eqx.Module):
 
         assert_shape(vision_emb, (3 * 1024,))
 
+        vision_emb = jax.lax.stop_gradient(vision_emb)
+
         # inputs = self.tokenizer(text=text, return_tensors="jax")
 
         # text_emb = self.clip_text(input_ids=inputs["input_ids"]).pooler_output[0]  # type: ignore
 
         emb = self.projection(vision_emb)
 
-        return lax.stop_gradient(emb)
+        return emb
