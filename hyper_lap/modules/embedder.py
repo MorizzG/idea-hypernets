@@ -3,11 +3,11 @@ from typing import Literal
 
 import equinox as eqx
 import equinox.nn as nn
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import transformers
 from chex import assert_shape
-from jax import lax
 from transformers.models.clip import FlaxCLIPVisionModel
 
 from hyper_lap.modules.convnext import ConvNeXt
@@ -200,7 +200,8 @@ class ClipEmbedder(eqx.Module):
 
         assert input.shape[:2] == (3, 3)
 
-        # input = jax.image.resize(input, (3, 3, 336, 336), method="bicubic")
+        if input.shape[-2:] != (336, 336):
+            input = jax.image.resize(input, (3, 3, 336, 336), method="bicubic")
 
         assert_shape(input, (3, 3, 336, 336))
 

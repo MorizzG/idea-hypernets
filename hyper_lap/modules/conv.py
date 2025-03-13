@@ -65,9 +65,9 @@ class ConvNormAct(eqx.Module):
         in_channels: int,
         out_channels: int,
         kernel_size: int = 3,
-        groups=8,
+        groups: int = 8,
         *,
-        use_weight_standardized_conv: bool,
+        use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
         super().__init__()

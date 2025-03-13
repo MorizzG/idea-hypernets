@@ -95,7 +95,7 @@ class FilmBlock(eqx.Module):
         use_res: bool = False,
         *,
         emb_size: int,
-        use_weight_standardized_conv: bool,
+        use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
         super().__init__()

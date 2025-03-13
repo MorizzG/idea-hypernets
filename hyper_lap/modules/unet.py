@@ -26,7 +26,7 @@ class Block(eqx.Module):
         n_convs: int = 2,
         use_res: bool = False,
         *,
-        use_weight_standardized_conv: bool,
+        use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
         super().__init__()
