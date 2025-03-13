@@ -16,9 +16,10 @@ from hyper_lap.datasets import MediDec
 
 jax.config.update("jax_platform_name", "cpu")
 
-BASE_FOLDER = Path("./datasets/MediDecSliced")
+TARGET_SIZE = 336
+# TARGET_SIZE = 384
 
-TARGET_SHAPE = (336, 366)
+BASE_FOLDER = Path(f"./datasets/MediDecSliced-{TARGET_SIZE}")
 
 _key = jr.PRNGKey(0)
 
@@ -108,7 +109,8 @@ def normalise(
 ) -> tuple[Array, Optional[Array]]:
     c, h, w, d = image.shape
 
-    target_h, target_w = TARGET_SHAPE
+    target_h = TARGET_SIZE
+    target_w = TARGET_SIZE
 
     if label is not None:
         assert label.shape == (h, w, d)
@@ -149,25 +151,39 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"])
 
     match split:
         case "train":
-            items = dataset.split_medidec["train"]
+            _items = dataset.split_medidec["train"]
 
-            n = len(items)
+            n = len(_items)
 
             cutoff = int(0.8 * n)
 
-            items = [items[i] for i in range(0, cutoff)]
+            def get_item(i):
+                return _items[i]
+
+            items = (get_item(i) for i in range(0, cutoff))
+
+            total = cutoff
         case "validation":
-            items = dataset.split_medidec["train"]
+            _items = dataset.split_medidec["train"]
 
-            n = len(items)
+            n = len(_items)
 
             cutoff = int(0.8 * n)
 
-            items = [items[i] for i in range(cutoff, n)]
+            def get_item(i):
+                return _items[i]
+
+            items = (get_item(i) for i in range(cutoff, n))
+
+            total = n - cutoff
         case "test":
             items = dataset.split_medidec["test"]
 
-    for n_item, X in enumerate(pbar := tqdm(items, leave=True, desc=f"{dataset.name} {split}")):  # type: ignore
+            total = None
+
+    for n_item, X in enumerate(
+        pbar := tqdm(items, leave=True, desc=f"{dataset.name} {split}", total=total)
+    ):  # type: ignore
         image = jnp.asarray(X["image"])
 
         if "label" in X:
@@ -272,6 +288,8 @@ def main():
     datasets = make_datasets()
 
     for dataset in datasets:
+        print(f"Starting dataset {dataset.name}")
+
         make_slices(dataset, "train")
         make_slices(dataset, "validation")
         make_slices(dataset, "test")
