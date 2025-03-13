@@ -16,9 +16,6 @@ import jax.tree as jt
 from safetensors import safe_open
 from safetensors.flax import save_file
 
-from hyper_lap.hyper.hypernet import HyperNet
-from hyper_lap.training.utils import make_hypernet
-
 from .utils import as_path
 
 
@@ -162,21 +159,3 @@ def load_config(path: str | Path) -> dict:
         config = json.loads(f.read().decode())
 
     return config
-
-
-def load_hypernet_safetensors(path: str | Path) -> HyperNet:
-    path = as_path(path)
-
-    config_path = path.with_suffix(".json")
-    safetensors_path = path.with_suffix(".safetensors")
-
-    if not (safetensors_path.exists()):
-        raise ValueError(f"Path {safetensors_path} does not exist")
-
-    config = load_config(config_path)
-
-    hypernet = make_hypernet(config)
-
-    hypernet = load_pytree(safetensors_path, hypernet)
-
-    return hypernet
