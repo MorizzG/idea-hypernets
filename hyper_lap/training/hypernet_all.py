@@ -50,10 +50,7 @@ def calc_metrics(hypernet: HyperNet, batch: dict[str, Array]) -> dict[str, Array
     images = batch["image"]
     labels = batch["label"]
 
-    gen_image = images[0]
-    gen_label = labels[0]
-
-    model = eqx.filter_jit(hypernet)(gen_image, gen_label)
+    model = eqx.filter_jit(hypernet)(images[0], labels[0])
 
     logits = eqx.filter_jit(jax.vmap(model))(images)
 
@@ -185,7 +182,7 @@ def validate(hypernet: HyperNet, val_loader: MultiDataLoader, *, pbar: tqdm, epo
     pbar.write("")
 
 
-def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: DataLoader):
+def make_plots(hypernet: HyperNet, val_loader: MultiDataLoader, test_loader: DataLoader):
     image_folder = Path(f"./images/{model_name}")
 
     if image_folder.exists():
@@ -193,7 +190,7 @@ def make_plots(hypernet: HyperNet, train_loader: MultiDataLoader, test_loader: D
 
     image_folder.mkdir(parents=True)
 
-    for dataset, dataloader in zip(train_loader.datasets, train_loader.dataloaders):
+    for dataset, dataloader in zip(val_loader.datasets, val_loader.dataloaders):
         print(f"Dataset {dataset.name}")
         print()
 
@@ -434,7 +431,7 @@ def main():
             testset_name = "Spleen"
 
             testset = trainsets.pop(testset_name)
-            valsets.pop(testset_name)
+            _ = valsets.pop(testset_name)
 
             trainsets = {
                 name: dataset for name, dataset in trainsets.items() if name in trainset_names
@@ -504,7 +501,7 @@ def main():
     print()
     print()
 
-    make_plots(hypernet, train_loader, test_loader)
+    make_plots(hypernet, val_loader, test_loader)
     make_umap(hypernet, trainsets + [testset])
 
 

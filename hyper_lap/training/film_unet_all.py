@@ -144,12 +144,12 @@ def train(
     return film_unet, opt_state
 
 
-def validate(film_unet: FilmUnet, train_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
+def validate(film_unet: FilmUnet, val_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("Validation:\n")
 
     all_metrics: dict[str, dict[str, Array]] = {}
 
-    for dataloader in train_loader.dataloaders:
+    for dataloader in val_loader.dataloaders:
         dataset_name: str = dataloader.dataset.name  # type: ignore
 
         batch = jt.map(jnp.asarray, next(iter(dataloader)))
@@ -179,7 +179,7 @@ def validate(film_unet: FilmUnet, train_loader: MultiDataLoader, *, pbar: tqdm, 
     pbar.write("")
 
 
-def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: DataLoader):
+def make_plots(film_unet: FilmUnet, val_loader: MultiDataLoader, test_loader: DataLoader):
     image_folder = Path(f"./images/{model_name}")
 
     if image_folder.exists():
@@ -187,7 +187,7 @@ def make_plots(film_unet: FilmUnet, train_loader: MultiDataLoader, test_loader: 
 
     image_folder.mkdir(parents=True)
 
-    for dataset, dataloader in zip(train_loader.datasets, train_loader.dataloaders):
+    for dataset, dataloader in zip(val_loader.datasets, val_loader.dataloaders):
         print(f"Dataset {dataset.name}")
         print()
 
@@ -495,7 +495,7 @@ def main():
     print()
     print()
 
-    make_plots(film_unet, train_loader, test_loader)
+    make_plots(film_unet, val_loader, test_loader)
     make_umap(film_unet, trainsets + [testset])
 
 
