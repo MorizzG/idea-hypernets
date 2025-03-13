@@ -399,7 +399,8 @@ def main():
 
     match config.dataset:
         case "amos":
-            trainsets, valsets = load_amos_datasets(normalised=True)
+            trainsets = load_amos_datasets("train")
+            valsets = load_amos_datasets("validation")
 
             trainset_names = {"spleen", "pancreas"}
             testset_name = "liver"
@@ -415,13 +416,14 @@ def main():
             trainsets = list(trainsets.values())
             valsets = list(valsets.values())
         case "medidec":
-            trainsets, valsets = load_medidec_datasets(normalised=True)
+            trainsets = load_medidec_datasets("train")
+            valsets = load_medidec_datasets("validation")
 
             trainset_names = {"Liver", "Pancreas", "Lung"}
             testset_name = "Spleen"
 
             testset = trainsets.pop(testset_name)
-            valsets.pop(testset_name)
+            _ = valsets.pop(testset_name)
 
             trainsets = {
                 name: dataset for name, dataset in trainsets.items() if name in trainset_names

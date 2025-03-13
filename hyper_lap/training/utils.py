@@ -1,11 +1,12 @@
 from jaxtyping import Array
-from typing import Any
+from typing import Any, Literal
 
 import json
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from multiprocessing import cpu_count
 from pathlib import Path
+from time import time
 
 import jax.random as jr
 import numpy as np
@@ -17,8 +18,30 @@ import wandb
 from hyper_lap.datasets import AmosSliced, Dataset, MediDecSliced, NormalisedDataset
 from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
+from hyper_lap.serialisation.safetensors import load_config, load_pytree
 
 DEFAULT_NUM_WORKERS = min((cpu_count() or -1) // 2, 64)
+
+
+class Timer:
+    def __init__(self, msg: str, pbar=None):
+        super().__init__()
+
+        self.msg = msg
+
+        self.pbar = pbar
+
+    def __enter__(self):
+        self.start_time = time()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        end_time = time()
+        start_time = self.start_time
+
+        if self.pbar:
+            self.pbar.write(f"{self.msg}: {end_time - start_time:.2}s")
+        else:
+            print(f"{self.msg}: {end_time - start_time:.2}s")
 
 
 @dataclass
@@ -39,9 +62,9 @@ dataset_paths = [
 ]
 
 for dataset_path in dataset_paths:
-    dataset_dir = Path(dataset_path)
+    DATASET_DIR = Path(dataset_path)
 
-    if dataset_dir.exists():
+    if DATASET_DIR.exists():
         break
 else:
     raise RuntimeError("Could not determine root_dir")
@@ -78,62 +101,57 @@ def print_config(config: Any):
     print(yaml.dump(config, indent=2, width=60, default_flow_style=None, sort_keys=False))
 
 
-def load_amos_datasets(normalised: bool = True) -> tuple[dict[str, Dataset], dict[str, Dataset]]:
-    amos_dir = dataset_dir / "AmosSliced"
+def load_amos_datasets(
+    split: Literal["train", "validation", "test"], normalised: bool = True
+) -> dict[str, Dataset]:
+    amos_dir = DATASET_DIR / "AmosSliced"
 
     if not amos_dir.exists():
         raise RuntimeError("AmosSliced dir doesn't exist")
 
-    trainsets = {}
-    valsets = {}
+    datasets = {}
 
     for sub_dir in sorted(amos_dir.iterdir()):
         if not sub_dir.is_dir():
             continue
 
-        trainset = AmosSliced(sub_dir, split="train")
-        valset = AmosSliced(sub_dir, split="validation")
+        dataset = AmosSliced(sub_dir, split=split)
 
         if normalised:
-            trainset = NormalisedDataset(trainset)
-            valset = NormalisedDataset(valset)
+            dataset = NormalisedDataset(dataset)
 
-        trainsets[trainset.name] = trainset
-        valsets[valset.name] = valset
+        datasets[dataset.name] = dataset
 
-    return trainsets, valsets
+    return datasets
 
 
-def load_medidec_datasets(normalised: bool = True) -> tuple[dict[str, Dataset], dict[str, Dataset]]:
-    medidec_sliced = dataset_dir / "MediDecSliced"
+def load_medidec_datasets(
+    split: Literal["train", "validation", "test"], normalised: bool = True, size: int = 336
+) -> dict[str, Dataset]:
+    medidec_sliced = DATASET_DIR / f"MediDecSliced-{size}"
 
     if not medidec_sliced.exists():
         raise RuntimeError("MediDecSliced dir doesn't exist")
 
-    trainsets = {}
-    valsets = {}
+    datasets = {}
 
     for sub_dir in sorted(medidec_sliced.iterdir()):
         if not sub_dir.is_dir():
             continue
 
         # exclude Hippocampus dataset: too small
-        # exclude Prostate dataset: bad performance
         # TODO: figure out why Protate dataset performs so badly
-        if "Hippocampus" in sub_dir.name or "Prostate" in sub_dir.name:
+        if "Hippocampus" in sub_dir.name:
             continue
 
-        trainset = MediDecSliced(sub_dir, split="train")
-        valset = MediDecSliced(sub_dir, split="validation")
+        dataset = MediDecSliced(sub_dir, split=split)
 
         if normalised:
-            trainset = NormalisedDataset(trainset)
-            valset = NormalisedDataset(valset)
+            dataset = NormalisedDataset(dataset)
 
-        trainsets[trainset.name] = trainset
-        valsets[valset.name] = valset
+        datasets[dataset.name] = dataset
 
-    return trainsets, valsets
+    return datasets
 
 
 def make_hypernet(config: dict[str, Any]) -> HyperNet:
@@ -142,6 +160,29 @@ def make_hypernet(config: dict[str, Any]) -> HyperNet:
 
     unet = Unet(**config["unet"], key=unet_key)
     hypernet = HyperNet(unet, **config["hypernet"], key=hypernet_key)
+
+    return hypernet
+
+
+def load_hypernet_safetensors(path: str | Path) -> HyperNet:
+    if isinstance(path, str):
+        path = Path(path)
+    elif isinstance(path, Path):
+        pass
+    else:
+        raise ValueError(f"Unexpected path {path}")
+
+    config_path = path.with_suffix(".json")
+    safetensors_path = path.with_suffix(".safetensors")
+
+    if not (safetensors_path.exists()):
+        raise ValueError(f"Path {safetensors_path} does not exist")
+
+    config = load_config(config_path)
+
+    hypernet = make_hypernet(config)
+
+    hypernet = load_pytree(safetensors_path, hypernet)
 
     return hypernet
 
