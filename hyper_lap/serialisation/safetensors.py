@@ -97,7 +97,12 @@ def load_state_dict(
 
         new_value = state_dict.pop(path_str)
 
-        if new_value.shape != value.shape:
+        if isinstance(value, float):
+            if new_value.shape != ():
+                raise ValueError(f"Expected float, found {new_value}")
+
+            new_value = new_value.item()
+        elif eqx.is_array(new_value) and new_value.shape != value.shape:
             raise ValueError(
                 f"array at path {path_str} have different shapes: "
                 f"{value.shape} (old) vs {new_value.shape} (new)"
