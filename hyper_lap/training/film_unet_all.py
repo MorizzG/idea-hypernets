@@ -147,8 +147,6 @@ def train(
 def validate(film_unet: FilmUnet, val_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("Validation:\n")
 
-    all_metrics: dict[str, dict[str, Array]] = {}
-
     for dataloader in val_loader.dataloaders:
         dataset_name: str = dataloader.dataset.name  # type: ignore
 
@@ -162,19 +160,17 @@ def validate(film_unet: FilmUnet, val_loader: MultiDataLoader, *, pbar: tqdm, ep
         pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
         pbar.write("")
 
-        all_metrics[dataset_name] = metrics
+        if wandb.run is not None:
+            wandb.run.log(
+                {
+                    f"{metric_name}/{dataset_name}": metric_value.item()
+                    for metric_name, metric_value in metrics.items()
+                },
+                commit=False,
+            )
 
     if wandb.run is not None:
-        wandb.run.log(
-            {
-                "epoch": epoch,
-            }
-            | {
-                f"{metric}/{dataset_name}": val.item()
-                for dataset_name, metrics in all_metrics.items()
-                for metric, val in metrics.items()
-            }
-        )
+        wandb.run.log({"epoch": epoch})
 
     pbar.write("")
 
