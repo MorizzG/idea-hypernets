@@ -250,36 +250,35 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"])
             assert n <= 9999
 
 
-def make_json(datasets: list[Dataset]):
-    for dataset in datasets:
-        with (dataset.orig_dataset_folder / "dataset.json").open("r") as f:
-            dataset_json = json.load(f)
+def make_json(dataset: Dataset):
+    with (dataset.orig_dataset_folder / "dataset.json").open("r") as f:
+        dataset_json = json.load(f)
 
-        dataset_folder = dataset.sliced_dataset_folder
+    dataset_folder = dataset.sliced_dataset_folder
 
-        assert dataset_folder.exists(), f"Path {dataset_folder} doesn't exist"
+    assert dataset_folder.exists(), f"Path {dataset_folder} doesn't exist"
 
-        dataset_json["name"] += " sliced"
+    dataset_json["name"] += " sliced"
 
-        splits = {}
-        nums = {}
+    splits = {}
+    nums = {}
 
-        for split in ["training", "validation", "test"]:
-            folder = dataset_folder / split
-            assert folder.exists(), f"folder {folder} doesn't exist"
+    for split in ["training", "validation", "test"]:
+        folder = dataset_folder / split
+        assert folder.exists(), f"folder {folder} doesn't exist"
 
-            paths = [str(file.relative_to(dataset_folder)) for file in folder.iterdir()]
+        paths = [str(file.relative_to(dataset_folder)) for file in folder.iterdir()]
 
-            split_cap = split[0:1].upper() + split[1:]
+        split_cap = split[0:1].upper() + split[1:]
 
-            nums["num" + split_cap] = len(paths)
-            splits[split] = paths
+        nums["num" + split_cap] = len(paths)
+        splits[split] = paths
 
-        dataset_json |= nums
-        dataset_json |= splits
+    dataset_json |= nums
+    dataset_json |= splits
 
-        with (dataset_folder / "dataset.json").open("w") as f:
-            json.dump(dataset_json, f, indent=4)
+    with (dataset_folder / "dataset.json").open("w") as f:
+        json.dump(dataset_json, f, indent=4)
 
 
 def main():
@@ -294,7 +293,7 @@ def main():
         make_slices(dataset, "validation")
         make_slices(dataset, "test")
 
-    make_json(datasets)
+        make_json(dataset)
 
 
 if __name__ == "__main__":
