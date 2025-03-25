@@ -109,8 +109,12 @@ class NormalisedDataset(Dataset):
         # TODO: sth better than just slice out first channel here?
         image = image[0, ...]
 
-        image = self.resize(image)
-        label = self.resize(label)
+        # image = self.resize(image)
+        # label = self.resize(label)
+
+        if image.shape != self.target_size:
+            image = self.resize(image)
+            label = self.resize(label)
 
         image = self.renormalise_to_clip(image)
 
