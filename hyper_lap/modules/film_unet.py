@@ -58,9 +58,6 @@ class ConvNormFilmAct(eqx.Module):
         x = self.conv(x)
         x = self.norm(x)
 
-        # expand h and w axes
-        scale_shift = jnp.expand_dims(scale_shift, (2, 3))
-
         scale = scale_shift[0]
         shift = scale_shift[1]
 
@@ -150,7 +147,8 @@ class FilmBlock(eqx.Module):
 
         cond_emb = jax.nn.silu(cond_emb)
 
-        scale_shift = self.emb_proj(cond_emb).reshape(2, -1)
+        # split into scale/shift and expand h and w axes
+        scale_shift = self.emb_proj(cond_emb).reshape(2, -1, 1, 1)
 
         x = self.film_cna(x, scale_shift)
 
