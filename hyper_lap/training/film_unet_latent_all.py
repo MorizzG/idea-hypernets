@@ -11,6 +11,7 @@ import jax.random as jr
 import jax.tree as jt
 import numpy as np
 import optax
+import wandb
 from matplotlib import pyplot as plt
 from omegaconf import MISSING, OmegaConf
 from optax import OptState
@@ -18,7 +19,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 from umap import UMAP
 
-import wandb
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models.latent import LatentModel
@@ -410,7 +410,7 @@ def main():
             # sync_tensorboard=True,
         )
 
-    model_name = f"film_unet_all_{config.dataset}_{config.embedder}"
+    model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
 
     match config.dataset:
         case "amos":
@@ -499,7 +499,7 @@ def main():
     save_with_config_safetensors(model_path, OmegaConf.to_object(config), latent_model)
 
     if wandb.run is not None:
-        model_artifact = wandb.Artifact("model-" + wandb.run.name, type="model")
+        model_artifact = wandb.Artifact(model_name, type="model")
 
         model_artifact.add_file(str(model_path.with_suffix(".json")))
         model_artifact.add_file(str(model_path.with_suffix(".safetensors")))
