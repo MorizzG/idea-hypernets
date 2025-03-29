@@ -1,7 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
 import shutil
-import warnings
 from pathlib import Path
 
 import equinox as eqx
@@ -30,9 +29,6 @@ from hyper_lap.training.utils import (
     print_config,
     to_PIL,
 )
-
-warnings.simplefilter("ignore")
-
 
 _key = jr.key(0)
 

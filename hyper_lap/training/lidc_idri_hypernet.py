@@ -1,7 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
 import multiprocessing
-import warnings
 from argparse import ArgumentParser
 
 import equinox as eqx
@@ -19,8 +18,6 @@ from hyper_lap.datasets import DegenerateDataset, LidcIdri
 from hyper_lap.hyper.hypernet import HyperNet
 from hyper_lap.metrics import dice_score
 from hyper_lap.models import Unet
-
-warnings.simplefilter("ignore")
 
 BATCH_SIZE = 64
 EPOCHS = 50

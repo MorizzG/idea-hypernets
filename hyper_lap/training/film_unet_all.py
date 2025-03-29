@@ -1,7 +1,6 @@
 from jaxtyping import Array, Float, Integer
 
 import shutil
-import warnings
 from pathlib import Path
 
 import equinox as eqx
@@ -31,8 +30,6 @@ from hyper_lap.training.utils import (
     print_config,
     to_PIL,
 )
-
-warnings.simplefilter("ignore")
 
 
 def calc_metrics(film_unet: FilmUnet, batch: dict[str, Array]) -> dict[str, Array]:
