@@ -31,20 +31,12 @@ from hyper_lap.training.utils import (
     to_PIL,
 )
 
-_key = jr.key(0)
-
-
-def consume():
-    global _key
-    _key, _consume = jr.split(_key)
-    return _consume
-
 
 def calc_metrics(unet: Unet, batch: dict[str, Array]) -> dict[str, Array]:
     images = batch["image"]
     labels = batch["label"]
 
-    logits = eqx.filter_jit(jax.vmap(unet))(images)
+    logits = eqx.filter_jit(eqx.filter_vmap(unet))(images)
 
     preds = jnp.argmax(logits, axis=1)
 
@@ -330,7 +322,7 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             config=OmegaConf.to_object(config),  # type: ignore
-            tags=[config.dataset, config.embedder, "hypernet"],
+            tags=[config.dataset, "hypernet"],
             # sync_tensorboard=True,
         )
 
@@ -404,7 +396,11 @@ def main():
     # use 2 * batch_size for test loader since we need no grad here
     test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
-    opt = optax.adamw(config.lr)
+    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(
+        config.lr / 1e3, config.lr, config.epochs // 5, config.epochs - config.epochs // 5
+    )
+
+    opt = optax.adamw(lr_schedule)
 
     opt_state = opt.init(eqx.filter(unet, eqx.is_array_like))
 
