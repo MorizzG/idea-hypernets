@@ -75,8 +75,8 @@ def training_step(
     images = batch["image"]
     labels = batch["label"]
 
-    def grad_fn(model: Unet) -> Array:
-        logits = jax.vmap(model)(images)
+    def grad_fn(unet: Unet) -> Array:
+        logits = jax.vmap(unet)(images)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
 
@@ -294,10 +294,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            key = jr.PRNGKey(config["seed"])  # type: ignore
-            unet_key, hypernet_key = jr.split(key)
-
-            unet = Unet(**config["unet"], key=unet_key)  # type: ignore
+            unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
 
         case "resume":
             assert args.artifact is not None
@@ -309,7 +306,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            unet = Unet(**config["unet"], key=unet_key)  # type: ignore
+            unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
 
             unet = load_pytree(weights_path, unet)
 
@@ -322,7 +319,7 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             config=OmegaConf.to_object(config),  # type: ignore
-            tags=[config.dataset, "hypernet"],
+            tags=[config.dataset, "unet"],
             # sync_tensorboard=True,
         )
 
@@ -400,7 +397,8 @@ def main():
         config.lr / 1e3, config.lr, config.epochs // 5, config.epochs - config.epochs // 5
     )
 
-    opt = optax.adamw(lr_schedule)
+    # opt = optax.adamw(lr_schedule)
+    opt = optax.adamw(config.lr)
 
     opt_state = opt.init(eqx.filter(unet, eqx.is_array_like))
 

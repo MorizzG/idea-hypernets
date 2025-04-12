@@ -30,20 +30,12 @@ from hyper_lap.training.utils import (
     to_PIL,
 )
 
-_key = jr.key(0)
-
-
-def consume():
-    global _key
-    _key, _consume = jr.split(_key)
-    return _consume
-
 
 def calc_metrics(unet: Unet, batch: dict[str, Array]) -> dict[str, Array]:
     images = batch["image"]
     labels = batch["label"]
 
-    logits = eqx.filter_jit(jax.vmap(unet))(images)
+    logits = eqx.filter_jit(eqx.filter_vmap(unet))(images)
 
     preds = jnp.argmax(logits, axis=1)
 
@@ -82,8 +74,8 @@ def training_step(
     images = batch["image"]
     labels = batch["label"]
 
-    def grad_fn(film_unet: Unet) -> Array:
-        logits = jax.vmap(film_unet)(images)
+    def grad_fn(unet: Unet) -> Array:
+        logits = jax.vmap(unet)(images)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
 
@@ -223,7 +215,6 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "embedder": MISSING,
             "unet": {
                 "base_channels": 32,
                 "channel_mults": [1, 2, 4],
@@ -272,11 +263,11 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             config=OmegaConf.to_object(config),  # type: ignore
-            tags=[config.dataset, config.embedder, "film"],
+            tags=[config.dataset, "unet"],
             # sync_tensorboard=True,
         )
 
-    model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
+    model_name = f"{Path(__file__).stem}_{config.dataset}"
 
     match config.dataset:
         case "amos":
@@ -321,9 +312,9 @@ def main():
     for epoch in (pbar := trange(config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
 
-        film_unet, opt_state = train(unet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
+        unet, opt_state = train(unet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
 
-        validate(film_unet, val_loader, pbar=pbar, epoch=epoch)
+        validate(unet, val_loader, pbar=pbar, epoch=epoch)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
@@ -342,7 +333,7 @@ def main():
     print()
     print()
 
-    make_plots(unet, train_loader)
+    make_plots(unet, val_loader)
 
 
 if __name__ == "__main__":
