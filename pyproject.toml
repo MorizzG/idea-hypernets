@@ -79,6 +79,7 @@ known_typing = "typing,collections.abc,jaxtyping"
 sections = "FUTURE,TYPING,STDLIB,THIRDPARTY,FIRSTPARTY,LOCALFOLDER"
 # skip_glob = [""]  # files/folders/... to skip
 # known_first_party = [""]  # packages that are forced as first party
+known_third_party = ["wandb"] # packages that are forced as third party
 # src_paths = [""]  # files inside these paths are treated as first party
 # multi_line_output = 5
 float_to_top = true
