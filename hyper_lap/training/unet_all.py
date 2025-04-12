@@ -347,7 +347,7 @@ def main():
             trainsets = load_medidec_datasets("train")
             valsets = load_medidec_datasets("validation")
 
-            trainset_names = {"Liver", "Pancreas", "Lung"}
+            trainset_names = {"Liver", "Lung", "Pancreas"}
             testset_name = "Spleen"
 
             testset = trainsets.pop(testset_name)
@@ -394,16 +394,28 @@ def main():
     test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
     lr_schedule = optax.schedules.warmup_cosine_decay_schedule(
-        config.lr / 1e3, config.lr, config.epochs // 5, config.epochs - config.epochs // 5
+        config.lr / 1e3,
+        config.lr,
+        config.epochs // 5 * len(train_loader),
+        config.epochs * len(train_loader) - config.epochs // 5 * len(train_loader),
     )
 
-    # opt = optax.adamw(lr_schedule)
-    opt = optax.adamw(config.lr)
+    opt = optax.adamw(lr_schedule)
+    # opt = optax.adamw(config.lr)
 
     opt_state = opt.init(eqx.filter(unet, eqx.is_array_like))
 
     for epoch in (pbar := trange(config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
+        pbar.write(f"learning rate: {lr_schedule(opt_state[2].count):.1e}")  # type: ignore
+
+        if wandb.run is not None and "lr_schedule" in vars():
+            wandb.run.log(
+                {
+                    "epoch": epoch,
+                    "learning_rate": lr_schedule(opt_state[2].count),  # type: ignore
+                }
+            )
 
         unet, opt_state = train(unet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
 
