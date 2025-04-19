@@ -21,6 +21,7 @@ from umap import UMAP
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
 from hyper_lap.hyper import HyperNet
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
+from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
 from hyper_lap.training.utils import (
@@ -363,6 +364,12 @@ def main():
 
     args, arg_config = parse_args()
 
+    unet_config, path = load_model_artifact("morizzg/idea-laplacian-hypernet/unet_all_medidec:v8")
+
+    unet = Unet(**unet_config.unet, key=jr.PRNGKey(unet_config.seed))  # type: ignore
+
+    unet = load_pytree(path, unet)
+
     match args.command:
         case "train":
             config = OmegaConf.merge(base_config, arg_config)
@@ -370,7 +377,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            hypernet = make_hypernet(OmegaConf.to_object(config))  # type: ignore
+            hypernet = HyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
         case "resume":
             assert args.artifact is not None
@@ -382,7 +389,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            hypernet = make_hypernet(OmegaConf.to_object(config))  # type: ignore
+            hypernet = HyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
             hypernet = load_pytree(weights_path, hypernet)
 
