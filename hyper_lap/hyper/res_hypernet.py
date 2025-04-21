@@ -39,6 +39,38 @@ class ResHyperNet(eqx.Module):
     ) -> tuple[int, int, int, int]:
         return out_channels, in_channels, kernel_size, kernel_size
 
+    @staticmethod
+    def init_conv_generator(
+        gen: Conv2dGenerator, eps: float, *, key: PRNGKeyArray
+    ) -> Conv2dGenerator:
+        def init_linear(linear: nn.Linear, *, key: PRNGKeyArray) -> nn.Linear:
+            weight_key, bias_key = jr.split(key)
+
+            linear = eqx.tree_at(
+                lambda linear: linear.weight,
+                linear,
+                eps * jr.normal(weight_key, linear.weight.shape),
+            )
+
+            if linear.use_bias:
+                assert linear.bias is not None
+
+                linear = eqx.tree_at(
+                    lambda linear: linear.bias,
+                    linear,
+                    eps * jr.normal(bias_key, linear.bias.shape),
+                )
+
+            return linear
+
+        first_key, second_key = jr.split(key)
+
+        gen = eqx.tree_at(lambda gen: gen.first, gen, init_linear(gen.first, key=first_key))
+
+        gen = eqx.tree_at(lambda gen: gen.second, gen, init_linear(gen.second, key=second_key))
+
+        return gen
+
     def __init__(
         self,
         unet: Unet,
@@ -50,6 +82,8 @@ class ResHyperNet(eqx.Module):
         key: PRNGKeyArray,
     ):
         super().__init__()
+
+        eps = 1e-5
 
         self.unet = unet
 
@@ -65,14 +99,15 @@ class ResHyperNet(eqx.Module):
 
         self.input_embedder = InputEmbedder(emb_size, kind=embedder_kind, key=emb_key)
 
-        self.kernel_generator = Conv2dGenerator(
-            block_size, block_size, kernel_size, 2 * emb_size, key=kernel_key
-        )
+        gen = Conv2dGenerator(block_size, block_size, kernel_size, 2 * emb_size, key=kernel_key)
 
-        self.init_kernel = jr.normal(
+        # we can reuse kernel_key here since we re-initialize the weights here
+        self.kernel_generator = self.init_conv_generator(gen, eps, key=kernel_key)
+
+        self.init_kernel = eps * jr.normal(
             init_key, self.kernel_shape(unet.in_channels, base_channels, 1)
         )
-        self.final_kernel = jr.normal(
+        self.final_kernel = eps * jr.normal(
             final_key, self.kernel_shape(base_channels, unet.out_channels, 1)
         )
 
