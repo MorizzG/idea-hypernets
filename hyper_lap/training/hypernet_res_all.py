@@ -19,7 +19,7 @@ from tqdm import tqdm, trange
 from umap import UMAP
 
 from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
-from hyper_lap.hyper import HyperNet
+from hyper_lap.hyper import ResHyperNet
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
@@ -28,7 +28,6 @@ from hyper_lap.training.utils import (
     load_amos_datasets,
     load_medidec_datasets,
     load_model_artifact,
-    make_hypernet,
     parse_args,
     print_config,
     to_PIL,
@@ -43,13 +42,13 @@ def consume():
     return _consume
 
 
-def calc_metrics(hypernet: HyperNet, batch: dict[str, Array]) -> dict[str, Array]:
+def calc_metrics(hypernet: ResHyperNet, batch: dict[str, Array]) -> dict[str, Array]:
     images = batch["image"]
     labels = batch["label"]
 
     model = eqx.filter_jit(hypernet)(images[0], labels[0])
 
-    logits = eqx.filter_jit(jax.vmap(model))(images)
+    logits = eqx.filter_jit(eqx.filter_vmap(model))(images)
 
     preds = jnp.argmax(logits, axis=1)
 
@@ -80,15 +79,15 @@ def loss_fn(logits: Float[Array, "c h w"], labels: Integer[Array, "h w"]) -> Arr
 
 @eqx.filter_jit
 def training_step(
-    hypernet: HyperNet,
+    hypernet: ResHyperNet,
     opt: optax.GradientTransformation,
     batch: dict[str, Array],
     opt_state: OptState,
-) -> tuple[Array, HyperNet, OptState]:
+) -> tuple[Array, ResHyperNet, OptState]:
     images = batch["image"]
     labels = batch["label"]
 
-    def grad_fn(hypernet: HyperNet) -> Array:
+    def grad_fn(hypernet: ResHyperNet) -> Array:
         model = hypernet(images[0], labels[0])
 
         logits = jax.vmap(model)(images)
@@ -107,14 +106,14 @@ def training_step(
 
 
 def train(
-    hypernet: HyperNet,
+    hypernet: ResHyperNet,
     train_loader: MultiDataLoader,
     opt: optax.GradientTransformation,
     opt_state: optax.OptState,
     *,
     pbar: tqdm,
     epoch: int,
-) -> tuple[HyperNet, optax.OptState]:
+) -> tuple[ResHyperNet, optax.OptState]:
     pbar.write("Training:\n")
 
     losses = []
@@ -143,7 +142,7 @@ def train(
     return hypernet, opt_state
 
 
-def validate(hypernet: HyperNet, val_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
+def validate(hypernet: ResHyperNet, val_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("Validation:")
     pbar.write("")
 
@@ -179,7 +178,7 @@ def validate(hypernet: HyperNet, val_loader: MultiDataLoader, *, pbar: tqdm, epo
     pbar.write("")
 
 
-def make_plots(hypernet: HyperNet, val_loader: MultiDataLoader, test_loader: DataLoader):
+def make_plots(hypernet: ResHyperNet, val_loader: MultiDataLoader, test_loader: DataLoader):
     image_folder = Path(f"./images/{model_name}")
 
     if image_folder.exists():
@@ -285,7 +284,7 @@ def make_plots(hypernet: HyperNet, val_loader: MultiDataLoader, test_loader: Dat
         wandb.run.log({f"images/test/{test_loader.dataset.name}": image})
 
 
-def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
+def make_umap(hypernet: ResHyperNet, datasets: list[Dataset]):
     image_folder = Path(f"./images/{model_name}")
 
     assert image_folder.exists()
@@ -342,14 +341,6 @@ def main():
             "lr": MISSING,
             "batch_size": MISSING,
             "embedder": MISSING,
-            "unet": {
-                "base_channels": 16,
-                "channel_mults": [1, 2, 4],
-                "in_channels": 3,
-                "out_channels": 2,
-                "use_res": False,
-                "use_weight_standardized_conv": False,
-            },
             "hypernet": {
                 "block_size": 8,
                 "emb_size": 3 * 1024,
@@ -366,7 +357,7 @@ def main():
 
     unet_config, path = load_model_artifact("morizzg/idea-laplacian-hypernet/unet_all_medidec:v8")
 
-    unet = Unet(**unet_config.unet, key=jr.PRNGKey(unet_config.seed))  # type: ignore
+    unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
 
     unet = load_pytree(path, unet)
 
@@ -377,7 +368,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            hypernet = HyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
+            hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
         case "resume":
             assert args.artifact is not None
@@ -389,7 +380,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            hypernet = HyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
+            hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
             hypernet = load_pytree(weights_path, hypernet)
 
@@ -432,7 +423,7 @@ def main():
 
             # trainset_names = {"Liver", "Pancreas", "Lung"}
             trainset_names = {"Liver"}
-            testset_name = "Spleen"
+            testset_name = "Lung"
 
             testset = trainsets.pop(testset_name)
             _ = valsets.pop(testset_name)
