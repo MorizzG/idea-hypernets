@@ -347,8 +347,8 @@ def main():
             trainsets = load_medidec_datasets("train")
             valsets = load_medidec_datasets("validation")
 
-            trainset_names = {"Liver", "Lung", "Pancreas"}
-            testset_name = "Spleen"
+            trainset_names = {"Liver", "Pancreas"}
+            testset_name = "Lung"
 
             testset = trainsets.pop(testset_name)
             _ = valsets.pop(testset_name)

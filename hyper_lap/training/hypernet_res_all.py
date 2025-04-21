@@ -1,4 +1,5 @@
 from jaxtyping import Array, Float, Integer
+from typing import Callable
 
 import shutil
 from pathlib import Path
@@ -142,9 +143,11 @@ def train(
     return hypernet, opt_state
 
 
-def validate(hypernet: ResHyperNet, val_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
-    pbar.write("Validation:")
-    pbar.write("")
+def validate(
+    hypernet: ResHyperNet, val_loader: MultiDataLoader, *, write: Callable[[str], None], epoch: int
+):
+    write("Validation:")
+    write("")
 
     all_metrics: dict[str, dict[str, Array]] = {}
 
@@ -155,11 +158,11 @@ def validate(hypernet: ResHyperNet, val_loader: MultiDataLoader, *, pbar: tqdm, 
 
         metrics = calc_metrics(hypernet, batch)
 
-        pbar.write(f"Dataset: {dataset_name}:")
-        pbar.write(f"    Dice score: {metrics['dice']:.3f}")
-        pbar.write(f"    IoU score : {metrics['iou']:.3f}")
-        pbar.write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
-        pbar.write("")
+        write(f"Dataset: {dataset_name}:")
+        write(f"    Dice score: {metrics['dice']:.3f}")
+        write(f"    IoU score : {metrics['iou']:.3f}")
+        write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
+        write("")
 
         all_metrics[dataset_name] = metrics
 
@@ -175,7 +178,7 @@ def validate(hypernet: ResHyperNet, val_loader: MultiDataLoader, *, pbar: tqdm, 
             }
         )
 
-    pbar.write("")
+    write("")
 
 
 def make_plots(hypernet: ResHyperNet, val_loader: MultiDataLoader, test_loader: DataLoader):
@@ -422,8 +425,8 @@ def main():
             valsets = load_medidec_datasets("validation")
 
             # trainset_names = {"Liver", "Pancreas", "Lung"}
-            trainset_names = {"Liver"}
-            testset_name = "Lung"
+            trainset_names = {"Liver", "Lung", "Pancreas"}
+            testset_name = "Spleen"
 
             testset = trainsets.pop(testset_name)
             _ = valsets.pop(testset_name)
@@ -472,12 +475,17 @@ def main():
 
     opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
+    print("Validation before training:")
+    print()
+
+    validate(hypernet, val_loader, write=print, epoch=-1)
+
     for epoch in (pbar := trange(config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
 
         hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
 
-        validate(hypernet, val_loader, pbar=pbar, epoch=epoch)
+        validate(hypernet, val_loader, write=pbar.write, epoch=epoch)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
