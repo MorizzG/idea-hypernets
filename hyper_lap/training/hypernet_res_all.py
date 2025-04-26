@@ -475,7 +475,18 @@ def main():
     # use 2 * batch_size for test loader since we need no grad here
     test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
-    opt = optax.adamw(config.lr)
+    total_updates = config.epochs * len(train_loader)
+
+    # 20% warmup, then 80% cosine decay
+    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(
+        config.lr / 1e3,
+        config.lr,
+        total_updates // 5,
+        total_updates - total_updates // 5,
+    )
+
+    opt = optax.adamw(lr_schedule)
+    # opt = optax.adamw(config.lr)
 
     opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
