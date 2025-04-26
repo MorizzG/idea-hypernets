@@ -358,6 +358,12 @@ def main():
 
     args, arg_config = parse_args()
 
+    if args.wandb:
+        wandb.init(
+            project="idea-laplacian-hypernet",
+            # sync_tensorboard=True,
+        )
+
     unet_config, path = load_model_artifact(
         "morizzg/idea-laplacian-hypernet/unet_all_medidec:latest"
     )
@@ -394,13 +400,9 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
-    if args.wandb:
-        wandb.init(
-            project="idea-laplacian-hypernet",
-            config=OmegaConf.to_object(config),  # type: ignore
-            tags=[config.dataset, config.embedder, "hypernet"],
-            # sync_tensorboard=True,
-        )
+    if wandb.run is not None:
+        wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
+        wandb.run.tags = [config.dataset, config.embedder, "hypernet"]
 
     model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
 
