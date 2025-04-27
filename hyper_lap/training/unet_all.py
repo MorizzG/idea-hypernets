@@ -26,6 +26,7 @@ from hyper_lap.training.utils import (
     load_amos_datasets,
     load_medidec_datasets,
     load_model_artifact,
+    make_lr_schedule,
     parse_args,
     print_config,
     to_PIL,
@@ -330,7 +331,7 @@ def main():
             trainsets = load_amos_datasets("train")
             valsets = load_amos_datasets("validation")
 
-            trainset_names = {"spleen", "pancreas"}
+            trainset_names = {"spleen"}  # "pancreas"
             testset_name = "liver"
 
             testset = trainsets.pop(testset_name)
@@ -393,12 +394,18 @@ def main():
     # use 2 * batch_size for test loader since we need no grad here
     test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
-    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(
-        config.lr / 1e3,
-        config.lr,
-        config.epochs // 5 * len(train_loader),
-        config.epochs * len(train_loader) - config.epochs // 5 * len(train_loader),
-    )
+    # total_updates = config.epochs * len(train_loader)
+
+    # # 20% warmup, then 80% cosine decay
+    # lr_schedule = optax.schedules.warmup_cosine_decay_schedule(
+    #     config.lr / 1e3,
+    #     config.lr,
+    #     total_updates // 5,
+    #     total_updates - total_updates // 5,
+    #     end_value=config.lr / 1e-3,
+    # )
+
+    lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     opt = optax.adamw(lr_schedule)
     # opt = optax.adamw(config.lr)

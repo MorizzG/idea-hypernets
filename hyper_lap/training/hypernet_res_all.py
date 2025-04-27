@@ -29,6 +29,7 @@ from hyper_lap.training.utils import (
     load_amos_datasets,
     load_medidec_datasets,
     load_model_artifact,
+    make_lr_schedule,
     parse_args,
     print_config,
     to_PIL,
@@ -475,15 +476,7 @@ def main():
     # use 2 * batch_size for test loader since we need no grad here
     test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
-    total_updates = config.epochs * len(train_loader)
-
-    # 20% warmup, then 80% cosine decay
-    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(
-        config.lr / 1e3,
-        config.lr,
-        total_updates // 5,
-        total_updates - total_updates // 5,
-    )
+    lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     opt = optax.adamw(lr_schedule)
     # opt = optax.adamw(config.lr)
@@ -497,6 +490,15 @@ def main():
 
     for epoch in (pbar := trange(config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
+        pbar.write(f"learning rate: {lr_schedule(opt_state[2].count):.1e}")  # type: ignore
+
+        if wandb.run is not None and "lr_schedule" in vars():
+            wandb.run.log(
+                {
+                    "epoch": epoch,
+                    "learning_rate": lr_schedule(opt_state[2].count),  # type: ignore
+                }
+            )
 
         hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
 

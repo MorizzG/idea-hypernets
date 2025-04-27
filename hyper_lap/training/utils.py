@@ -10,11 +10,12 @@ from time import time
 
 import jax.random as jr
 import numpy as np
+import optax
 import PIL.Image as Image
+import wandb
 import yaml
 from omegaconf import DictConfig, OmegaConf
 
-import wandb
 from hyper_lap.datasets import AmosSliced, Dataset, MediDecSliced, NormalisedDataset
 from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
@@ -154,6 +155,19 @@ def load_medidec_datasets(
     return datasets
 
 
+def make_lr_schedule(lr: float, epochs: int, len_train_loader) -> optax.Schedule:
+    total_updates = epochs * len_train_loader
+
+    # 20% warmup, then 80% cosine decay
+    return optax.schedules.warmup_cosine_decay_schedule(
+        lr / 1e3,
+        lr,
+        total_updates // 5,
+        total_updates - total_updates // 5,
+        end_value=lr / 1e-3,
+    )
+
+
 def make_hypernet(config: dict[str, Any]) -> HyperNet:
     key = jr.PRNGKey(config["seed"])
     unet_key, hypernet_key = jr.split(key)
@@ -203,9 +217,12 @@ def to_PIL(img: np.ndarray | Array) -> Image.Image:
 
 
 def load_model_artifact(name: str) -> tuple[dict, Path]:
-    api = wandb.Api()
+    if wandb.run is not None:
+        artifact = wandb.run.use_artifact(name)
+    else:
+        api = wandb.Api()
 
-    artifact = api.artifact(name)
+        artifact = api.artifact(name)
 
     artifact_dir = Path(artifact.download())
 
