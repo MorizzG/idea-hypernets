@@ -216,6 +216,7 @@ def main():
         {
             "seed": 42,
             "dataset": MISSING,
+            "trainset": MISSING,
             "degenerate": False,
             "epochs": MISSING,
             "lr": MISSING,
@@ -279,16 +280,22 @@ def main():
             trainsets = load_amos_datasets("train")
             valsets = load_amos_datasets("validation")
 
-            trainset = trainsets["spleen"]
-            valset = valsets["spleen"]
+            if config.trainset not in trainsets:
+                raise ValueError(f"Invalid trainset {config.trainset}")
+
+            trainset = trainsets[config.trainset]
+            valset = valsets[config.trainset]
         case "medidec":
             trainsets = load_medidec_datasets("train")
             valsets = load_medidec_datasets("validation")
 
-            trainset = trainsets["Liver"]
-            valset = valsets["Liver"]
+            if config.trainset not in trainsets:
+                raise ValueError(f"Invalid trainset {config.trainset}")
+
+            trainset = trainsets[config.trainset]
+            valset = valsets[config.trainset]
         case _:
-            raise RuntimeError(f"Invalid dataset {config.dataset}")
+            raise ValueError(f"Invalid dataset {config.dataset}")
 
     print(f"Trainset: {trainset.name}")
 
