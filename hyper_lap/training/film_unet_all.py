@@ -327,7 +327,7 @@ def main():
             "batch_size": MISSING,
             "embedder": MISSING,
             "film_unet": {
-                "base_channels": 16,
+                "base_channels": 8,
                 "channel_mults": [1, 2, 4],
                 "in_channels": 3,
                 "out_channels": 2,

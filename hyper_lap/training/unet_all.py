@@ -273,7 +273,7 @@ def main():
             "lr": MISSING,
             "batch_size": MISSING,
             "unet": {
-                "base_channels": 16,
+                "base_channels": 8,
                 "channel_mults": [1, 2, 4],
                 "in_channels": 3,
                 "out_channels": 2,
@@ -374,9 +374,6 @@ def main():
 
         for dataset in trainsets:
             for X in dataset:
-                # assert jnp.all(X["image"] == dataset[0]["image"])
-                # assert jnp.all(X["label"] == dataset[0]["label"])
-
                 assert eqx.tree_equal(X, dataset[0])
 
     train_loader = MultiDataLoader(
