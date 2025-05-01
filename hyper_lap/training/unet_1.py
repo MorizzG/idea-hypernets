@@ -14,10 +14,10 @@ import wandb
 from matplotlib import pyplot as plt
 from omegaconf import MISSING, OmegaConf
 from optax import OptState
-from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset, DegenerateDataset
+from hyper_lap.datasets.multi_dataloader import MultiDataLoader
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models import Unet
 from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
@@ -25,6 +25,7 @@ from hyper_lap.training.utils import (
     load_amos_datasets,
     load_medidec_datasets,
     load_model_artifact,
+    make_lr_schedule,
     parse_args,
     print_config,
     to_PIL,
@@ -92,7 +93,7 @@ def training_step(
 
 def train(
     unet: Unet,
-    train_loader: DataLoader,
+    train_loader: MultiDataLoader,
     opt: optax.GradientTransformation,
     opt_state: optax.OptState,
     *,
@@ -127,12 +128,15 @@ def train(
     return unet, opt_state
 
 
-def validate(unet: Unet, val_loader: DataLoader, *, pbar: tqdm, epoch: int):
-    pbar.write("Validation:\n")
+def validate(unet: Unet, val_loader: MultiDataLoader, *, pbar: tqdm, epoch: int):
+    pbar.write("Validation:")
+    pbar.write("")
 
-    dataset_name: str = val_loader.dataset.name  # type: ignore
+    dataloader = val_loader.dataloaders[0]
 
-    batch = jt.map(jnp.asarray, next(iter(val_loader)))
+    dataset_name: str = dataloader.dataset.name  # type: ignore
+
+    batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
     metrics = calc_metrics(unet, batch)
 
@@ -148,10 +152,11 @@ def validate(unet: Unet, val_loader: DataLoader, *, pbar: tqdm, epoch: int):
     pbar.write("")
 
 
-def make_plots(unet: Unet, val_loader: DataLoader):
+def make_plots(unet: Unet, val_loader: MultiDataLoader):
     image_folder = Path(f"./images/{model_name}")
 
-    dataset = val_loader.dataset
+    dataset = val_loader.datasets[0]
+    dataloader = val_loader.dataloaders[0]
 
     assert isinstance(dataset, Dataset)
 
@@ -163,7 +168,7 @@ def make_plots(unet: Unet, val_loader: DataLoader):
     print(f"Dataset {dataset.name}")
     print()
 
-    batch = jt.map(jnp.asarray, next(iter(val_loader)))
+    batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
     image = jnp.asarray(batch["image"][1])
     label = jnp.asarray(batch["label"][1])
@@ -216,7 +221,7 @@ def main():
             "lr": MISSING,
             "batch_size": MISSING,
             "unet": {
-                "base_channels": 32,
+                "base_channels": 8,
                 "channel_mults": [1, 2, 4],
                 "in_channels": 3,
                 "out_channels": 2,
@@ -291,21 +296,28 @@ def main():
         print("Using degenerate dataset")
 
         trainset = DegenerateDataset(trainset)
+
+        for X in trainset:
+            assert eqx.tree_equal(X, trainset[0])
+
         valset = trainset
 
-    train_loader = DataLoader(
+    train_loader = MultiDataLoader(
         trainset,
-        batch_size=config.batch_size,
-        num_workers=args.num_workers,
+        num_samples=100 * config.batch_size,
+        dataloader_args=dict(batch_size=config.batch_size, num_workers=args.num_workers),
     )
 
-    val_loader = DataLoader(
+    val_loader = MultiDataLoader(
         valset,
-        batch_size=2 * config.batch_size,
-        num_workers=args.num_workers,
+        num_samples=2 * config.batch_size,
+        dataloader_args=dict(batch_size=2 * config.batch_size, num_workers=args.num_workers),
     )
 
-    opt = optax.adamw(config.lr)
+    lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
+
+    opt = optax.adamw(lr_schedule)
+    # opt = optax.adamw(config.lr)
 
     opt_state = opt.init(eqx.filter(unet, eqx.is_array_like))
 
