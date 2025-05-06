@@ -268,6 +268,8 @@ def main():
         {
             "seed": 42,
             "dataset": MISSING,
+            "trainsets": MISSING,
+            "testset": MISSING,
             "degenerate": False,
             "epochs": MISSING,
             "lr": MISSING,
@@ -288,6 +290,8 @@ def main():
 
     args, arg_config = parse_args()
 
+    first_epoch = 0
+
     match args.command:
         case "train":
             config = OmegaConf.merge(base_config, arg_config)
@@ -301,6 +305,8 @@ def main():
             assert args.artifact is not None
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
+
+            first_epoch = loaded_config["epoch"]
 
             config = OmegaConf.merge(loaded_config, arg_config)
 
@@ -331,16 +337,22 @@ def main():
             trainsets = load_amos_datasets("train")
             valsets = load_amos_datasets("validation")
 
-            trainset_names = {"spleen"}  # "pancreas"
-            testset_name = "liver"
+            # trainset_names = {"spleen"}  # "pancreas"
+            # testset_name = "liver"
 
-            testset = trainsets.pop(testset_name)
-            valsets.pop(testset_name)
+            testset = trainsets.pop(config.testset)
+            valsets.pop(config.testset)
 
             trainsets = {
-                name: dataset for name, dataset in trainsets.items() if name in trainset_names
+                name: dataset
+                for name, dataset in trainsets.items()
+                if name in config.trainsets.split(",")
             }
-            valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
+            valsets = {
+                name: dataset
+                for name, dataset in valsets.items()
+                if name in config.trainsets.split(",")
+            }
 
             trainsets = list(trainsets.values())
             valsets = list(valsets.values())
@@ -348,16 +360,22 @@ def main():
             trainsets = load_medidec_datasets("train")
             valsets = load_medidec_datasets("validation")
 
-            trainset_names = {"Liver", "Pancreas"}
-            testset_name = "Lung"
+            # trainset_names = {"Liver", "Pancreas"}
+            # testset_name = "Lung"
 
-            testset = trainsets.pop(testset_name)
-            _ = valsets.pop(testset_name)
+            testset = trainsets.pop(config.testset)
+            _ = valsets.pop(config.testset)
 
             trainsets = {
-                name: dataset for name, dataset in trainsets.items() if name in trainset_names
+                name: dataset
+                for name, dataset in trainsets.items()
+                if name in config.trainsets.split(",")
             }
-            valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
+            valsets = {
+                name: dataset
+                for name, dataset in valsets.items()
+                if name in config.trainsets.split(",")
+            }
 
             trainsets = list(trainsets.values())
             valsets = list(valsets.values())
@@ -409,7 +427,7 @@ def main():
 
     opt_state = opt.init(eqx.filter(unet, eqx.is_array_like))
 
-    for epoch in (pbar := trange(config.epochs)):
+    for epoch in (pbar := trange(first_epoch, first_epoch + config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
         pbar.write(f"learning rate: {lr_schedule(opt_state[2].count):.1e}")  # type: ignore
 

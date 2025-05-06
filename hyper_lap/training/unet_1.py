@@ -237,6 +237,8 @@ def main():
 
     args, arg_config = parse_args()
 
+    first_epoch = 0
+
     match args.command:
         case "train":
             config = OmegaConf.merge(base_config, arg_config)
@@ -250,6 +252,8 @@ def main():
             assert args.artifact is not None
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
+
+            first_epoch = loaded_config["epoch"]
 
             config = OmegaConf.merge(loaded_config, arg_config)
 
@@ -328,8 +332,16 @@ def main():
 
     opt_state = opt.init(eqx.filter(unet, eqx.is_array_like))
 
-    for epoch in (pbar := trange(config.epochs)):
+    for epoch in (pbar := trange(first_epoch, first_epoch + config.epochs)):
         pbar.write(f"Epoch {epoch:02}\n")
+
+        if wandb.run is not None and "lr_schedule" in vars():
+            wandb.run.log(
+                {
+                    "epoch": epoch,
+                    "learning_rate": lr_schedule(opt_state[2].count),  # type: ignore
+                }
+            )
 
         unet, opt_state = train(unet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
 
