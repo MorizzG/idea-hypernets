@@ -20,6 +20,8 @@ from hyper_lap.hyper import ResHyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
+from hyper_lap.training.loss import loss_fn
+from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
     make_dataloaders,
@@ -27,9 +29,6 @@ from hyper_lap.training.utils import (
     parse_args,
     print_config,
 )
-
-from .loss import loss_fn
-from .trainer import Trainer
 
 
 @eqx.filter_jit
