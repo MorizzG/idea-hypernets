@@ -1,7 +1,5 @@
-from jaxtyping import Array, Float, Integer
-from typing import Callable
+from jaxtyping import Array
 
-import shutil
 from pathlib import Path
 
 import equinox as eqx
@@ -9,81 +7,36 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
-import numpy as np
 import optax
 import wandb
 from matplotlib import pyplot as plt
 from omegaconf import MISSING, OmegaConf
 from optax import OptState
-from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 from umap import UMAP
 
-from hyper_lap.datasets import Dataset, DegenerateDataset, MultiDataLoader
+from hyper_lap.datasets import Dataset, MultiDataLoader
 from hyper_lap.hyper import ResHyperNet
-from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
 from hyper_lap.training.utils import (
-    load_amos_datasets,
-    load_medidec_datasets,
     load_model_artifact,
+    make_dataloaders,
     make_lr_schedule,
     parse_args,
     print_config,
-    to_PIL,
 )
 
-_key = jr.key(0)
-
-
-def consume():
-    global _key
-    _key, _consume = jr.split(_key)
-    return _consume
-
-
-def calc_metrics(hypernet: ResHyperNet, batch: dict[str, Array]) -> dict[str, Array]:
-    images = batch["image"]
-    labels = batch["label"]
-
-    model = eqx.filter_jit(hypernet)(images[0], labels[0])
-
-    logits = eqx.filter_jit(eqx.filter_vmap(model))(images)
-
-    preds = jnp.argmax(logits, axis=1)
-
-    preds = preds != 0
-    labels = labels != 0
-
-    dice = jax.jit(jax.vmap(dice_score))(preds, labels).mean()
-
-    iou = jax.jit(jax.vmap(jaccard_index))(preds, labels).mean()
-
-    hd = np.array([hausdorff_distance(preds[i], labels[i]) for i in range(preds.shape[0])]).mean()
-
-    return {"dice": dice, "iou": iou, "hausdorff": hd}
-
-
-@jax.jit
-def loss_fn(logits: Float[Array, "c h w"], labels: Integer[Array, "h w"]) -> Array:
-    # C H W -> H W C
-    logits = jnp.moveaxis(logits, 0, -1)
-
-    neg_log_prob = optax.softmax_cross_entropy_with_integer_labels(logits, labels)
-
-    # sum over spatial dims
-    neg_log_likelihood = neg_log_prob.sum()
-
-    return neg_log_likelihood
+from .loss import loss_fn
+from .trainer import Trainer
 
 
 @eqx.filter_jit
 def training_step(
     hypernet: ResHyperNet,
-    opt: optax.GradientTransformation,
     batch: dict[str, Array],
+    opt: optax.GradientTransformation,
     opt_state: OptState,
 ) -> tuple[Array, ResHyperNet, OptState]:
     images = batch["image"]
@@ -105,187 +58,6 @@ def training_step(
     hypernet = eqx.apply_updates(hypernet, updates)
 
     return loss, hypernet, opt_state
-
-
-def train(
-    hypernet: ResHyperNet,
-    train_loader: MultiDataLoader,
-    opt: optax.GradientTransformation,
-    opt_state: optax.OptState,
-    *,
-    pbar: tqdm,
-    epoch: int,
-) -> tuple[ResHyperNet, optax.OptState]:
-    pbar.write("Training:\n")
-
-    losses = []
-
-    for batch_tensor in tqdm(train_loader, leave=False):
-        batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
-
-        loss, hypernet, opt_state = training_step(hypernet, opt, batch, opt_state)
-
-        losses.append(loss.item())
-
-    loss_mean = jnp.mean(jnp.array(losses)).item()
-    loss_std = jnp.std(jnp.array(losses)).item()
-
-    pbar.write(f"Loss: {loss_mean:.3}")
-
-    if wandb.run is not None:
-        wandb.run.log(
-            {
-                "epoch": epoch,
-                "loss/train/mean": loss_mean,
-                "loss/train/std": loss_std,
-            }
-        )
-
-    return hypernet, opt_state
-
-
-def validate(
-    hypernet: ResHyperNet, val_loader: MultiDataLoader, *, write: Callable[[str], None], epoch: int
-):
-    write("Validation:")
-    write("")
-
-    all_metrics: dict[str, dict[str, Array]] = {}
-
-    for dataloader in val_loader.dataloaders:
-        dataset_name: str = dataloader.dataset.name  # type: ignore
-
-        batch = jt.map(jnp.asarray, next(iter(dataloader)))
-
-        metrics = calc_metrics(hypernet, batch)
-
-        write(f"Dataset: {dataset_name}:")
-        write(f"    Dice score: {metrics['dice']:.3f}")
-        write(f"    IoU score : {metrics['iou']:.3f}")
-        write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
-        write("")
-
-        all_metrics[dataset_name] = metrics
-
-    if wandb.run is not None:
-        wandb.run.log(
-            {
-                "epoch": epoch,
-            }
-            | {
-                f"{metric}/{dataset_name}": val.item()
-                for dataset_name, metrics in all_metrics.items()
-                for metric, val in metrics.items()
-            }
-        )
-
-    write("")
-
-
-def make_plots(hypernet: ResHyperNet, val_loader: MultiDataLoader, test_loader: DataLoader):
-    image_folder = Path(f"./images/{model_name}")
-
-    if image_folder.exists():
-        shutil.rmtree(image_folder)
-
-    image_folder.mkdir(parents=True)
-
-    for dataset, dataloader in zip(val_loader.datasets, val_loader.dataloaders):
-        print(f"Dataset {dataset.name}")
-        print()
-
-        batch = jt.map(jnp.asarray, next(iter(dataloader)))
-
-        gen_image = jnp.asarray(batch["image"][0])
-        gen_label = jnp.asarray(batch["label"][0])
-
-        model = eqx.filter_jit(hypernet)(gen_image, gen_label)
-
-        image = jnp.asarray(batch["image"][1])
-        label = jnp.asarray(batch["label"][1])
-
-        logits = eqx.filter_jit(model)(image)
-        pred = jnp.argmax(logits, axis=0)
-
-        fig, axs = plt.subplots(ncols=3)
-
-        axs[0].imshow(image.mean(axis=0), cmap="gray")
-        axs[1].imshow(label, cmap="gray")
-        axs[2].imshow(pred, cmap="gray")
-
-        fig.savefig(image_folder / f"{dataset.name}.pdf")
-
-        metrics = calc_metrics(hypernet, batch)
-
-        print(f"Dataset {dataset.name}:")
-        print(f"    Dice score: {metrics['dice']:.3f}")
-        print(f"    IoU score : {metrics['iou']:.3f}")
-        print(f"    Hausdorff : {metrics['hausdorff']:.3f}")
-
-        print()
-        print()
-
-        if wandb.run is not None:
-            class_labels = {0: "background", 1: "foreground"}
-
-            image = wandb.Image(
-                to_PIL(image),
-                caption="Input image",
-                masks={
-                    "ground_truth": {"mask_data": np.asarray(label), "class_labels": class_labels},
-                    "prediction": {"mask_data": np.asarray(pred), "class_labels": class_labels},
-                },
-            )
-
-            wandb.run.log({f"images/train/{dataset.name}": image})
-
-    assert isinstance(test_loader.dataset, Dataset)
-
-    print()
-    print()
-    print(f"Test: {test_loader.dataset.name}")
-    print()
-
-    batch = jt.map(jnp.asarray, next(iter(test_loader)))
-
-    gen_image = jnp.asarray(batch["image"][0])
-    gen_label = jnp.asarray(batch["label"][0])
-
-    metrics = calc_metrics(hypernet, batch)
-
-    print(f"Dice score: {metrics['dice']:.3f}")
-    print(f"IoU score : {metrics['iou']:.3f}")
-    print(f"Hausdorff : {metrics['hausdorff']:.3f}")
-
-    model = eqx.filter_jit(hypernet)(gen_image, gen_label)
-
-    image = jnp.asarray(batch["image"][1])
-    label = jnp.asarray(batch["label"][1])
-
-    logits = eqx.filter_jit(model)(image)
-    pred = jnp.argmax(logits, axis=0)
-
-    fig, axs = plt.subplots(ncols=3)
-
-    axs[0].imshow(image.mean(axis=0), cmap="gray")
-    axs[1].imshow(label, cmap="gray")
-    axs[2].imshow(pred, cmap="gray")
-
-    fig.savefig(image_folder / f"{test_loader.dataset.name}_test.pdf")
-
-    if wandb.run is not None:
-        class_labels = {0: "background", 1: "foreground"}
-
-        image = wandb.Image(
-            to_PIL(image),
-            caption="Input image",
-            masks={
-                "ground_truth": {"mask_data": np.asarray(label), "class_labels": class_labels},
-                "prediction": {"mask_data": np.asarray(pred), "class_labels": class_labels},
-            },
-        )
-
-        wandb.run.log({f"images/test/{test_loader.dataset.name}": image})
 
 
 def make_umap(hypernet: ResHyperNet, datasets: list[Dataset]):
@@ -413,86 +185,13 @@ def main():
 
     model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
 
-    match config.dataset:
-        case "amos":
-            trainsets = load_amos_datasets("train")
-            valsets = load_amos_datasets("validation")
-
-            # trainset_names = {"spleen", "pancreas"}
-            # testset_name = "liver"
-
-            testset = trainsets.pop(config.testset)
-            valsets.pop(config.testset)
-
-            trainsets = {
-                name: dataset
-                for name, dataset in trainsets.items()
-                if name in config.trainsets.split(",")
-            }
-            valsets = {
-                name: dataset
-                for name, dataset in valsets.items()
-                if name in config.trainsets.split(",")
-            }
-
-            trainsets = list(trainsets.values())
-            valsets = list(valsets.values())
-        case "medidec":
-            trainsets = load_medidec_datasets("train")
-            valsets = load_medidec_datasets("validation")
-
-            # trainset_names = {"Liver", "Pancreas", "Lung"}
-            # trainset_names = {"Liver", "Lung", "Pancreas"}
-            # testset_name = "Spleen"
-
-            testset = trainsets.pop(config.testset)
-            _ = valsets.pop(config.testset)
-
-            trainsets = {
-                name: dataset
-                for name, dataset in trainsets.items()
-                if name in config.trainsets.split(",")
-            }
-            valsets = {
-                name: dataset
-                for name, dataset in valsets.items()
-                if name in config.trainsets.split(",")
-            }
-
-            trainsets = list(trainsets.values())
-            valsets = list(valsets.values())
-        case _:
-            raise RuntimeError(f"Invalid dataset {config.dataset}")
-
-    print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
-    print(f"Testset:   {testset.name}")
-
-    if config.degenerate:
-        print("Using degenerate dataset")
-
-        trainsets = [DegenerateDataset(dataset) for dataset in trainsets]
-
-        for dataset in trainsets:
-            for X in dataset:
-                # assert jnp.all(X["image"] == dataset[0]["image"])
-                # assert jnp.all(X["label"] == dataset[0]["label"])
-
-                assert eqx.tree_equal(X, dataset[0])
-
-    train_loader = MultiDataLoader(
-        *trainsets,
-        num_samples=100 * config.batch_size,
-        dataloader_args=dict(batch_size=config.batch_size, num_workers=args.num_workers),
+    train_loader, val_loader, test_loader = make_dataloaders(
+        config.dataset,
+        config.trainsets.split(","),
+        config.testset,
+        batch_size=config.batch_size,
+        num_workers=args.num_workers,
     )
-
-    val_loader = MultiDataLoader(
-        *valsets,
-        num_samples=2 * config.batch_size,
-        dataloader_args=dict(batch_size=2 * config.batch_size, num_workers=args.num_workers),
-    )
-
-    # use 2 * batch_size for test loader since we need no grad here
-    test_loader = DataLoader(testset, batch_size=2 * config.batch_size, num_workers=8)
 
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
@@ -501,26 +200,30 @@ def main():
 
     opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
 
+    trainer: Trainer[ResHyperNet] = Trainer(train_loader, val_loader, opt, opt_state, training_step)
+
     print("Validation before training:")
     print()
 
-    validate(hypernet, val_loader, write=print, epoch=-1)
+    trainer.validate(hypernet)
 
-    for epoch in (pbar := trange(first_epoch, first_epoch + config.epochs)):
-        pbar.write(f"Epoch {epoch:02}\n")
-        pbar.write(f"learning rate: {lr_schedule(opt_state[2].count):.1e}")  # type: ignore
+    for epoch in trange(first_epoch, first_epoch + config.epochs):
+        tqdm.write(f"Epoch {trainer.epoch:02}\n")
 
-        if wandb.run is not None and "lr_schedule" in vars():
-            wandb.run.log(
-                {
-                    "epoch": epoch,
-                    "learning_rate": lr_schedule(opt_state[2].count),  # type: ignore
-                }
-            )
+        # if isinstance(trainer.opt_state[-1], optax.ScaleByScheduleState):
+        #     tqdm.write(f"learning rate: {lr_schedule(trainer.opt_state[-1].count):.1e}")
 
-        hypernet, opt_state = train(hypernet, train_loader, opt, opt_state, pbar=pbar, epoch=epoch)
+        #     if wandb.run is not None:
+        #         wandb.run.log(
+        #             {
+        #                 "epoch": epoch,
+        #                 "learning_rate": lr_schedule(opt_state[2].count),  # type: ignore
+        #             }
+        #         )
 
-        validate(hypernet, val_loader, write=pbar.write, epoch=epoch)
+        hypernet = trainer.train(hypernet)
+
+        trainer.validate(hypernet)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
@@ -539,8 +242,9 @@ def main():
     print()
     print()
 
-    make_plots(hypernet, val_loader, test_loader)
-    make_umap(hypernet, trainsets + [testset])
+    trainer.make_plots(hypernet, test_loader, image_folder=Path(f"./images/{model_name}"))
+
+    # make_umap(hypernet, trainsets + [testset])
 
 
 if __name__ == "__main__":

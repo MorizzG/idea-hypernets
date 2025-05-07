@@ -8,6 +8,7 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from time import time
 
+import equinox as eqx
 import jax.random as jr
 import numpy as np
 import optax
@@ -15,8 +16,16 @@ import PIL.Image as Image
 import wandb
 import yaml
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader
 
-from hyper_lap.datasets import AmosSliced, Dataset, MediDecSliced, NormalisedDataset
+from hyper_lap.datasets import (
+    AmosSliced,
+    Dataset,
+    DegenerateDataset,
+    MediDecSliced,
+    MultiDataLoader,
+    NormalisedDataset,
+)
 from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation.safetensors import load_config, load_pytree
@@ -153,6 +162,64 @@ def load_medidec_datasets(
         datasets[dataset.name] = dataset
 
     return datasets
+
+
+def make_dataloaders(
+    dataset: Literal["amos", "medidec"],
+    trainset_names: list[str],
+    testset_name: str,
+    *,
+    batch_size: int,
+    num_workers: int,
+    degenerate: bool = False,
+) -> tuple[MultiDataLoader, MultiDataLoader, DataLoader]:
+    match dataset:
+        case "amos":
+            trainsets = load_amos_datasets("train")
+            valsets = load_amos_datasets("validation")
+        case "medidec":
+            trainsets = load_medidec_datasets("train")
+            valsets = load_medidec_datasets("validation")
+        case _:
+            raise ValueError(f"Invalid dataset {dataset}")
+
+    testset = trainsets.pop(testset_name)
+    valsets.pop(testset_name)
+
+    trainsets = {name: dataset for name, dataset in trainsets.items() if name in trainset_names}
+    valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
+
+    trainsets = list(trainsets.values())
+    valsets = list(valsets.values())
+
+    print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
+    print(f"Testset:   {testset.name}")
+
+    if degenerate:
+        print("Using degenerate datasets")
+
+        trainsets = [DegenerateDataset(dataset) for dataset in trainsets]
+
+        for dataset_ in trainsets:
+            for X in dataset_:
+                assert eqx.tree_equal(X, dataset_[0])
+
+    train_loader = MultiDataLoader(
+        *trainsets,
+        num_samples=100 * batch_size,
+        dataloader_args=dict(batch_size=batch_size, num_workers=num_workers),
+    )
+
+    val_loader = MultiDataLoader(
+        *valsets,
+        num_samples=2 * batch_size,
+        dataloader_args=dict(batch_size=2 * batch_size, num_workers=num_workers),
+    )
+
+    # use 2 * batch_size for test loader since we need no grad here
+    test_loader = DataLoader(testset, batch_size=2 * batch_size, num_workers=8)
+
+    return train_loader, val_loader, test_loader
 
 
 def make_lr_schedule(lr: float, epochs: int, len_train_loader) -> optax.Schedule:
