@@ -180,7 +180,7 @@ def main():
 
     if wandb.run is not None:
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder, "hypernet"]
+        wandb.run.tags = [config.dataset, config.embedder, "res_hypernet"]
 
     model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
 
@@ -194,31 +194,26 @@ def main():
 
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
-    opt = optax.adamw(lr_schedule)
-    # opt = optax.adamw(config.lr)
-
-    opt_state = opt.init(eqx.filter(hypernet, eqx.is_array_like))
-
-    trainer: Trainer[ResHyperNet] = Trainer(train_loader, val_loader, opt, opt_state, training_step)
+    trainer: Trainer[ResHyperNet] = Trainer(
+        hypernet, training_step, train_loader, val_loader, lr=lr_schedule
+    )
 
     print("Validation before training:")
     print()
 
     trainer.validate(hypernet)
 
-    for epoch in trange(first_epoch, first_epoch + config.epochs):
-        tqdm.write(f"Epoch {trainer.epoch:02}\n")
+    for _ in trange(first_epoch, first_epoch + config.epochs):
+        if "lr_schedule" in vars():
+            tqdm.write(f"learning rate: {trainer.learning_rate:.1e}")
 
-        # if isinstance(trainer.opt_state[-1], optax.ScaleByScheduleState):
-        #     tqdm.write(f"learning rate: {lr_schedule(trainer.opt_state[-1].count):.1e}")
-
-        #     if wandb.run is not None:
-        #         wandb.run.log(
-        #             {
-        #                 "epoch": epoch,
-        #                 "learning_rate": lr_schedule(opt_state[2].count),  # type: ignore
-        #             }
-        #         )
+            if wandb.run is not None:
+                wandb.run.log(
+                    {
+                        "epoch": trainer.epoch,
+                        "learning_rate": trainer.learning_rate,
+                    }
+                )
 
         hypernet = trainer.train(hypernet)
 
@@ -243,7 +238,12 @@ def main():
 
     trainer.make_plots(hypernet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
-    # make_umap(hypernet, trainsets + [testset])
+    umap_datasets = [dataset for dataset in train_loader.datasets]
+    umap_datasets += test_loader.dataset  # type: ignore
+
+    trainer.make_umap(
+        hypernet.input_embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
+    )
 
 
 if __name__ == "__main__":

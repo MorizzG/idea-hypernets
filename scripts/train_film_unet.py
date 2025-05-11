@@ -4,22 +4,15 @@ from pathlib import Path
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.random as jr
-import jax.tree as jt
 import optax
 import wandb
-from matplotlib import pyplot as plt
 from omegaconf import MISSING, OmegaConf
 from optax import OptState
 from tqdm import tqdm, trange
-from umap import UMAP
 
-from hyper_lap.datasets import Dataset, MultiDataLoader
-from hyper_lap.hyper import HyperNet
-from hyper_lap.models import Unet
-from hyper_lap.serialisation import save_with_config_safetensors
-from hyper_lap.serialisation.safetensors import load_pytree
+from hyper_lap.models import FilmUnet
+from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
@@ -33,75 +26,30 @@ from hyper_lap.training.utils import (
 
 @eqx.filter_jit
 def training_step(
-    hypernet: HyperNet,
+    film_unet: FilmUnet,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[Array, HyperNet, OptState]:
+) -> tuple[Array, FilmUnet, OptState]:
     images = batch["image"]
     labels = batch["label"]
 
-    def grad_fn(hypernet: HyperNet) -> Array:
-        model = hypernet(images[0], labels[0])
+    def grad_fn(film_unet: FilmUnet) -> Array:
+        cond_emb = film_unet.embedder(images[0], labels[0])
 
-        logits = jax.vmap(model)(images)
+        logits = jax.vmap(film_unet, in_axes=(0, None))(images, cond_emb)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
 
         return loss
 
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(hypernet)
+    loss, grads = eqx.filter_value_and_grad(grad_fn)(film_unet)
 
-    updates, opt_state = opt.update(grads, opt_state, hypernet)  # type: ignore
+    updates, opt_state = opt.update(grads, opt_state, film_unet)  # type: ignore
 
-    hypernet = eqx.apply_updates(hypernet, updates)
+    film_unet = eqx.apply_updates(film_unet, updates)
 
-    return loss, hypernet, opt_state
-
-
-def make_umap(hypernet: HyperNet, datasets: list[Dataset]):
-    image_folder = Path(f"./images/{model_name}")
-
-    assert image_folder.exists()
-
-    embedder = hypernet.input_embedder
-
-    embedder = eqx.filter_jit(eqx.filter_vmap(embedder))
-
-    multi_dataloader = MultiDataLoader(
-        *datasets,
-        num_samples=100,
-        dataloader_args=dict(batch_size=100, num_workers=8),
-    )
-
-    samples = {
-        dataset.name: jt.map(jnp.asarray, next(iter(dataloader)))
-        for dataset, dataloader in zip(multi_dataloader.datasets, multi_dataloader.dataloaders)
-    }
-
-    embs = {name: embedder(X["image"], X["label"]) for name, X in samples.items()}
-
-    umap = UMAP()
-    umap.fit(jnp.concat([embs for embs in embs.values()]))
-
-    projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # type: ignore
-
-    fig, ax = plt.subplots()
-
-    for name, proj in projs.items():
-        ax.scatter(proj[:, 0], proj[:, 1], 4.0, label=name)
-
-    pos = ax.get_position()
-    ax.set_position((pos.x0, pos.y0, pos.width * 0.75, pos.height))
-
-    fig.legend(loc="outside center right")
-
-    fig.savefig(image_folder / "umap.pdf")
-
-    if wandb.run is not None:
-        image = wandb.Image(fig, mode="RGBA", caption="UMAP")
-
-        wandb.run.log({"images/umap": image})
+    return loss, film_unet, opt_state
 
 
 def main():
@@ -118,19 +66,15 @@ def main():
             "lr": MISSING,
             "batch_size": MISSING,
             "embedder": MISSING,
-            "unet": {
+            "film_unet": {
                 "base_channels": 8,
                 "channel_mults": [1, 2, 4],
                 "in_channels": 3,
                 "out_channels": 2,
+                "emb_size": 3 * 1024,
+                "emb_kind": "${embedder}",
                 "use_res": False,
                 "use_weight_standardized_conv": False,
-            },
-            "hypernet": {
-                "block_size": 8,
-                "emb_size": 3 * 1024,
-                "kernel_size": 3,
-                "embedder_kind": "${embedder}",
             },
         }
     )
@@ -155,11 +99,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            key = jr.PRNGKey(config.seed)
-            unet_key, hypernet_key = jr.split(key)
-
-            unet = Unet(**config.unet, key=unet_key)
-            hypernet = HyperNet(unet, **config.hypernet, key=hypernet_key)
+            film_unet = FilmUnet(**config.film_unet, key=jr.PRNGKey(config.seed))
 
         case "resume":
             assert args.artifact is not None
@@ -173,13 +113,9 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            key = jr.PRNGKey(config["seed"])  # type: ignore
-            unet_key, hypernet_key = jr.split(key)
+            film_unet = FilmUnet(**config.film_unet, key=jr.PRNGKey(config.seed))
 
-            unet = Unet(**config["unet"], key=unet_key)  # type: ignore
-            hypernet = HyperNet(unet, **config["hypernet"], key=hypernet_key)  # type: ignore
-
-            hypernet = load_pytree(weights_path, hypernet)
+            film_unet = load_pytree(weights_path, film_unet)
 
         case cmd:
             raise RuntimeError(f"Unrecognised command {cmd}")
@@ -188,7 +124,7 @@ def main():
 
     if wandb.run is not None:
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder, "hypernet"]
+        wandb.run.tags = [config.dataset, config.embedder, "film"]
 
     model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
 
@@ -202,8 +138,8 @@ def main():
 
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
-    trainer: Trainer[HyperNet] = Trainer(
-        hypernet, training_step, train_loader, val_loader, lr=lr_schedule
+    trainer: Trainer[FilmUnet] = Trainer(
+        film_unet, training_step, train_loader, val_loader, lr=lr_schedule
     )
 
     for _ in trange(first_epoch, first_epoch + config.epochs):
@@ -217,15 +153,15 @@ def main():
                 }
             )
 
-        hypernet = trainer.train(hypernet)
+        film_unet = trainer.train(film_unet)
 
-        trainer.validate(hypernet)
+        trainer.validate(film_unet)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
     model_path.parent.mkdir(exist_ok=True)
 
-    save_with_config_safetensors(model_path, OmegaConf.to_object(config), hypernet)
+    save_with_config_safetensors(model_path, OmegaConf.to_object(config), film_unet)
 
     if wandb.run is not None:
         model_artifact = wandb.Artifact(model_name, type="model")
@@ -238,13 +174,13 @@ def main():
     print()
     print()
 
-    trainer.make_plots(hypernet, test_loader, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(film_unet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
     umap_datasets = [dataset for dataset in train_loader.datasets]
     umap_datasets += test_loader.dataset  # type: ignore
 
     trainer.make_umap(
-        hypernet.input_embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
+        film_unet.embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
     )
 
 

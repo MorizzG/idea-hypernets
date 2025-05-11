@@ -8,28 +8,32 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.tree as jt
 import numpy as np
+import optax
 import wandb
 from matplotlib import pyplot as plt
 from optax import GradientTransformation, OptState
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from umap import UMAP
 
 from hyper_lap.datasets import MultiDataLoader
 from hyper_lap.datasets.base import Dataset
-from hyper_lap.hyper import HyperNet, ResHyperNet
-from hyper_lap.models import Unet
+from hyper_lap.hyper import HyperNet, InputEmbedder, ResHyperNet
+from hyper_lap.models import FilmUnet, Unet
 from hyper_lap.training.utils import to_PIL
 
 from .metrics import calc_metrics
 
 
-class Trainer[Net: Unet | HyperNet | ResHyperNet]:
+class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
     type TrainingStep = Callable[
         [Net, dict[str, Array], GradientTransformation, OptState],
         tuple[Float[Array, ""], Net, OptState],
     ]
 
     epoch: int
+
+    lr: float | optax.Schedule
 
     opt: GradientTransformation
     opt_state: OptState
@@ -50,31 +54,41 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet]:
 
     def __init__(
         self,
+        net: Net,
+        training_step: TrainingStep,
         train_loader: MultiDataLoader,
         val_loader: MultiDataLoader,
-        opt: GradientTransformation,
-        opt_state: OptState,
-        training_step: TrainingStep,
         *,
         epoch: int = 0,
+        lr: float | optax.Schedule,
     ):
         super().__init__()
 
         # epoch gets incremented at start of train, so set to one less of start value
         self.epoch = epoch - 1
 
-        self.opt = opt
-        self.opt_state = opt_state
+        self.lr = lr
+
+        self.opt = optax.adamw(self.lr)
+
+        self.opt_state = self.opt.init(eqx.filter(net, eqx.is_array_like))
 
         self.train_loader = train_loader
         self.val_loader = val_loader
 
         self.training_step = training_step
 
+    @property
+    def learning_rate(self) -> float:
+        if isinstance(self.lr, float):
+            return self.lr
+
+        return float(self.lr(self.opt_state[2].count))  # type: ignore
+
     def train(self, net: Net) -> Net:
         self.epoch += 1
 
-        tqdm.write("Training:\n")
+        tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
 
         losses = []
 
@@ -102,7 +116,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet]:
         return net
 
     def validate(self, net: Net):
-        tqdm.write("Validation:\n")
+        tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
         all_metrics: dict[str, dict[str, Array]] = {}
 
@@ -236,3 +250,45 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet]:
             )
 
             wandb.run.log({f"images/test/{test_loader.dataset.name}": image})
+
+    @staticmethod
+    def make_umap(embedder: InputEmbedder, datasets: list[Dataset], image_folder: Path):
+        if not image_folder.exists():
+            image_folder.mkdir(parents=True)
+
+        embedder_jit = eqx.filter_jit(eqx.filter_vmap(embedder))
+
+        multi_dataloader = MultiDataLoader(
+            *datasets,
+            num_samples=100,
+            dataloader_args=dict(batch_size=100, num_workers=8),
+        )
+
+        samples = {
+            dataset.name: jt.map(jnp.asarray, next(iter(dataloader)))
+            for dataset, dataloader in zip(multi_dataloader.datasets, multi_dataloader.dataloaders)
+        }
+
+        embs = {name: embedder_jit(X["image"], X["label"]) for name, X in samples.items()}
+
+        umap = UMAP()
+        umap.fit(jnp.concat([embs for embs in embs.values()]))
+
+        projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # type: ignore
+
+        fig, ax = plt.subplots()
+
+        for name, proj in projs.items():
+            ax.scatter(proj[:, 0], proj[:, 1], 4.0, label=name)
+
+        pos = ax.get_position()
+        ax.set_position((pos.x0, pos.y0, pos.width * 0.75, pos.height))
+
+        fig.legend(loc="outside center right")
+
+        fig.savefig(image_folder / "umap.pdf")
+
+        if wandb.run is not None:
+            image = wandb.Image(fig, mode="RGBA", caption="UMAP")
+
+            wandb.run.log({"images/umap": image})
