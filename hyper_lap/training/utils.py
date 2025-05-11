@@ -167,12 +167,12 @@ def load_medidec_datasets(
 def make_dataloaders(
     dataset: Literal["amos", "medidec"],
     trainset_names: list[str],
-    testset_name: str,
+    testset_name: str | None,
     *,
     batch_size: int,
     num_workers: int,
     degenerate: bool = False,
-) -> tuple[MultiDataLoader, MultiDataLoader, DataLoader]:
+) -> tuple[MultiDataLoader, MultiDataLoader, DataLoader | None]:
     match dataset:
         case "amos":
             trainsets = load_amos_datasets("train")
@@ -183,8 +183,10 @@ def make_dataloaders(
         case _:
             raise ValueError(f"Invalid dataset {dataset}")
 
-    testset = trainsets.pop(testset_name)
-    valsets.pop(testset_name)
+    if testset_name is not None:
+        testset = trainsets[testset_name]
+    else:
+        testset = None
 
     trainsets = {name: dataset for name, dataset in trainsets.items() if name in trainset_names}
     valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
@@ -193,7 +195,9 @@ def make_dataloaders(
     valsets = list(valsets.values())
 
     print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
-    print(f"Testset:   {testset.name}")
+
+    if testset is not None:
+        print(f"Testset:   {testset.name}")
 
     if degenerate:
         print("Using degenerate datasets")
@@ -216,8 +220,11 @@ def make_dataloaders(
         dataloader_args=dict(batch_size=2 * batch_size, num_workers=num_workers),
     )
 
-    # use 2 * batch_size for test loader since we need no grad here
-    test_loader = DataLoader(testset, batch_size=2 * batch_size, num_workers=8)
+    if testset is not None:
+        # use 2 * batch_size for test loader since we need no grad here
+        test_loader = DataLoader(testset, batch_size=2 * batch_size, num_workers=8)
+    else:
+        test_loader = None
 
     return train_loader, val_loader, test_loader
 

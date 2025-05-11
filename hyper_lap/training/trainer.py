@@ -182,7 +182,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
 
         tqdm.write("")
 
-    def make_plots(self, net: Net, test_loader: DataLoader, *, image_folder: Path):
+    def make_plots(self, net: Net, test_loader: DataLoader | None, *, image_folder: Path):
         if image_folder.exists():
             shutil.rmtree(image_folder)
 
@@ -239,6 +239,9 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
 
             print()
             print()
+
+        if test_loader is None:
+            return
 
         assert isinstance(test_loader.dataset, Dataset)
 
