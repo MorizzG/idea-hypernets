@@ -10,6 +10,7 @@ import jax.tree as jt
 import numpy as np
 import optax
 import wandb
+from chex import assert_axis_dimension, assert_equal_shape_suffix, assert_rank
 from matplotlib import pyplot as plt
 from optax import GradientTransformation, OptState
 from torch.utils.data import DataLoader
@@ -44,11 +45,38 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
     training_step: TrainingStep
 
     @staticmethod
-    def make_unet(net: Net, batch: dict[str, Array]) -> Unet:
+    def net_forward(
+        net: Net, images: Float[Array, "*b c h w"], labels: Float[Array, "*b h w"]
+    ) -> Array:
+        if images.ndim == 3 and labels.ndim == 2:
+            # unbatched
+
+            images = jnp.expand_dims(images, 0)
+            labels = jnp.expand_dims(labels, 0)
+
+            logits = Trainer.net_forward(net, images, labels)
+
+            assert_axis_dimension(logits, 0, 1)
+
+            return logits[0, ...]
+
+        assert images.ndim == 4 and labels.ndim == 3
+
+        assert_rank(images, 4)
+        assert_rank(labels, 3)
+
+        assert_equal_shape_suffix([images, labels], 2)
+
         if isinstance(net, Unet):
-            return net
+            return eqx.filter_jit(eqx.filter_vmap(net))(images)
         elif isinstance(net, (HyperNet, ResHyperNet)):
-            return eqx.filter_jit(net)(batch["image"][0], batch["label"][0])
+            unet = eqx.filter_jit(net)(images[0], labels[0])
+
+            return eqx.filter_jit(eqx.filter_vmap(unet))(images)
+        elif isinstance(net, FilmUnet):
+            cond_emb = net.embedder(images[0], labels[0])
+
+            return eqx.filter_jit(eqx.filter_vmap(net, in_axes=(0, None)))(images, cond_emb)
         else:
             raise ValueError(f"net has unexpected type {type(net)}")
 
@@ -125,9 +153,12 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
 
             batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-            unet = self.make_unet(net, batch)
+            images = batch["image"]
+            labels = batch["label"]
 
-            metrics = calc_metrics(unet, batch)
+            logits = self.net_forward(net, images, labels)
+
+            metrics = calc_metrics(logits, labels)
 
             tqdm.write(f"Dataset: {dataset_name}:")
             tqdm.write(f"    Dice score: {metrics['dice']:.3f}")
@@ -163,12 +194,13 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
 
             batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-            unet = self.make_unet(net, batch)
+            images = batch["image"]
+            labels = batch["label"]
 
-            image = jnp.asarray(batch["image"][1])
-            label = jnp.asarray(batch["label"][1])
+            image = images[1]
+            label = labels[1]
 
-            logits = eqx.filter_jit(unet)(image)
+            logits = self.net_forward(net, image, label)
             pred = jnp.argmax(logits, axis=0)
 
             fig, axs = plt.subplots(ncols=3)
@@ -178,16 +210,6 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
             axs[2].imshow(pred, cmap="gray")
 
             fig.savefig(image_folder / f"{dataset.name}.pdf")
-
-            metrics = calc_metrics(unet, batch)
-
-            print(f"Dataset {dataset.name}:")
-            print(f"    Dice score: {metrics['dice']:.3f}")
-            print(f"    IoU score : {metrics['iou']:.3f}")
-            print(f"    Hausdorff : {metrics['hausdorff']:.3f}")
-
-            print()
-            print()
 
             if wandb.run is not None:
                 class_labels = {0: "background", 1: "foreground"}
@@ -206,6 +228,18 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
 
                 wandb.run.log({f"images/train/{dataset.name}": image})
 
+            logits = self.net_forward(net, images, labels)
+
+            metrics = calc_metrics(logits, labels)
+
+            print(f"Dataset {dataset.name}:")
+            print(f"    Dice score: {metrics['dice']:.3f}")
+            print(f"    IoU score : {metrics['iou']:.3f}")
+            print(f"    Hausdorff : {metrics['hausdorff']:.3f}")
+
+            print()
+            print()
+
         assert isinstance(test_loader.dataset, Dataset)
 
         print()
@@ -215,9 +249,9 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
 
         batch = jt.map(jnp.asarray, next(iter(test_loader)))
 
-        unet = self.make_unet(net, batch)
+        logits = self.net_forward(net, batch["image"], batch["label"])
 
-        metrics = calc_metrics(unet, batch)
+        metrics = calc_metrics(logits, batch["label"])
 
         print(f"Dice score: {metrics['dice']:.3f}")
         print(f"IoU score : {metrics['iou']:.3f}")
@@ -226,7 +260,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
         image = jnp.asarray(batch["image"][1])
         label = jnp.asarray(batch["label"][1])
 
-        logits = eqx.filter_jit(unet)(image)
+        logits = self.net_forward(net, image, label)
         pred = jnp.argmax(logits, axis=0)
 
         fig, axs = plt.subplots(ncols=3)
@@ -257,6 +291,9 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
             image_folder.mkdir(parents=True)
 
         embedder_jit = eqx.filter_jit(eqx.filter_vmap(embedder))
+
+        for dataset in datasets:
+            assert isinstance(dataset, Dataset)
 
         multi_dataloader = MultiDataLoader(
             *datasets,

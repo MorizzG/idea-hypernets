@@ -239,7 +239,7 @@ def main():
     trainer.make_plots(hypernet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
     umap_datasets = [dataset for dataset in train_loader.datasets]
-    umap_datasets += test_loader.dataset  # type: ignore
+    umap_datasets.append(test_loader.dataset)  # type: ignore
 
     trainer.make_umap(
         hypernet.input_embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")

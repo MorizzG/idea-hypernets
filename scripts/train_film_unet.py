@@ -177,7 +177,7 @@ def main():
     trainer.make_plots(film_unet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
     umap_datasets = [dataset for dataset in train_loader.datasets]
-    umap_datasets += test_loader.dataset  # type: ignore
+    umap_datasets.append(test_loader.dataset)  # type: ignore
 
     trainer.make_umap(
         film_unet.embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")

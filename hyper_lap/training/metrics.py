@@ -1,20 +1,13 @@
-from jaxtyping import Array
+from jaxtyping import Array, Float, Integer
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
-from hyper_lap.models import Unet
 
 
-def calc_metrics(unet: Unet, batch: dict[str, Array]) -> dict[str, Array]:
-    images = batch["image"]
-    labels = batch["label"]
-
-    logits = eqx.filter_jit(eqx.filter_vmap(unet))(images)
-
+def calc_metrics(logits: Float[Array, "c h w"], labels: Integer[Array, "h w"]) -> dict[str, Array]:
     preds = jnp.argmax(logits, axis=1)
 
     preds = preds != 0
