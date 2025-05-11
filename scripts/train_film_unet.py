@@ -122,11 +122,12 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
+    model_name = f"filmunet-{config.dataset}-{config.embedder}"
+
     if wandb.run is not None:
+        wandb.run.name = model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, config.embedder, "film"]
-
-    model_name = f"filmunet-{config.dataset}-{config.embedder}"
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,
