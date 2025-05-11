@@ -162,9 +162,9 @@ def main():
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
 
-            config = OmegaConf.merge(loaded_config, arg_config)
+            first_epoch += loaded_config["epochs"]
 
-            first_epoch += config.epochs
+            config = OmegaConf.merge(loaded_config, arg_config)
 
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
@@ -182,7 +182,7 @@ def main():
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, config.embedder, "res_hypernet"]
 
-    model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
+    model_name = f"reshypernet-{config.dataset}-{config.embedder}"
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,

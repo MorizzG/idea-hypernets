@@ -140,7 +140,7 @@ def main():
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, config.embedder, "hypernet"]
 
-    model_name = f"{Path(__file__).stem}_{config.dataset}_{config.embedder}"
+    model_name = f"hypernet-{config.dataset}-{config.embedder}"
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,

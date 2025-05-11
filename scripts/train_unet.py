@@ -102,7 +102,7 @@ def main():
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
 
-            first_epoch = loaded_config["epoch"]
+            first_epoch = loaded_config["epochs"]
 
             config = OmegaConf.merge(loaded_config, arg_config)
 
@@ -122,7 +122,7 @@ def main():
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, config.embedder, "unet"]
 
-    model_name = f"{Path(__file__).stem}_{config.dataset}"
+    model_name = f"unet-{config.dataset}"
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,
