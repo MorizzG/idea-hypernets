@@ -139,7 +139,7 @@ def main():
         )
 
     unet_config, path = load_model_artifact(
-        "morizzg/idea-laplacian-hypernet/unet_all_medidec:latest"
+        "morizzg/idea-laplacian-hypernet/unet-medidec:v1"
     )
 
     unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
