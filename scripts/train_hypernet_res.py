@@ -145,7 +145,7 @@ def main():
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     trainer: Trainer[ResHyperNet] = Trainer(
-        hypernet, training_step, train_loader, val_loader, lr=lr_schedule
+        hypernet, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
     )
 
     print("Validation before training:")
@@ -153,7 +153,7 @@ def main():
 
     trainer.validate(hypernet)
 
-    for _ in trange(first_epoch, first_epoch + config.epochs):
+    for _ in trange(config.epochs):
         if "lr_schedule" in vars():
             tqdm.write(f"learning rate: {trainer.learning_rate:.1e}")
 

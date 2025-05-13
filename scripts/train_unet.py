@@ -135,9 +135,11 @@ def main():
 
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
-    trainer: Trainer[Unet] = Trainer(unet, training_step, train_loader, val_loader, lr=lr_schedule)
+    trainer: Trainer[Unet] = Trainer(
+        unet, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
+    )
 
-    for _ in trange(first_epoch, first_epoch + config.epochs):
+    for _ in trange(config.epochs):
         tqdm.write(f"learning rate: {trainer.learning_rate:.1e}")
 
         if wandb.run is not None:
