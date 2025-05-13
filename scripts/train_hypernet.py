@@ -11,6 +11,7 @@ from omegaconf import MISSING, OmegaConf
 from optax import OptState
 from tqdm import tqdm, trange
 
+from hyper_lap.datasets import Dataset
 from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
@@ -192,7 +193,11 @@ def main():
     trainer.make_plots(hypernet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
     umap_datasets = [dataset for dataset in train_loader.datasets]
-    umap_datasets.append(test_loader.dataset)  # type: ignore
+
+    if test_loader is not None:
+        assert isinstance(test_loader.dataset, Dataset)
+
+        umap_datasets.append(test_loader.dataset)
 
     trainer.make_umap(
         hypernet.input_embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")

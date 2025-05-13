@@ -4,18 +4,14 @@ from pathlib import Path
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.random as jr
-import jax.tree as jt
 import optax
 import wandb
-from matplotlib import pyplot as plt
 from omegaconf import MISSING, OmegaConf
 from optax import OptState
 from tqdm import tqdm, trange
-from umap import UMAP
 
-from hyper_lap.datasets import Dataset, MultiDataLoader
+from hyper_lap.datasets import Dataset
 from hyper_lap.hyper import ResHyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
@@ -59,51 +55,6 @@ def training_step(
     return loss, hypernet, opt_state
 
 
-def make_umap(hypernet: ResHyperNet, datasets: list[Dataset]):
-    image_folder = Path(f"./images/{model_name}")
-
-    assert image_folder.exists()
-
-    embedder = hypernet.input_embedder
-
-    embedder = eqx.filter_jit(eqx.filter_vmap(embedder))
-
-    multi_dataloader = MultiDataLoader(
-        *datasets,
-        num_samples=100,
-        dataloader_args=dict(batch_size=100, num_workers=8),
-    )
-
-    samples = {
-        dataset.name: jt.map(jnp.asarray, next(iter(dataloader)))
-        for dataset, dataloader in zip(multi_dataloader.datasets, multi_dataloader.dataloaders)
-    }
-
-    embs = {name: embedder(X["image"], X["label"]) for name, X in samples.items()}
-
-    umap = UMAP()
-    umap.fit(jnp.concat([embs for embs in embs.values()]))
-
-    projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # type: ignore
-
-    fig, ax = plt.subplots()
-
-    for name, proj in projs.items():
-        ax.scatter(proj[:, 0], proj[:, 1], 4.0, label=name)
-
-    pos = ax.get_position()
-    ax.set_position((pos.x0, pos.y0, pos.width * 0.75, pos.height))
-
-    fig.legend(loc="outside center right")
-
-    fig.savefig(image_folder / "umap.pdf")
-
-    if wandb.run is not None:
-        image = wandb.Image(fig, mode="RGBA", caption="UMAP")
-
-        wandb.run.log({"images/umap": image})
-
-
 def main():
     global model_name
 
@@ -138,9 +89,7 @@ def main():
             # sync_tensorboard=True,
         )
 
-    unet_config, path = load_model_artifact(
-        "morizzg/idea-laplacian-hypernet/unet-medidec:v1"
-    )
+    unet_config, path = load_model_artifact("morizzg/idea-laplacian-hypernet/unet-medidec:v1")
 
     unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
 
@@ -240,7 +189,11 @@ def main():
     trainer.make_plots(hypernet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
     umap_datasets = [dataset for dataset in train_loader.datasets]
-    umap_datasets.append(test_loader.dataset)  # type: ignore
+
+    if test_loader is not None:
+        assert isinstance(test_loader.dataset, Dataset)
+
+        umap_datasets.append(test_loader.dataset)
 
     trainer.make_umap(
         hypernet.input_embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")

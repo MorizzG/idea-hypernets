@@ -11,6 +11,7 @@ from omegaconf import MISSING, OmegaConf
 from optax import OptState
 from tqdm import tqdm, trange
 
+from hyper_lap.datasets import Dataset
 from hyper_lap.models import FilmUnet
 from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn
@@ -178,7 +179,11 @@ def main():
     trainer.make_plots(film_unet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
     umap_datasets = [dataset for dataset in train_loader.datasets]
-    umap_datasets.append(test_loader.dataset)  # type: ignore
+
+    if test_loader is not None:
+        assert isinstance(test_loader.dataset, Dataset)
+
+        umap_datasets.append(test_loader.dataset)
 
     trainer.make_umap(
         film_unet.embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
