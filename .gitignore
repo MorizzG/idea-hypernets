@@ -2,7 +2,10 @@
 /datasets/
 /images/
 /models/
+/tmp/
 /wandb/
+
+scratch.md
 
 # Python-generated files
 __pycache__/
