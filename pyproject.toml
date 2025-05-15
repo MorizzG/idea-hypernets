@@ -23,9 +23,6 @@ dependencies = [
     "tqdm>=4.67.0",
     "wandb>=0.19.6",
     "umap-learn>=0.5.7",
-    # for umap-learn
-    "llvmlite>=0.44.0",
-    "numba>=0.61.0",
 ]
 
 
@@ -46,7 +43,7 @@ dev-dependencies = [
 
 [tool.uv.sources]
 equinox-hessian = { path = "equinox-hessian" }
-torch = [{ index = "pytorch-cpu" }]
+torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
