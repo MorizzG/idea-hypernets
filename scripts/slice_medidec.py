@@ -151,27 +151,27 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"])
 
     match split:
         case "train":
-            _items = dataset.split_medidec["train"]
+            all_items = dataset.split_medidec["train"]
 
-            n = len(_items)
+            n = len(all_items)
 
             cutoff = int(0.8 * n)
 
             def get_item(i):
-                return _items[i]
+                return all_items[i]
 
             items = (get_item(i) for i in range(0, cutoff))
 
             total = cutoff
         case "validation":
-            _items = dataset.split_medidec["train"]
+            all_items = dataset.split_medidec["train"]
 
-            n = len(_items)
+            n = len(all_items)
 
             cutoff = int(0.8 * n)
 
             def get_item(i):
-                return _items[i]
+                return all_items[i]
 
             items = (get_item(i) for i in range(cutoff, n))
 
@@ -191,12 +191,7 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"])
         else:
             label = None
 
-        result = normalise(image, label, dataset.num_classes)
-
-        if result is None:
-            continue
-
-        image, label = result
+        image, label = normalise(image, label, dataset.num_classes)
 
         c, h, w, d = image.shape
 
