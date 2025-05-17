@@ -8,6 +8,8 @@ from .metadata import Metadata
 class NormalisedDataset(Dataset):
     dataset: Dataset
 
+    channel: int
+
     target_size: tuple[int, int]
 
     @property
@@ -56,10 +58,14 @@ class NormalisedDataset(Dataset):
 
         return image_normed
 
-    def __init__(self, dataset: Dataset, *, target_shape: tuple[int, int] = (336, 336)):
+    def __init__(
+        self, dataset: Dataset, *, channel: int = 0, target_shape: tuple[int, int] = (336, 336)
+    ):
         super().__init__()
 
         self.dataset = dataset
+
+        self.channel = channel
 
         self.target_size = target_shape
 
@@ -107,7 +113,7 @@ class NormalisedDataset(Dataset):
         label = X.pop("label")
 
         # TODO: sth better than just slice out first channel here?
-        image = image[0, ...]
+        image = image[self.channel, ...]
 
         # image = self.resize(image)
         # label = self.resize(label)
