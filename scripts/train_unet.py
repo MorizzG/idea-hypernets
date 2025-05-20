@@ -121,7 +121,7 @@ def main():
     model_name = f"unet-{config.dataset}"
 
     if wandb.run is not None:
-        wandb.run.name = model_name
+        wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, "unet"]
 

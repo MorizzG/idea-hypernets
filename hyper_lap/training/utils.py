@@ -61,6 +61,8 @@ class Args:
 
     num_workers: int
 
+    run_name: str | None
+
     command: str
 
     artifact: str | None = None
@@ -92,6 +94,8 @@ def parse_args() -> tuple[Args, DictConfig]:
         default=DEFAULT_NUM_WORKERS,
         help="Number of dataloader worker threads",
     )
+
+    parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
