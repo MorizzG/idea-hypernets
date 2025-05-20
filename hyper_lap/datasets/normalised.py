@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 import PIL.Image as Image
 
@@ -70,7 +72,7 @@ class NormalisedDataset(Dataset):
     ):
         super().__init__()
 
-        self.dataset = dataset
+        self.dataset = deepcopy(dataset)
 
         self.channel = channel
 
