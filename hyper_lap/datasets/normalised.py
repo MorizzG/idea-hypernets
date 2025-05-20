@@ -16,6 +16,13 @@ class NormalisedDataset(Dataset):
     def metadata(self) -> Metadata:
         return self.dataset.metadata
 
+    @metadata.setter
+    def metadata(self, metadata: Metadata):
+        if not isinstance(metadata, Metadata):
+            raise ValueError
+
+        self.dataset.metadata = metadata
+
     @property
     def name(self) -> str:
         return self.dataset.name

@@ -1,6 +1,7 @@
 from jaxtyping import Array
 from typing import Any, Literal
 
+import dataclasses
 import json
 from argparse import ArgumentParser
 from dataclasses import dataclass
@@ -167,6 +168,10 @@ def load_medidec_datasets(
             dataset_t1 = NormalisedDataset(dataset, channel=1)
             dataset_t2 = NormalisedDataset(dataset, channel=3)
 
+            dataset_flair.metadata = dataclasses.replace(dataset_flair.metadata, name="BRATS-FLAIR")
+            dataset_t1.metadata = dataclasses.replace(dataset_flair.metadata, name="BRATS-T1")
+            dataset_t2.metadata = dataclasses.replace(dataset_flair.metadata, name="BRATS-T2")
+
             datasets["BRATS-FLAIR"] = dataset_flair
             datasets["BRATS-T1"] = dataset_t1
             datasets["BRATS-T2"] = dataset_t2
@@ -246,16 +251,18 @@ def make_dataloaders(
     return train_loader, val_loader, test_loader
 
 
-def make_lr_schedule(lr: float, epochs: int, len_train_loader) -> optax.Schedule:
+def make_lr_schedule(lr: float, epochs: int, len_train_loader: int) -> optax.Schedule:
     total_updates = epochs * len_train_loader
+
+    warmup = total_updates // 5
 
     # 20% warmup, then 80% cosine decay
     return optax.schedules.warmup_cosine_decay_schedule(
         lr / 1e3,
         lr,
-        total_updates // 5,
-        total_updates - total_updates // 5,
-        end_value=lr / 1e-3,
+        warmup,
+        total_updates - warmup,
+        end_value=lr / 1e3,
     )
 
 

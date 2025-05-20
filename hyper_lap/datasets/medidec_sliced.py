@@ -17,6 +17,13 @@ class MediDecSliced(Dataset):
     def metadata(self) -> Metadata:
         return self._metadata
 
+    @metadata.setter
+    def metadata(self, metadata: Metadata):
+        if not isinstance(metadata, Metadata):
+            raise ValueError
+
+        self._metadata = metadata
+
     @property
     def name(self) -> str:
         # "MediDec " +
