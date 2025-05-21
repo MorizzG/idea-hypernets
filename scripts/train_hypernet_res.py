@@ -69,6 +69,7 @@ def main():
             "lr": MISSING,
             "batch_size": MISSING,
             "embedder": MISSING,
+            "unet_artifact": MISSING,
             "hypernet": {
                 "block_size": 8,
                 "emb_size": 3 * 1024,
@@ -89,14 +90,6 @@ def main():
             # sync_tensorboard=True,
         )
 
-    unet_config, path = load_model_artifact("morizzg/idea-laplacian-hypernet/unet-medidec:v1")
-
-    unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
-
-    unet = load_pytree(path, unet)
-
-    first_epoch = unet_config["epochs"]
-
     match args.command:
         case "train":
             config = OmegaConf.merge(base_config, arg_config)
@@ -104,23 +97,37 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
+            unet_config, path = load_model_artifact(config.unet_artifact)
+
+            unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
+
+            unet = load_pytree(path, unet)
+
             hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
+
+            first_epoch = unet_config["epochs"]
 
         case "resume":
             assert args.artifact is not None
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
 
-            first_epoch += loaded_config["epochs"]
-
             config = OmegaConf.merge(loaded_config, arg_config)
 
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
+            unet_config, path = load_model_artifact(config.unet_artifact)
+
+            unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
+
+            unet = load_pytree(path, unet)
+
             hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
             hypernet = load_pytree(weights_path, hypernet)
+
+            first_epoch = unet_config["epochs"] + loaded_config["epochs"]
 
         case cmd:
             raise RuntimeError(f"Unrecognised command {cmd}")
