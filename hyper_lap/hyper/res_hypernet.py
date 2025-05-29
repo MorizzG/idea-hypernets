@@ -1,4 +1,4 @@
-from jaxtyping import Array, Float, Integer, PRNGKeyArray
+from jaxtyping import Array, Float, Integer, PRNGKeyArray, PyTree
 from typing import Literal
 
 import equinox as eqx
@@ -17,6 +17,8 @@ from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 class ResHyperNet(eqx.Module):
     unet: Unet = eqx.field(static=True)
 
+    filter_spec: PyTree
+
     kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
 
@@ -28,7 +30,7 @@ class ResHyperNet(eqx.Module):
     kernel_generator: Conv2dGenerator
 
     unet_pos_embs: list[Array]
-    recomb_embs: list[Array]
+    recomb_pos_embs: list[Array]
 
     init_kernel: Array
     final_kernel: Array
@@ -80,12 +82,18 @@ class ResHyperNet(eqx.Module):
         kernel_size: int,
         embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
         key: PRNGKeyArray,
+        filter_spec: PyTree | None = None,
     ):
         super().__init__()
+
+        if filter_spec is None:
+            filter_spec = jt.map(lambda x: eqx.is_array(x), unet)
 
         eps = 1e-5
 
         self.unet = unet
+
+        self.filter_spec = filter_spec
 
         self.kernel_size = kernel_size
         self.base_channels = unet.base_channels
@@ -115,12 +123,18 @@ class ResHyperNet(eqx.Module):
 
         unet_pos_embs_key, recomb_pos_embs_key = jr.split(key)
 
-        self.unet_pos_embs = self.generate_pos_embs(unet.unet, key=unet_pos_embs_key)
+        self.unet_pos_embs = self.generate_pos_embs(
+            unet.unet, self.filter_spec.unet, key=unet_pos_embs_key
+        )
 
-        self.recomb_embs = self.generate_pos_embs(unet.recomb, key=recomb_pos_embs_key)
+        self.recomb_pos_embs = self.generate_pos_embs(
+            unet.recomb, self.filter_spec.recomb, key=recomb_pos_embs_key
+        )
 
-    def generate_pos_embs(self, module: eqx.Module, *, key: PRNGKeyArray) -> list[Array]:
-        leaves, _ = jt.flatten(eqx.filter(module, eqx.is_array))
+    def generate_pos_embs(
+        self, module: eqx.Module, filter_spec: PyTree, *, key: PRNGKeyArray
+    ) -> list[Array]:
+        leaves, _ = jt.flatten(eqx.filter(module, filter_spec))
 
         block_size = self.block_size
         kernel_size = self.kernel_size
@@ -133,9 +147,9 @@ class ResHyperNet(eqx.Module):
             c_out, c_in, k1, k2 = leaf.shape
 
             assert k1 == k2 == kernel_size, f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -172,7 +186,7 @@ class ResHyperNet(eqx.Module):
         block_size = self.block_size
         kernel_size = self.kernel_size
 
-        model_weights, static_model = eqx.partition(unet, eqx.is_array)
+        model_weights, static_model = eqx.partition(unet, self.filter_spec.unet)
 
         weights, treedef = jt.flatten(model_weights)
 
@@ -181,7 +195,9 @@ class ResHyperNet(eqx.Module):
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
 
-        assert len(weights) == len(self.unet_pos_embs)
+        assert len(weights) == len(self.unet_pos_embs), (
+            f"expected {len(self.unet_pos_embs)} weights, found {len(weights)} instead"
+        )
 
         for i, pos_emb in enumerate(self.unet_pos_embs):
             b_out, b_in, _ = pos_emb.shape
@@ -207,6 +223,8 @@ class ResHyperNet(eqx.Module):
         block_size = self.block_size
         kernel_size = self.kernel_size
 
+        print(recomb)
+
         model_weights, static_model = eqx.partition(recomb, eqx.is_array)
 
         weights, treedef = jt.flatten(model_weights)
@@ -216,9 +234,11 @@ class ResHyperNet(eqx.Module):
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
 
-        assert len(weights) == len(self.recomb_embs)
+        assert len(weights) == len(self.recomb_pos_embs), (
+            f"expected {len(self.recomb_pos_embs)} weights, found {len(weights)} instead"
+        )
 
-        for i, pos_emb in enumerate(self.recomb_embs):
+        for i, pos_emb in enumerate(self.recomb_pos_embs):
             b_out, b_in, _ = pos_emb.shape
 
             weight = kernel_generator(input_emb, pos_emb)
