@@ -42,40 +42,25 @@ class NiftiDataset(Dataset):
             case _:
                 assert False
 
+        if len(self._dataset) == 0:
+            raise ValueError(f"dataset {root_dir} does not appear to have a {split} split")
+
     @property
     def metadata(self) -> Metadata:
         return self._metadata
+
+    @metadata.setter
+    def metadata(self, metadata: Metadata):
+        self._metadata = metadata
 
     @property
     def name(self) -> str:
         return self.metadata.name
 
     def __repr__(self) -> str:
-        s = f"{self.__class__.__name__}:\n"
-
-        s += f"\tName: {self._metadata.name}\n"
-        s += f"\tDescription: {self._metadata.description}\n"
-        s += f"\tTensor Image Size: {self._metadata.tensor_image_size}\n"
-
-        s += "\n"
-
-        s += f"\tNumber of training: {self._metadata.num_training}\n"
-        s += f"\tNumber of validation: {self._metadata.num_validation}\n"
-        s += f"\tNumber of test: {self._metadata.num_test}\n"
-
-        s += "\n"
-
-        s += "\tModalities:\n"
-        for i, modality in self._metadata.modality.items():
-            s += f"\t\t{i}: {modality}\n"
-
-        s += "\n"
-
-        s += "\tLabels:\n"
-        for i, label in self._metadata.labels.items():
-            s += f"\t\t{i}: {label}\n"
-
-        return s
+        return f"""{self.__class__.__name__}
+{self.metadata}
+"""
 
     def __len__(self) -> int:
         return len(self._dataset)
@@ -90,34 +75,45 @@ class NiftiDataset(Dataset):
 
     @staticmethod
     def load_array(path: Path, dtype: DTypeLike = np.float32):
-        if isinstance(path, Path):
-            return np.asanyarray(NiftiDataset.load_nib(path).dataobj).astype(dtype)
-        # elif isinstance(path_or_array, np.ndarray):
-        #     return path_or_array.astype(dtype)
+        nib = NiftiDataset.load_nib(path)
+
+        assert nib.ndim == 3
+
+        return np.asanyarray(nib.dataobj).astype(dtype)
+
+    @staticmethod
+    def load_array_slice(
+        path: Path, slice_idx: int, slice_axis: int = 2, *, dtype: DTypeLike = np.float32
+    ):
+        if not isinstance(slice_axis, int) or not 0 <= slice_axis <= 2:
+            raise ValueError(f"Invalid slice_axis {slice_axis}")
+
+        nib = NiftiDataset.load_nib(path)
+
+        assert nib.ndim == 3
+
+        if slice_axis == 0:
+            sliced = nib.slicer[slice_idx : slice_idx + 1, :, :]
+        elif slice_axis == 1:
+            sliced = nib.slicer[:, slice_idx : slice_idx + 1, :]
+        elif slice_axis == 2:
+            sliced = nib.slicer[:, :, slice_idx : slice_idx + 1]
         else:
             assert False
 
-    @staticmethod
-    def load_array_slice(path: Path, slice_idx: int, dtype: DTypeLike = np.float32):
-        if isinstance(path, Path):
-            return (
-                np.asanyarray(
-                    NiftiDataset.load_nib(path).slicer[:, :, slice_idx : slice_idx + 1].dataobj
-                )
-                .astype(dtype)
-                .squeeze(2)
-            )
-        # elif isinstance(path_or_array, np.ndarray):
-        #     return path_or_array[:, :, slice_idx].astype(dtype)
-        else:
-            assert False
+        return np.asanyarray(sliced.dataobj).astype(dtype).squeeze(slice_axis)
 
     def get_image_shape(self, idx: int) -> tuple[int, ...]:
         assert 0 <= idx < len(self), f"index {idx} out of range"
 
         entry = self._dataset[idx]
 
-        return NiftiDataset.load_nib(entry["image"]).shape
+        shape = self.load_nib(entry["image"]).shape
+
+        if len(shape) == 3:
+            shape = (1,) + shape
+
+        return shape
 
     def get_image(self, idx: int) -> np.ndarray:
         assert 0 <= idx < len(self), f"index {idx} out of range"
@@ -127,8 +123,7 @@ class NiftiDataset(Dataset):
         image = self.load_array(entry["image"])
 
         # expand image with channel axis if it doesn't exist yet
-        if self.metadata.tensor_image_size == "3D":
-            assert image.ndim == 3
+        if image.ndim == 3:
             image = image[..., None]
 
         assert image.ndim == 4
@@ -145,8 +140,7 @@ class NiftiDataset(Dataset):
         image = self.load_array_slice(entry["image"], slice_idx)
 
         # expand image with channel axis if it doesn't exist yet
-        if self.metadata.tensor_image_size == "3D":
-            assert image.ndim == 2
+        if image.ndim == 2:
             image = image[..., None]
 
         assert image.ndim == 3
@@ -160,35 +154,63 @@ class NiftiDataset(Dataset):
 
         entry = self._dataset[idx]
 
-        assert "label" in entry
+        if "label" in entry:
+            return self.load_nib(entry["label"]).shape
 
-        return NiftiDataset.load_nib(entry["label"]).shape
+        if self.metadata.labels[0] in entry:
+            return (len(self.metadata.labels),) + self.load_nib(
+                entry[self.metadata.labels[0]]
+            ).shape
+
+        raise RuntimeError(f"Failed to find label in entry {entry}")
 
     def get_label(self, idx: int) -> Optional[np.ndarray]:
         assert 0 <= idx < len(self), f"index {idx} out of range"
 
         entry = self._dataset[idx]
 
-        if "label" not in entry:
-            return None
+        if "label" in entry:
+            return self.load_array(entry["label"], dtype=np.uint8)
 
-        # label = np.asanyarray(nib.load(entry["label"]).dataobj).astype(np.uint8)
+        if self.metadata.labels[0] in entry:
+            labels = self.metadata.labels
 
-        label = self.load_array(entry["label"], dtype=np.uint8)
+            shape = (len(self.metadata.labels),) + self.load_nib(
+                entry[self.metadata.labels[0]]
+            ).shape
 
-        return label
+            label = np.empty(shape, dtype=np.uint8)
+
+            for i, name in labels.items():
+                label[i] = self.load_array(entry[name], dtype=np.uint8)
+
+            return label
+
+        return None
 
     def get_label_slice(self, idx: int, slice_idx: int) -> Optional[np.ndarray]:
         assert 0 <= idx < len(self), f"index {idx} out of range"
 
         entry = self._dataset[idx]
 
-        if "label" not in entry:
-            return None
+        if "label" in entry:
+            return self.load_array_slice(entry["label"], slice_idx, dtype=np.uint8)
 
-        label = self.load_array_slice(entry["label"], slice_idx, dtype=np.uint8)
+        if self.metadata.labels[0] in entry:
+            labels = self.metadata.labels
 
-        return label
+            shape = (len(self.metadata.labels),) + self.load_nib(
+                entry[self.metadata.labels[0]]
+            ).shape
+
+            label = np.empty(shape[:-1], dtype=np.uint8)
+
+            for i, name in labels.items():
+                label[i] = self.load_array_slice(entry[name], slice_idx, dtype=np.uint8)
+
+            return label
+
+        return None
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
         if not 0 <= idx < len(self):

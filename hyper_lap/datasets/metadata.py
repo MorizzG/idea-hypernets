@@ -1,33 +1,42 @@
-from typing import Literal
-
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
 
-@dataclass(frozen=True)
-class Metadata:
+
+# @dataclass(frozen=True)
+class Metadata(BaseModel):
+    model_config = ConfigDict(extra="allow", frozen=True)
+
     name: str
     description: str
 
-    modality: dict[str, str]
-    labels: dict[str, str]
+    modality: dict[int, str]
+    labels: dict[int, str]
 
     num_training: int
     num_validation: int
     num_test: int
 
-    training: list[dict[str, Path]]
-    validation: list[dict[str, Path]]
-    test: list[dict[str, Path]]
+    training: list[dict[str, Path]] = Field(repr=False)
+    validation: list[dict[str, Path]] = Field(repr=False)
+    test: list[dict[str, Path]] = Field(repr=False)
 
-    author: str | None = None
-    contact: str | None = None
-    reference: str | None = None
-    licence: str | None = None
-    release: str | None = None
-    quantitative: str | None = None
-    tensor_image_size: Literal["3D"] | Literal["4D"] | None = None
+    # author: str | None = None
+    # contact: str | None = None
+    # reference: str | None = None
+    # licence: str | None = None
+    # release: str | None = None
+    # quantitative: str | None = None
+    # tensor_image_size: Literal["3D"] | Literal["4D"] | None = None
+
+    __pydantic_extra__: dict[str, str] = {}
+    # extra: dict[str, str] = Field(alias="__pydantic_extra__")
+
+    @property
+    def extra(self) -> dict[str, str]:
+        return self.__pydantic_extra__
 
     @staticmethod
     def load(root_dir: str | Path) -> "Metadata":
@@ -41,109 +50,147 @@ class Metadata:
         assert base_folder.exists()
 
         with (base_folder / "dataset.json").open() as f:
-            d = json.load(f)
+            dataset_json = json.load(f)
+
+        dataset_json["modality"] = {
+            int(key): value for key, value in dataset_json["modality"].items()
+        }
+        dataset_json["labels"] = {int(key): value for key, value in dataset_json["labels"].items()}
+
+        assert (list(dataset_json["modality"].keys())) == list(
+            range(len(dataset_json["modality"]))
+        ), f"{list(dataset_json['modality'].keys())} != {range(len(dataset_json['modality']))}"
+        assert list(dataset_json["labels"].keys()) == list(range(len(dataset_json["labels"]))), (
+            f"{list(dataset_json['labels'].keys())} != {range(len(dataset_json['labels']))}"
+        )
 
         def replace_key(old: str, new: str):
-            if old not in d:
+            if old not in dataset_json:
                 return
 
-            d[new] = d[old]
-            del d[old]
+            dataset_json[new] = dataset_json[old]
+            del dataset_json[old]
 
         replace_key("tensorImageSize", "tensor_image_size")
         replace_key("numTraining", "num_training")
         replace_key("numValidation", "num_validation")
         replace_key("numTest", "num_test")
 
-        if "tensor_image_size" in d:
-            assert d["tensor_image_size"] in ("3D", "4D")
+        if "tensor_image_size" in dataset_json:
+            assert dataset_json["tensor_image_size"] in ("3D", "4D")
 
         training = []
 
-        for X in d["training"]:
+        for X in dataset_json["training"]:
             if isinstance(X, str):
                 image = base_folder / X
 
                 training.append(dict(image=image))
             elif isinstance(X, dict):
-                image = base_folder / X["image"]
-                label = base_folder / X["label"]
+                d = {name: base_folder / item for name, item in X.items()}
 
-                assert image.exists() and label.exists()
+                for path in d.values():
+                    assert path.exists(), f"path {path} does not exist"
 
-                training.append(dict(image=image, label=label))
+                training.append(d)
             else:
                 assert False
 
-        d["training"] = training
+        dataset_json["training"] = training
+        del training
 
-        if "validation" in d:
+        if "validation" in dataset_json:
             validation = []
 
-            for X in d["validation"]:
+            for X in dataset_json["validation"]:
                 if isinstance(X, str):
                     image = base_folder / X
 
                     validation.append(dict(image=image))
                 elif isinstance(X, dict):
-                    image = base_folder / X["image"]
-                    label = base_folder / X["label"]
+                    d = {name: base_folder / item for name, item in X.items()}
 
-                    assert image.exists() and label.exists()
+                    for path in d.values():
+                        assert path.exists()
 
-                    validation.append(dict(image=image, label=label))
+                    validation.append(d)
                 else:
                     assert False
 
-            d["validation"] = validation
+            dataset_json["validation"] = validation
+            del validation
         else:
-            d["num_validation"] = 0
-            d["validation"] = []
+            dataset_json["num_validation"] = 0
+            dataset_json["validation"] = []
 
         test = []
 
-        assert len(d["test"]) == d["num_test"], f"{len(d['test'])} != {d['num_test']} {root_dir}"
-
-        for X in d["test"]:
+        for X in dataset_json["test"]:
             if isinstance(X, str):
                 image = base_folder / X
+
+                assert image.exists()
+
+                test.append(dict(image=image))
             elif isinstance(X, dict):
-                image = base_folder / X["image"]
+                d = {name: base_folder / item for name, item in X.items()}
+
+                for path in d.values():
+                    assert path.exists()
+
+                test.append(d)
             else:
                 assert False
 
-            assert image.exists()
+        dataset_json["test"] = test
+        del test
 
-            test.append(dict(image=image))
-
-        d["test"] = test
-
-        if "relase" in d:
+        if "relase" in dataset_json:
             # spellchecking is totally overrated
             replace_key("relase", "release")
 
-        assert d["num_training"] == len(
-            d["training"]
-        ), f"{d['num_training']} != {len(d['training'])}"
-        assert d["num_validation"] == len(
-            d["validation"]
-        ), f"{d['num_validation']} != {len(d['validation'])}"
-        assert d["num_test"] == len(d["test"]), f"{d['num_test']} != {len(d['test'])}"
+        assert dataset_json["num_training"] == len(dataset_json["training"]), (
+            f"{dataset_json['num_training']} != {len(dataset_json['training'])}"
+        )
+        assert dataset_json["num_validation"] == len(dataset_json["validation"]), (
+            f"{dataset_json['num_validation']} != {len(dataset_json['validation'])}"
+        )
+        assert dataset_json["num_test"] == len(dataset_json["test"]), (
+            f"{dataset_json['num_test']} != {len(dataset_json['test'])}"
+        )
 
-        return Metadata(**d)
+        if "license" in dataset_json:
+            # oops
+            replace_key("license", "licence")
 
-    def __repr__(self) -> str:
-        s = "Metadata:\n"
+        return Metadata(**dataset_json)
 
-        s += f"\tName: {self.name}\n"
-        s += f"\tDescription: {self.description}\n"
-        s += "\n"
-        s += f"\tTensor Image Size: {self.tensor_image_size}\n"
-        s += f"\tModality: {self.modality}\n"
-        s += f"\tLabels: {self.labels}\n"
-        s += "\n"
-        s += f"\tNumber of training: {self.num_training}\n"
-        s += f"\tNumber of validation: {self.num_validation}\n"
-        s += f"\tNumber of test: {self.num_test}\n"
+    def __str__(self) -> str:
+        modality_s = yaml.dump(self.modality)
+        labels_s = yaml.dump(self.labels)
 
-        return s
+        # prepend each line by 2 tabs for indentation
+        modality_s = "\n".join("\t\t" + line for line in modality_s.split("\n"))
+        labels_s = "\n".join("\t\t" + line for line in labels_s.split("\n"))
+
+        if self.extra:
+            extra_s = yaml.dump(self.extra)
+            extra_s = "\n".join("\t" + line for line in extra_s.split("\n"))
+
+            extra_s = f"\n{extra_s}"
+        else:
+            extra_s = ""
+
+        return f"""Metadata:
+\tName: {self.name}
+\tDescription: {self.description}
+{extra_s}
+\tModality:
+{modality_s}
+\tLabels:
+{labels_s}
+
+\tNumber of training: {self.num_training}
+\tNumber of validation: {self.num_validation}
+\tNumber of test: {self.num_test}
+        """

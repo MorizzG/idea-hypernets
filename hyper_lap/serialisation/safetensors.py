@@ -92,7 +92,7 @@ def load_state_dict(
 
         path_str = ".".join(path_parts)
 
-        if path_str not in state_dict and match_exact:
+        if path_str not in state_dict:
             raise ValueError(f"state dict is missing key {path_str}")
 
         new_value = state_dict.pop(path_str)
@@ -128,12 +128,14 @@ def save_pytree(path: str | Path, tree: PyTree):
     save_file(state_dict, path)
 
 
-def load_pytree(path: str | Path, tree: PyTree, *, strip_prefix: Optional[str] = None) -> PyTree:
+def load_pytree(
+    path: str | Path, tree: PyTree, *, strip_prefix: Optional[str] = None, match_exact: bool = True
+) -> PyTree:
     path = as_path(path)
 
     state_dict = load_file(path, strip_prefix=strip_prefix)
 
-    tree = load_state_dict(tree, state_dict)
+    tree = load_state_dict(tree, state_dict, match_exact=match_exact)
 
     return tree
 
