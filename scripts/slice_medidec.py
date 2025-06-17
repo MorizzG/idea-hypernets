@@ -2,6 +2,7 @@ from jaxtyping import Array
 from typing import Literal, Optional
 
 import json
+import sys
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -16,10 +17,6 @@ from hyper_lap.datasets import MediDec
 
 jax.config.update("jax_platform_name", "cpu")
 
-TARGET_SIZE = 336
-# TARGET_SIZE = 384
-
-BASE_FOLDER = Path(f"./datasets/MediDecSliced-{TARGET_SIZE}")
 
 _key = jr.PRNGKey(0)
 
@@ -47,7 +44,7 @@ class Dataset:
     split_folders: dict[str, Path]
 
 
-def make_datasets():
+def make_datasets(base_folder: Path):
     medidec_folder = Path("./datasets/MediDec")
 
     datasets = []
@@ -62,7 +59,7 @@ def make_datasets():
         trainset = MediDec(folder, split="train")
         testset = MediDec(folder, split="test")
 
-        dataset_folder = BASE_FOLDER / f"{i:02}_{name}"
+        dataset_folder = base_folder / f"{i:02}_{name}"
 
         train_folder = dataset_folder / "training"
 
@@ -101,16 +98,17 @@ def make_slice_dist(label: Array | None) -> Array | None:
     return counts / counts.sum()
 
 
-@partial(jax.jit, static_argnums=(2,))
+@partial(jax.jit, static_argnums=(2, 3))
 def normalise(
     image: Array,
     label: Optional[Array],
-    num_classes: int,  # type: ignore
+    num_classes: int,
+    target_size: int,
 ) -> tuple[Array, Optional[Array]]:
     c, h, w, d = image.shape
 
-    target_h = TARGET_SIZE
-    target_w = TARGET_SIZE
+    target_h = target_size
+    target_w = target_size
 
     if label is not None:
         assert label.shape == (h, w, d)
@@ -137,7 +135,7 @@ def normalise(
     return image, label
 
 
-def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"]):
+def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"], target_size: int):
     n = 0
 
     split_folder = dataset.split_folders[split]
@@ -191,7 +189,7 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"])
         else:
             label = None
 
-        image, label = normalise(image, label, dataset.num_classes)
+        image, label = normalise(image, label, dataset.num_classes, target_size)
 
         c, h, w, d = image.shape
 
@@ -277,16 +275,20 @@ def make_json(dataset: Dataset):
 
 
 def main():
-    BASE_FOLDER.mkdir(parents=True, exist_ok=True)
+    target_size = int(sys.argv[1])
 
-    datasets = make_datasets()
+    base_folder = Path(f"./datasets/MediDecSliced-{target_size}")
+
+    base_folder.mkdir(parents=True, exist_ok=True)
+
+    datasets = make_datasets(base_folder)
 
     for dataset in datasets:
         print(f"Starting dataset {dataset.name}")
 
-        make_slices(dataset, "train")
-        make_slices(dataset, "validation")
-        make_slices(dataset, "test")
+        make_slices(dataset, "train", target_size)
+        make_slices(dataset, "validation", target_size)
+        make_slices(dataset, "test", target_size)
 
         make_json(dataset)
 
