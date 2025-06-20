@@ -1,7 +1,6 @@
 from jaxtyping import Array
 from typing import Any, Literal
 
-import dataclasses
 import json
 from argparse import ArgumentParser
 from dataclasses import dataclass
@@ -164,17 +163,19 @@ def load_medidec_datasets(
         if dataset.name == "BRATS":
             # special case: make FLAIR, T1, T2 variants of BRATS
 
-            assert dataset.metadata.modality["0"] == "FLAIR"
-            assert dataset.metadata.modality["1"] == "T1w"
-            assert dataset.metadata.modality["3"] == "T2w"
+            assert dataset.metadata.modality[0] == "FLAIR"
+            assert dataset.metadata.modality[1] == "T1w"
+            assert dataset.metadata.modality[3] == "T2w"
 
             dataset_flair = NormalisedDataset(dataset, channel=0)
             dataset_t1 = NormalisedDataset(dataset, channel=1)
             dataset_t2 = NormalisedDataset(dataset, channel=3)
 
-            dataset_flair.metadata = dataclasses.replace(dataset_flair.metadata, name="BRATS-FLAIR")
-            dataset_t1.metadata = dataclasses.replace(dataset_flair.metadata, name="BRATS-T1")
-            dataset_t2.metadata = dataclasses.replace(dataset_flair.metadata, name="BRATS-T2")
+            dataset_flair.metadata = dataset_flair.metadata.model_copy(
+                update={"name": "BRATS-FLAIR"}
+            )
+            dataset_t1.metadata = dataset_flair.metadata.model_copy(update={"name": "BRATS-T1"})
+            dataset_t2.metadata = dataset_flair.metadata.model_copy(update={"name": "BRATS-T2"})
 
             datasets["BRATS-FLAIR"] = dataset_flair
             datasets["BRATS-T1"] = dataset_t1

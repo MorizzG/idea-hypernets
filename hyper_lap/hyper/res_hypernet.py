@@ -223,8 +223,6 @@ class ResHyperNet(eqx.Module):
         block_size = self.block_size
         kernel_size = self.kernel_size
 
-        print(recomb)
-
         model_weights, static_model = eqx.partition(recomb, eqx.is_array)
 
         weights, treedef = jt.flatten(model_weights)

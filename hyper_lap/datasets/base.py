@@ -30,3 +30,8 @@ class Dataset(TorchDataset, ABC):
     def __iter__(self) -> Generator[dict[str, np.ndarray], None, None]:
         for i in range(len(self)):
             yield self[i]
+
+    def __repr__(self) -> str:
+        return f"""{self.__class__.__name__}
+{self.metadata}
+"""

@@ -47,33 +47,6 @@ class AmosSliced(Dataset):
             case _:
                 assert False
 
-    def __repr__(self) -> str:
-        s = f"{self.__class__.__name__}:\n"
-
-        s += f"\tName: {self._metadata.name}\n"
-        s += f"\tDescription: {self._metadata.description}\n"
-        s += f"\tTensor Image Size: {self._metadata.tensor_image_size}\n"
-
-        s += "\n"
-
-        s += f"\tNumber of training: {self._metadata.num_training}\n"
-        s += f"\tNumber of validation: {self._metadata.num_validation}\n"
-        s += f"\tNumber of test: {self._metadata.num_test}\n"
-
-        s += "\n"
-
-        s += "\tModalities:\n"
-        for i, modality in self._metadata.modality.items():
-            s += f"\t\t{i}: {modality}\n"
-
-        s += "\n"
-
-        s += "\tLabels:\n"
-        for i, label in self._metadata.labels.items():
-            s += f"\t\t{i}: {label}\n"
-
-        return s
-
     def __len__(self) -> int:
         return len(self._dataset)
 

@@ -57,11 +57,6 @@ class NiftiDataset(Dataset):
     def name(self) -> str:
         return self.metadata.name
 
-    def __repr__(self) -> str:
-        return f"""{self.__class__.__name__}
-{self.metadata}
-"""
-
     def __len__(self) -> int:
         return len(self._dataset)
 
