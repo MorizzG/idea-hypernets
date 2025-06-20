@@ -41,7 +41,7 @@ class Conv2dGenerator(eqx.Module):
         first_key, second_key = jr.split(key)
 
         # project from embeddings to hidden_size * in_channels
-        self.first = eqx.nn.Linear(emb_size, h_size * in_channels, key=first_key)
+        self.first = eqx.nn.Linear(2 * emb_size, h_size * in_channels, key=first_key)
 
         # project from hidden to kernels
         self.second = eqx.nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)

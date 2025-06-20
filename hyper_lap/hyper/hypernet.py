@@ -66,7 +66,7 @@ class HyperNet(eqx.Module):
         self.input_embedder = InputEmbedder(emb_size, kind=embedder_kind, key=emb_key)
 
         self.kernel_generator = Conv2dGenerator(
-            block_size, block_size, kernel_size, 2 * emb_size, key=kernel_key
+            block_size, block_size, kernel_size, emb_size, key=kernel_key
         )
 
         self.init_kernel = jr.normal(
@@ -98,9 +98,9 @@ class HyperNet(eqx.Module):
             c_out, c_in, k1, k2 = leaf.shape
 
             assert k1 == k2 == kernel_size, f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
 
             b_out = c_out // block_size
             b_in = c_in // block_size

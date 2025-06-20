@@ -107,7 +107,7 @@ class ResHyperNet(eqx.Module):
 
         self.input_embedder = InputEmbedder(emb_size, kind=embedder_kind, key=emb_key)
 
-        gen = Conv2dGenerator(block_size, block_size, kernel_size, 2 * emb_size, key=kernel_key)
+        gen = Conv2dGenerator(block_size, block_size, kernel_size, emb_size, key=kernel_key)
 
         # we can reuse kernel_key here since we re-initialize the weights here
         self.kernel_generator = self.init_conv_generator(gen, eps, key=kernel_key)
