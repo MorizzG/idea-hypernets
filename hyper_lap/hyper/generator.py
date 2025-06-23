@@ -7,7 +7,8 @@ import jax.random as jr
 
 
 class Conv2dGenerator(eqx.Module):
-    emb_size: int = eqx.field(static=True)
+    input_emb_size: int = eqx.field(static=True)
+    pos_emb_size: int = eqx.field(static=True)
     h_size: int = eqx.field(static=True)
 
     in_channels: int = eqx.field(static=True)
@@ -22,17 +23,21 @@ class Conv2dGenerator(eqx.Module):
         in_channels: int,
         out_channels: int,
         kernel_size: int,
-        emb_size: int,
+        input_emb_size: int,
+        pos_emb_size: int,
         h_size: int | None = None,
         *,
         key: PRNGKeyArray,
     ):
         super().__init__()
 
-        if h_size is None:
-            h_size = emb_size
+        total_emb_size = input_emb_size + pos_emb_size
 
-        self.emb_size = emb_size
+        if h_size is None:
+            h_size = input_emb_size + pos_emb_size
+
+        self.input_emb_size = input_emb_size
+        self.pos_emb_size = pos_emb_size
         self.h_size = h_size
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -41,12 +46,17 @@ class Conv2dGenerator(eqx.Module):
         first_key, second_key = jr.split(key)
 
         # project from embeddings to hidden_size * in_channels
-        self.first = eqx.nn.Linear(2 * emb_size, h_size * in_channels, key=first_key)
+        self.first = eqx.nn.Linear(total_emb_size, h_size * in_channels, key=first_key)
 
         # project from hidden to kernels
         self.second = eqx.nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
 
-    def __call__(self, input_emb: Array, pos_emb: Array) -> Float[Array, "c_out c_in k k"]:
+    def __call__(
+        self, input_emb: Float[Array, " input_emb_size"], pos_emb: Float[Array, " pos_emb_size"]
+    ) -> Float[Array, "c_out c_in k k"]:
+        assert input_emb.shape == (self.input_emb_size,)
+        assert pos_emb.shape == (self.pos_emb_size,)
+
         emb = jnp.concatenate([input_emb, pos_emb])
 
         a_s = self.first(emb)

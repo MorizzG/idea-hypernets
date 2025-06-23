@@ -21,7 +21,8 @@ class HyperNet(eqx.Module):
     base_channels: int = eqx.field(static=True)
 
     block_size: int = eqx.field(static=True)
-    emb_size: int = eqx.field(static=True)
+    input_emb_size: int = eqx.field(static=True)
+    pos_emb_size: int = eqx.field(static=True)
 
     input_embedder: InputEmbedder
 
@@ -44,7 +45,8 @@ class HyperNet(eqx.Module):
         unet: Unet,
         *,
         block_size: int,
-        emb_size: int,
+        input_emb_size: int,
+        pos_emb_size: int,
         kernel_size: int,
         embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
         key: PRNGKeyArray,
@@ -57,16 +59,17 @@ class HyperNet(eqx.Module):
         self.base_channels = unet.base_channels
 
         self.block_size = block_size
-        self.emb_size = emb_size
+        self.input_emb_size = input_emb_size
+        self.pos_emb_size = pos_emb_size
 
         base_channels = unet.base_channels
 
         key, kernel_key, emb_key, init_key, final_key = jr.split(key, 5)
 
-        self.input_embedder = InputEmbedder(emb_size, kind=embedder_kind, key=emb_key)
+        self.input_embedder = InputEmbedder(input_emb_size, kind=embedder_kind, key=emb_key)
 
         self.kernel_generator = Conv2dGenerator(
-            block_size, block_size, kernel_size, emb_size, key=kernel_key
+            block_size, block_size, kernel_size, input_emb_size, pos_emb_size, key=kernel_key
         )
 
         self.init_kernel = jr.normal(
@@ -107,7 +110,7 @@ class HyperNet(eqx.Module):
 
             key, consume = jr.split(key)
 
-            emb = jr.normal(consume, [b_out, b_in, self.emb_size])
+            emb = jr.normal(consume, [b_out, b_in, self.pos_emb_size])
 
             embs.append(emb)
 

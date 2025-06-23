@@ -117,6 +117,13 @@ def main():
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
 
+            # TODO: remove this once runs are redone again
+            if "emb_size" in loaded_config["hypernet"]:
+                emb_size = loaded_config["hypernet"].pop("emb_size", None)
+
+                loaded_config["hypernet"]["input_emb_size"] = emb_size
+                loaded_config["hypernet"]["pos_emb_size"] = emb_size
+
             first_epoch = loaded_config["epochs"]
 
             config = OmegaConf.merge(loaded_config, arg_config)
