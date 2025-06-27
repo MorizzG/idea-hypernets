@@ -56,7 +56,7 @@ def training_step(
 
 
 def main():
-    global model_name
+    global hypernet
 
     base_config = OmegaConf.create(
         {

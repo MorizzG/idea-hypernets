@@ -92,16 +92,27 @@ def load_state_dict(
 
         path_str = ".".join(path_parts)
 
+
         if path_str not in state_dict:
             raise ValueError(f"state dict is missing key {path_str}")
 
         new_value = state_dict.pop(path_str)
 
-        if isinstance(value, float):
+        if not eqx.is_array(value):
             if new_value.shape != ():
-                raise ValueError(f"Expected float, found {new_value}")
+                raise ValueError(f"Expected {type(value)}, found {new_value}")
 
             new_value = new_value.item()
+        # elif isinstance(value, float):
+        #     if new_value.shape != ():
+        #         raise ValueError(f"Expected float, found {new_value}")
+
+        #     new_value = new_value.item()
+        # elif isinstance(value, bool):
+        #     if new_value.shape != ():
+        #         raise ValueError(f"Expected bool, found {new_value}")
+
+        #     new_value = new_value.item()
         elif eqx.is_array(new_value) and new_value.shape != value.shape:
             raise ValueError(
                 f"array at path {path_str} have different shapes: "
