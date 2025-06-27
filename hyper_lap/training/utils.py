@@ -30,7 +30,8 @@ from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation.safetensors import load_config, load_pytree
 
-DEFAULT_NUM_WORKERS = min((cpu_count() or -1) // 2, 64)
+# DEFAULT_NUM_WORKERS = min((cpu_count() or -1) // 2, 64)
+DEFAULT_NUM_WORKERS = 8
 
 
 class Timer:

@@ -92,7 +92,6 @@ def load_state_dict(
 
         path_str = ".".join(path_parts)
 
-
         if path_str not in state_dict:
             raise ValueError(f"state dict is missing key {path_str}")
 

@@ -38,7 +38,7 @@ class ResNetEmbedder(eqx.Module):
         super().__init__()
 
         self.resnet = ResNet(
-            emb_size, in_channels=4, depths=[2, 2, 2, 2], block_kind="bottleneck", key=key
+            emb_size, in_channels=3, depths=[2, 2, 2, 2], block_kind="bottleneck", key=key
         )
 
     def __call__(
@@ -49,13 +49,14 @@ class ResNetEmbedder(eqx.Module):
         assert c == 3
         assert_shape(label, [h, w])
 
-        label = jnp.expand_dims((label != 0).astype(image.dtype), 0)
+        image = image.mean(axis=0)
 
-        combined = jnp.concatenate([image, label], axis=0)
+        pos_masked_image = (label != 0) * image
+        neg_masked_image = (label == 0) * image
 
-        assert_shape(combined, (4, h, w))
+        input = jnp.stack([image, pos_masked_image, neg_masked_image])
 
-        emb = self.resnet(combined)
+        emb = self.resnet(input)
 
         return emb
 
