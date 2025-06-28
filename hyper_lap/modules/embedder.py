@@ -56,6 +56,8 @@ class ResNetEmbedder(eqx.Module):
 
         input = jnp.stack([image, pos_masked_image, neg_masked_image])
 
+        assert_shape(input, (3, h, w))
+
         emb = self.resnet(input)
 
         return emb
@@ -67,7 +69,7 @@ class ConvNextEmbedder(eqx.Module):
     def __init__(self, emb_size: int, key: PRNGKeyArray):
         super().__init__()
 
-        self.convnext = ConvNeXt(emb_size, 96, in_channels=4, depths=[3, 3, 9, 3], key=key)
+        self.convnext = ConvNeXt(emb_size, 96, in_channels=3, depths=[3, 3, 9, 3], key=key)
 
     def __call__(
         self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
@@ -77,13 +79,16 @@ class ConvNextEmbedder(eqx.Module):
         assert c == 3
         assert_shape(label, [h, w])
 
-        label = jnp.expand_dims((label != 0).astype(image.dtype), 0)
+        image = image.mean(axis=0)
 
-        combined = jnp.concatenate([image, label], axis=0)
+        pos_masked_image = (label != 0) * image
+        neg_masked_image = (label == 0) * image
 
-        assert_shape(combined, (4, h, w))
+        input = jnp.stack([image, pos_masked_image, neg_masked_image])
 
-        emb = self.convnext(combined)
+        assert_shape(input, (3, h, w))
+
+        emb = self.convnext(input)
 
         return emb
 
