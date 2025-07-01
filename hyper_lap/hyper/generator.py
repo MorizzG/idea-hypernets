@@ -16,6 +16,7 @@ class Conv2dGenerator(eqx.Module):
     kernel_size: int = eqx.field(static=True)
 
     first: eqx.nn.Linear
+    middle: eqx.nn.Linear
     second: eqx.nn.Linear
 
     def __init__(
@@ -43,10 +44,12 @@ class Conv2dGenerator(eqx.Module):
         self.out_channels = out_channels
         self.kernel_size = kernel_size
 
-        first_key, second_key = jr.split(key)
+        first_key, middle_key, second_key = jr.split(key, 3)
 
         # project from embeddings to hidden_size * in_channels
         self.first = eqx.nn.Linear(total_emb_size, h_size * in_channels, key=first_key)
+
+        self.middle = eqx.nn.Linear(h_size, h_size, key=middle_key)
 
         # project from hidden to kernels
         self.second = eqx.nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
@@ -63,10 +66,14 @@ class Conv2dGenerator(eqx.Module):
 
         a_s = a_s.reshape(self.in_channels, self.h_size)
 
-        a_s = jax.nn.swish(a_s)
+        x = jax.nn.swish(a_s)
+
+        x = jax.vmap(self.middle)(x)
+
+        x = jax.nn.swish(x)
 
         # shape: block, block*kernel**2
-        kernel = jax.vmap(self.second)(a_s)
+        kernel = jax.vmap(self.second)(x)
 
         # c_in c_out k k
         kernel = kernel.reshape(
