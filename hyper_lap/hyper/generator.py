@@ -63,6 +63,8 @@ class Conv2dGenerator(eqx.Module):
 
         a_s = a_s.reshape(self.in_channels, self.h_size)
 
+        a_s = jax.nn.swish(a_s)
+
         # shape: block, block*kernel**2
         kernel = jax.vmap(self.second)(a_s)
 
