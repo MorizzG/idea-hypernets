@@ -1,9 +1,12 @@
 from jaxtyping import Array, Float, PRNGKeyArray
 
 import equinox as eqx
+import equinox.nn as nn
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+
+from hyper_lap.modules import SiLU
 
 
 class Conv2dGenerator(eqx.Module):
@@ -15,9 +18,13 @@ class Conv2dGenerator(eqx.Module):
     out_channels: int = eqx.field(static=True)
     kernel_size: int = eqx.field(static=True)
 
-    first: eqx.nn.Linear
-    middle: eqx.nn.Linear
-    second: eqx.nn.Linear
+    first: nn.Linear
+
+    # middle: eqx.nn.Linear
+    # middle: nn.Sequential
+    middle: nn.MLP
+
+    second: nn.Linear
 
     def __init__(
         self,
@@ -49,7 +56,23 @@ class Conv2dGenerator(eqx.Module):
         # project from embeddings to hidden_size * in_channels
         self.first = eqx.nn.Linear(total_emb_size, h_size * in_channels, key=first_key)
 
-        self.middle = eqx.nn.Linear(h_size, h_size, key=middle_key)
+        # middle_keys = jr.split(middle_key, 5)
+
+        # middle = [eqx.nn.Linear(h_size, h_size, key=middle_keys[0])]
+
+        # for key in middle_keys[1:]:
+        #     middle += [SiLU(), eqx.nn.Linear(h_size, h_size, key=key)]
+
+        # self.middle = nn.Sequential(middle)
+
+        self.middle = nn.MLP(
+            in_size=h_size,
+            out_size=h_size,
+            width_size=h_size,
+            depth=3,
+            activation=jax.nn.swish,
+            key=middle_key,
+        )
 
         # project from hidden to kernels
         self.second = eqx.nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
@@ -72,7 +95,7 @@ class Conv2dGenerator(eqx.Module):
 
         x = jax.nn.swish(x)
 
-        # shape: block, block*kernel**2
+        # shape: in_channels, out_channels * kernel_size**2
         kernel = jax.vmap(self.second)(x)
 
         # c_in c_out k k
