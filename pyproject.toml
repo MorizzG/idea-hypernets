@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "equinox-hessian>=0.2.0",
     "jax[cuda12]==0.6.0",
     "nvidia-cublas-cu12~=12.6.0",
     "nvidia-cuda-cupti-cu12~=12.6.0",
@@ -64,7 +63,6 @@ url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [tool.uv.sources]
-equinox-hessian = { path = "equinox-hessian" }
 torch = { index = "pytorch-cpu" }
 umap-learn = { git = "https://github.com/lmcinnes/umap" }
 
