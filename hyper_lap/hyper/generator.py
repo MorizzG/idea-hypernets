@@ -6,8 +6,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
-from hyper_lap.modules import SiLU
-
 
 class Conv2dGenerator(eqx.Module):
     input_emb_size: int = eqx.field(static=True)
@@ -20,9 +18,7 @@ class Conv2dGenerator(eqx.Module):
 
     first: nn.Linear
 
-    # middle: eqx.nn.Linear
-    # middle: nn.Sequential
-    middle: nn.MLP
+    middle: nn.Linear
 
     second: nn.Linear
 
@@ -54,28 +50,12 @@ class Conv2dGenerator(eqx.Module):
         first_key, middle_key, second_key = jr.split(key, 3)
 
         # project from embeddings to hidden_size * in_channels
-        self.first = eqx.nn.Linear(total_emb_size, h_size * in_channels, key=first_key)
+        self.first = nn.Linear(total_emb_size, h_size * in_channels, key=first_key)
 
-        # middle_keys = jr.split(middle_key, 5)
-
-        # middle = [eqx.nn.Linear(h_size, h_size, key=middle_keys[0])]
-
-        # for key in middle_keys[1:]:
-        #     middle += [SiLU(), eqx.nn.Linear(h_size, h_size, key=key)]
-
-        # self.middle = nn.Sequential(middle)
-
-        self.middle = nn.MLP(
-            in_size=h_size,
-            out_size=h_size,
-            width_size=h_size,
-            depth=3,
-            activation=jax.nn.swish,
-            key=middle_key,
-        )
+        self.middle = nn.Linear(h_size, h_size, key=middle_key)
 
         # project from hidden to kernels
-        self.second = eqx.nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
+        self.second = nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
 
     def __call__(
         self, input_emb: Float[Array, " input_emb_size"], pos_emb: Float[Array, " pos_emb_size"]
@@ -95,8 +75,9 @@ class Conv2dGenerator(eqx.Module):
 
         x = jax.nn.swish(x)
 
-        # shape: in_channels, out_channels * kernel_size**2
         kernel = jax.vmap(self.second)(x)
+
+        # kernel shape: in_channels, out_channels * kernel_size**2
 
         # c_in c_out k k
         kernel = kernel.reshape(
