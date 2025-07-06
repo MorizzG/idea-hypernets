@@ -11,7 +11,7 @@ from chex import assert_shape
 from transformers.models.clip import FlaxCLIPVisionModel
 
 from hyper_lap.modules.convnext import ConvNeXt
-from hyper_lap.modules.resnet import ResNet
+from hyper_lap.modules.resnet import BlockKind, ResNet
 from hyper_lap.modules.vit import ViT
 
 
@@ -34,12 +34,17 @@ class LearnedEmbedding(eqx.Module):
 class ResNetEmbedder(eqx.Module):
     resnet: ResNet
 
-    def __init__(self, emb_size: int, key: PRNGKeyArray):
+    def __init__(
+        self,
+        emb_size: int,
+        depths: list[int] | None = None,
+        block_kind: BlockKind = "bottleneck",
+        *,
+        key: PRNGKeyArray,
+    ):
         super().__init__()
 
-        self.resnet = ResNet(
-            emb_size, in_channels=3, depths=[2, 2, 2, 2], block_kind="bottleneck", key=key
-        )
+        self.resnet = ResNet(emb_size, in_channels=3, depths=depths, block_kind=block_kind, key=key)
 
     def __call__(
         self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]

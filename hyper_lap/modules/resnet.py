@@ -113,6 +113,32 @@ type BlockKind = Literal["basic", "bottleneck"]
 
 
 class ResNet(eqx.Module):
+    @staticmethod
+    def _make_layer(
+        channels: int,
+        depth: int,
+        *,
+        block_kind: BlockKind = "bottleneck",
+        key: PRNGKeyArray,
+    ) -> nn.Sequential:
+        keys = jr.split(key, depth)
+
+        match block_kind:
+            case "basic":
+                layer = nn.Sequential(
+                    [BasicBlock(channels, channels, key=keys[0])]
+                    + [BasicBlock(channels, channels, key=key) for key in keys[1:]]
+                )
+            case "bottleneck":
+                layer = nn.Sequential(
+                    [BottleneckBlock(channels, channels, key=keys[0])]
+                    + [BottleneckBlock(channels, channels, key=key) for key in keys[1:]]
+                )
+            case _:
+                raise ValueError(f"invalid block kind {block_kind}")
+
+        return layer
+
     # act: SiLU
 
     # init_conv: nn.Conv2d
@@ -168,33 +194,9 @@ class ResNet(eqx.Module):
 
         self.downs = [nn.Sequential([init_conv, init_norm, SiLU()])]
 
-        def _make_layer(
-            channels: int,
-            depth: int,
-            *,
-            key: PRNGKeyArray,
-        ) -> nn.Sequential:
-            keys = jr.split(key, depth)
-
-            match block_kind:
-                case "basic":
-                    layer = nn.Sequential(
-                        [BasicBlock(channels, channels, key=keys[0])]
-                        + [BasicBlock(channels, channels, key=key) for key in keys[1:]]
-                    )
-                case "bottleneck":
-                    layer = nn.Sequential(
-                        [BottleneckBlock(channels, channels, key=keys[0])]
-                        + [BottleneckBlock(channels, channels, key=key) for key in keys[1:]]
-                    )
-                case _:
-                    raise ValueError(f"invalid block kind {block_kind}")
-
-            return layer
-
         key, layer_key = jr.split(key)
 
-        self.layers = [_make_layer(channels, depths[0], key=layer_key)]
+        self.layers = [self._make_layer(channels, depths[0], block_kind=block_kind, key=layer_key)]
 
         for depth in depths[1:]:
             key, down_key, layer_key = jr.split(key, 3)
@@ -206,7 +208,9 @@ class ResNet(eqx.Module):
             )
 
             channels = 2 * channels
-            self.layers.append(_make_layer(channels, depth, key=layer_key))
+            self.layers.append(
+                self._make_layer(channels, depth, block_kind=block_kind, key=layer_key)
+            )
 
         head_key1, head_key2 = jr.split(key)
 
