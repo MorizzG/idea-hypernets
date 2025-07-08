@@ -156,9 +156,9 @@ class ClipEmbedder(eqx.Module):
 
         # logging.getLogger("transformers/modeling_flax_utils.py").setLevel(logging.ERROR)
 
-        orig_verbosity = transformers.logging.get_verbosity()
+        orig_verbosity = transformers.logging.get_verbosity()  # type: ignore
 
-        transformers.logging.set_verbosity_error()
+        transformers.logging.set_verbosity_error()  # type: ignore
 
         if clip == "openai":
             clip_vision = FlaxCLIPVisionModel.from_pretrained(
@@ -183,7 +183,7 @@ class ClipEmbedder(eqx.Module):
         else:
             raise RuntimeError(f"Unknown clip variant {clip}")
 
-        transformers.logging.set_verbosity(orig_verbosity)
+        transformers.logging.set_verbosity(orig_verbosity)  # type: ignore
 
         self.num_layers = len(self.clip_vision.params["vision_model"]["encoder"]["layers"])
         # self.num_layers = 24
