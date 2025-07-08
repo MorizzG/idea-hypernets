@@ -65,11 +65,11 @@ class Conv2dGenerator(eqx.Module):
 
         emb = jnp.concatenate([input_emb, pos_emb])
 
-        a_s = self.first(emb)
+        x = self.first(emb)
 
-        a_s = a_s.reshape(self.in_channels, self.h_size)
+        x = x.reshape(self.in_channels, self.h_size)
 
-        x = jax.nn.swish(a_s)
+        x = jax.nn.swish(x)
 
         x = jax.vmap(self.middle)(x)
 
