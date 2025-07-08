@@ -72,10 +72,6 @@ class ConvNormAct(eqx.Module):
     ):
         super().__init__()
 
-        self.conv = nn.Conv2d(
-            in_channels, out_channels, kernel_size, padding="SAME", use_bias=False, key=key
-        )
-
         if use_weight_standardized_conv:
             self.conv = WeightStandardizedConv2d(
                 in_channels, out_channels, kernel_size, padding="SAME", use_bias=False, key=key
