@@ -1,5 +1,7 @@
 from jaxtyping import Array
+from typing import Any
 
+from functools import partial
 from pathlib import Path
 
 import equinox as eqx
@@ -33,16 +35,24 @@ def training_step(
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
+    *,
+    lamda: float,
 ) -> tuple[Array, ResHyperNet, OptState]:
     images = batch["image"]
     labels = batch["label"]
 
     def grad_fn(hypernet: ResHyperNet) -> Array:
-        model = hypernet(images[0], labels[0])
+        model, aux = hypernet(images[0], labels[0], with_aux=True)
 
         logits = jax.vmap(model)(images)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
+
+        reg_loss = aux["reg"]
+
+        # jax.debug.print("loss={loss}, reg_loss={reg_loss}", loss=loss, reg_loss=reg_loss)
+
+        loss += lamda * reg_loss
 
         return loss
 
@@ -70,6 +80,7 @@ def main():
             "batch_size": MISSING,
             "embedder": MISSING,
             "unet_artifact": MISSING,
+            "lamda": MISSING,
             "hypernet": {
                 "block_size": 8,
                 "input_emb_size": 3 * 1024,
@@ -160,7 +171,12 @@ def main():
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     trainer: Trainer[ResHyperNet] = Trainer(
-        hypernet, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
+        hypernet,
+        partial(training_step, lamda=config.lamda),
+        train_loader,
+        val_loader,
+        lr=lr_schedule,
+        epoch=first_epoch,
     )
 
     print("Validation before training:")

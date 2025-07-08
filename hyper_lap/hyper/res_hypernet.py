@@ -1,8 +1,9 @@
-from jaxtyping import Array, Float, Integer, PRNGKeyArray, PyTree
-from typing import Literal
+from jaxtyping import Array, Float, Integer, PRNGKeyArray, PyTree, Scalar
+from typing import Any, Literal, overload
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
 from chex import assert_equal_shape, assert_shape
@@ -152,9 +153,9 @@ class ResHyperNet(eqx.Module):
             c_out, c_in, k1, k2 = leaf.shape
 
             assert k1 == k2 == kernel_size, f"Array has unexpected shape: {leaf.shape}"
-            assert c_out % block_size == 0 and c_in % block_size == 0, (
-                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
-            )
+            assert (
+                c_out % block_size == 0 and c_in % block_size == 0
+            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -167,27 +168,33 @@ class ResHyperNet(eqx.Module):
 
         return embs
 
-    def gen_init_conv(self, init_conv: ConvNormAct) -> ConvNormAct:
+    def gen_init_conv(self, init_conv: ConvNormAct) -> tuple[ConvNormAct, Scalar]:
         assert_equal_shape([init_conv.conv.weight, self.init_kernel])
+
         init_conv = eqx.tree_at(
             lambda _init_conv: _init_conv.conv.weight,
             init_conv,
             init_conv.conv.weight + self.init_kernel,
         )
 
-        return init_conv
+        reg = (self.init_kernel**2).sum()
 
-    def gen_final_conv(self, final_conv: nn.Conv2d) -> nn.Conv2d:
+        return init_conv, reg
+
+    def gen_final_conv(self, final_conv: nn.Conv2d) -> tuple[nn.Conv2d, Scalar]:
         assert_equal_shape([final_conv.weight, self.final_kernel])
+
         final_conv = eqx.tree_at(
             lambda _final_conv: _final_conv.weight,
             final_conv,
             final_conv.weight + self.final_kernel,
         )
 
-        return final_conv
+        reg = (self.final_kernel**2).sum()
 
-    def gen_unet(self, unet: UnetModule, input_emb: Array) -> UnetModule:
+        return final_conv, reg
+
+    def gen_unet(self, unet: UnetModule, input_emb: Array) -> tuple[UnetModule, Scalar]:
         block_size = self.block_size
         kernel_size = self.kernel_size
 
@@ -200,9 +207,11 @@ class ResHyperNet(eqx.Module):
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
 
-        assert len(weights) == len(self.unet_pos_embs), (
-            f"expected {len(self.unet_pos_embs)} weights, found {len(weights)} instead"
-        )
+        reg = jnp.array(0.0)
+
+        assert len(weights) == len(
+            self.unet_pos_embs
+        ), f"expected {len(self.unet_pos_embs)} weights, found {len(weights)} instead"
 
         for i, pos_emb in enumerate(self.unet_pos_embs):
             b_out, b_in, _ = pos_emb.shape
@@ -218,13 +227,15 @@ class ResHyperNet(eqx.Module):
 
             weights[i] += weight
 
+            reg += (weight**2).sum()
+
         model_weights = jt.unflatten(treedef, weights)
 
         model = eqx.combine(model_weights, static_model)
 
-        return model
+        return model, reg
 
-    def gen_recomb(self, recomb: Block, input_emb: Array) -> Block:
+    def gen_recomb(self, recomb: Block, input_emb: Array) -> tuple[Block, Scalar]:
         block_size = self.block_size
         kernel_size = self.kernel_size
 
@@ -237,9 +248,11 @@ class ResHyperNet(eqx.Module):
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
 
-        assert len(weights) == len(self.recomb_pos_embs), (
-            f"expected {len(self.recomb_pos_embs)} weights, found {len(weights)} instead"
-        )
+        assert len(weights) == len(
+            self.recomb_pos_embs
+        ), f"expected {len(self.recomb_pos_embs)} weights, found {len(weights)} instead"
+
+        reg = jnp.array(0.0)
 
         for i, pos_emb in enumerate(self.recomb_pos_embs):
             b_out, b_in, _ = pos_emb.shape
@@ -253,13 +266,37 @@ class ResHyperNet(eqx.Module):
 
             weights[i] += weight
 
+            reg += (weight**2).sum()
+
         model_weights = jt.unflatten(treedef, weights)
 
         model = eqx.combine(model_weights, static_model)
 
-        return model
+        return model, reg
 
-    def __call__(self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]) -> Unet:
+    @overload
+    def __call__(
+        self,
+        image: Float[Array, "3 h w"],
+        label: Integer[Array, "h w"],
+        *,
+        with_aux: Literal[True],
+    ) -> tuple[Unet, dict[str, Any]]: ...
+
+    @overload
+    def __call__(
+        self,
+        image: Float[Array, "3 h w"],
+        label: Integer[Array, "h w"],
+        *,
+        with_aux: Literal[False] = False,
+    ) -> Unet: ...
+
+    def __call__(
+        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"], *, with_aux: bool = False
+    ) -> tuple[Unet, dict[str, Any]] | Unet:
+        aux = {}
+
         input_emb = self.input_embedder(image, label)
 
         init_conv, unet, recomb, final_conv = (
@@ -269,16 +306,21 @@ class ResHyperNet(eqx.Module):
             self.unet.final_conv,
         )
 
-        init_conv = self.gen_init_conv(init_conv)
-        final_conv = self.gen_final_conv(final_conv)
+        init_conv, init_reg = self.gen_init_conv(init_conv)
+        final_conv, final_reg = self.gen_final_conv(final_conv)
 
-        unet = self.gen_unet(unet, input_emb)
-        recomb = self.gen_recomb(recomb, input_emb)
+        unet, unet_reg = self.gen_unet(unet, input_emb)
+        recomb, recomb_reg = self.gen_recomb(recomb, input_emb)
 
         model = eqx.tree_at(
             lambda _model: (_model.init_conv, _model.unet, _model.recomb, _model.final_conv),
             self.unet,
             (init_conv, unet, recomb, final_conv),
         )
+
+        aux["reg"] = init_reg + unet_reg + recomb_reg + final_reg
+
+        if with_aux:
+            return model, aux
 
         return model
