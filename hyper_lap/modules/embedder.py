@@ -130,7 +130,7 @@ class ClipEmbedder(eqx.Module):
     select_layer: int = eqx.field(static=True)
     pool: Literal["cls", "mean"] = eqx.field(static=True)
 
-    clip_vision: FlaxCLIPVisionModel = eqx.field(static=True)
+    clip_vision: FlaxCLIPVisionModel
 
     # tokenizer: CLIPTokenizerFast = eqx.field(static=True)
     # clip_text: FlaxCLIPTextModel = eqx.field(static=True)
