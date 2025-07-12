@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float
-from typing import Callable
+from typing import Any, Callable
 
 import shutil
 from pathlib import Path
@@ -29,7 +29,7 @@ from .metrics import calc_metrics
 class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
     type TrainingStep = Callable[
         [Net, dict[str, Array], GradientTransformation, OptState],
-        tuple[Float[Array, ""], Net, OptState],
+        tuple[Net, OptState, dict[str, Any]],
     ]
 
     epoch: int
@@ -113,35 +113,35 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
 
         return float(self.lr(self.opt_state[2].count))  # type: ignore
 
-    def train(self, net: Net) -> Net:
+    def train(self, net: Net) -> tuple[Net, dict[str, list[Any]]]:
         self.epoch += 1
 
         tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
 
-        losses = []
+        auxs: list[dict[str, Any]] = []
 
         for batch_tensor in tqdm(self.train_loader, leave=False):
             batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
-            loss, net, self.opt_state = self.training_step(net, batch, self.opt, self.opt_state)
+            net, self.opt_state, aux = self.training_step(net, batch, self.opt, self.opt_state)
 
-            losses.append(loss.item())
+            auxs.append(aux)
 
-        loss_mean = jnp.mean(jnp.array(losses)).item()
-        loss_std = jnp.std(jnp.array(losses)).item()
+        for aux in auxs:
+            assert aux.keys() == auxs[0].keys()
 
-        tqdm.write(f"Loss: {loss_mean:.3}")
+        def try_unbox(x):
+            """
+            if x is a shapeless Array (scalar), unbox it, else do nothing
+            """
+            if eqx.is_array(x) and x.shape == ():
+                return x.item()
 
-        if wandb.run is not None:
-            wandb.run.log(
-                {
-                    "epoch": self.epoch,
-                    "loss/train/mean": loss_mean,
-                    "loss/train/std": loss_std,
-                }
-            )
+            return x
 
-        return net
+        aux = {key: [try_unbox(aux[key]) for aux in auxs] for key in auxs[0].keys()}
+
+        return net, aux
 
     def validate(self, net: Net):
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")

@@ -1,10 +1,12 @@
 from jaxtyping import Array
+from typing import Any
 
 from pathlib import Path
 
 import equinox as eqx
 import jax
 import jax.random as jr
+import numpy as np
 import optax
 import wandb
 from omegaconf import MISSING, OmegaConf
@@ -33,7 +35,7 @@ def training_step(
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[Array, HyperNet, OptState]:
+) -> tuple[HyperNet, OptState, dict[str, Any]]:
     images = batch["image"]
     labels = batch["label"]
 
@@ -48,11 +50,13 @@ def training_step(
 
     loss, grads = eqx.filter_value_and_grad(grad_fn)(hypernet)
 
+    aux = {"loss": loss}
+
     updates, opt_state = opt.update(grads, opt_state, hypernet)  # type: ignore
 
     hypernet = eqx.apply_updates(hypernet, updates)
 
-    return loss, hypernet, opt_state
+    return hypernet, opt_state, aux
 
 
 def main():
@@ -79,7 +83,8 @@ def main():
             },
             "hypernet": {
                 "block_size": 8,
-                "emb_size": 3 * 1024,
+                "input_emb_size": 3 * 1024,
+                "pos_emb_size": 3 * 1024,
                 "kernel_size": 3,
                 "embedder_kind": "${embedder}",
             },
@@ -176,7 +181,18 @@ def main():
                 }
             )
 
-        hypernet = trainer.train(hypernet)
+        hypernet, aux = trainer.train(hypernet)
+
+        if wandb.run is not None:
+            wandb.run.log(
+                {
+                    "epoch": trainer.epoch,
+                    "loss/train/mean": np.mean(aux["loss"]),
+                    "loss/train/std": np.std(aux["loss"]),
+                }
+            )
+        else:
+            tqdm.write(f"Loss: {np.mean(aux['loss']):.3}")
 
         trainer.validate(hypernet)
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import equinox as eqx
 import jax
 import jax.random as jr
+import numpy as np
 import optax
 import wandb
 from omegaconf import MISSING, OmegaConf
@@ -37,32 +38,36 @@ def training_step(
     opt_state: OptState,
     *,
     lamda: float,
-) -> tuple[Array, ResHyperNet, OptState]:
+) -> tuple[ResHyperNet, OptState, dict[str, Any]]:
     images = batch["image"]
     labels = batch["label"]
 
-    def grad_fn(hypernet: ResHyperNet) -> Array:
+    def grad_fn(hypernet: ResHyperNet) -> tuple[Array, dict[str, Any]]:
         model, aux = hypernet(images[0], labels[0], with_aux=True)
 
         logits = jax.vmap(model)(images)
 
-        loss = jax.vmap(loss_fn)(logits, labels).mean()
+        ce_loss = jax.vmap(loss_fn)(logits, labels).mean()
 
-        reg_loss = aux["reg"]
+        aux["ce_loss"] = ce_loss
+
+        reg_loss = aux["reg_loss"]
 
         # jax.debug.print("loss={loss}, reg_loss={reg_loss}", loss=loss, reg_loss=reg_loss)
 
-        loss += lamda * reg_loss
+        loss = ce_loss + lamda * reg_loss
 
-        return loss
+        aux["loss"] = loss
 
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(hypernet)
+        return loss, aux
+
+    (loss, aux), grads = eqx.filter_value_and_grad(grad_fn, has_aux=True)(hypernet)
 
     updates, opt_state = opt.update(grads, opt_state, hypernet)  # type: ignore
 
     hypernet = eqx.apply_updates(hypernet, updates)
 
-    return loss, hypernet, opt_state
+    return hypernet, opt_state, aux
 
 
 def main():
@@ -196,7 +201,22 @@ def main():
                     }
                 )
 
-        hypernet = trainer.train(hypernet)
+        hypernet, aux = trainer.train(hypernet)
+
+        if wandb.run is not None:
+            wandb.run.log(
+                {
+                    "epoch": trainer.epoch,
+                    "loss/train/mean": np.mean(aux["loss"]),
+                    "loss/train/std": np.std(aux["loss"]),
+                    "reg_loss/train/mean": np.mean(aux["reg_loss"]),
+                    "reg_loss/train/std": np.std(aux["reg_loss"]),
+                }
+            )
+        else:
+            tqdm.write(f"Loss:      {np.mean(aux['loss']):.3}")
+            tqdm.write(f"Reg. Loss: {np.mean(aux['reg_loss']):.3}")
+            tqdm.write("")
 
         trainer.validate(hypernet)
 

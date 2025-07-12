@@ -322,7 +322,7 @@ class ResHyperNet(eqx.Module):
 
         model = eqx.combine(dyn_unet, static_unet)
 
-        aux["reg"] = init_reg + unet_reg + recomb_reg + final_reg
+        aux["reg_loss"] = init_reg + unet_reg + recomb_reg + final_reg
 
         if with_aux:
             return model, aux

@@ -1,10 +1,12 @@
 from jaxtyping import Array
+from typing import Any
 
 from pathlib import Path
 
 import equinox as eqx
 import jax
 import jax.random as jr
+import numpy as np
 import optax
 import wandb
 from omegaconf import MISSING, OmegaConf
@@ -31,7 +33,7 @@ def training_step(
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[Array, FilmUnet, OptState]:
+) -> tuple[FilmUnet, OptState, dict[str, Any]]:
     images = batch["image"]
     labels = batch["label"]
 
@@ -46,11 +48,13 @@ def training_step(
 
     loss, grads = eqx.filter_value_and_grad(grad_fn)(film_unet)
 
+    aux = {"loss": loss}
+
     updates, opt_state = opt.update(grads, opt_state, film_unet)  # type: ignore
 
     film_unet = eqx.apply_updates(film_unet, updates)
 
-    return loss, film_unet, opt_state
+    return film_unet, opt_state, aux
 
 
 def main():
@@ -155,7 +159,18 @@ def main():
                 }
             )
 
-        film_unet = trainer.train(film_unet)
+        film_unet, aux = trainer.train(film_unet)
+
+        if wandb.run is not None:
+            wandb.run.log(
+                {
+                    "epoch": trainer.epoch,
+                    "loss/train/mean": np.mean(aux["loss"]),
+                    "loss/train/std": np.std(aux["loss"]),
+                }
+            )
+        else:
+            tqdm.write(f"Loss: {np.mean(aux['loss']):.3}")
 
         trainer.validate(film_unet)
 
