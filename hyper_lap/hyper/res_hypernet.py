@@ -16,7 +16,7 @@ from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 
 
 class ResHyperNet(eqx.Module):
-    unet: Unet = eqx.field(static=True)
+    unet: Unet  # = eqx.field(static=True)
 
     filter_spec: PyTree
 
@@ -153,9 +153,9 @@ class ResHyperNet(eqx.Module):
             c_out, c_in, k1, k2 = leaf.shape
 
             assert k1 == k2 == kernel_size, f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -209,9 +209,9 @@ class ResHyperNet(eqx.Module):
 
         reg = jnp.array(0.0)
 
-        assert len(weights) == len(
-            self.unet_pos_embs
-        ), f"expected {len(self.unet_pos_embs)} weights, found {len(weights)} instead"
+        assert len(weights) == len(self.unet_pos_embs), (
+            f"expected {len(self.unet_pos_embs)} weights, found {len(weights)} instead"
+        )
 
         for i, pos_emb in enumerate(self.unet_pos_embs):
             b_out, b_in, _ = pos_emb.shape
@@ -248,9 +248,9 @@ class ResHyperNet(eqx.Module):
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
         kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
 
-        assert len(weights) == len(
-            self.recomb_pos_embs
-        ), f"expected {len(self.recomb_pos_embs)} weights, found {len(weights)} instead"
+        assert len(weights) == len(self.recomb_pos_embs), (
+            f"expected {len(self.recomb_pos_embs)} weights, found {len(weights)} instead"
+        )
 
         reg = jnp.array(0.0)
 
@@ -299,12 +299,14 @@ class ResHyperNet(eqx.Module):
 
         input_emb = self.input_embedder(image, label)
 
-        init_conv, unet, recomb, final_conv = (
-            self.unet.init_conv,
-            self.unet.unet,
-            self.unet.recomb,
-            self.unet.final_conv,
-        )
+        dyn_unet, static_unet = eqx.partition(self.unet, eqx.is_array)
+
+        dyn_unet = jax.lax.stop_gradient(dyn_unet)
+
+        init_conv = dyn_unet.init_conv
+        unet = dyn_unet.unet
+        recomb = dyn_unet.recomb
+        final_conv = dyn_unet.final_conv
 
         init_conv, init_reg = self.gen_init_conv(init_conv)
         final_conv, final_reg = self.gen_final_conv(final_conv)
@@ -312,11 +314,13 @@ class ResHyperNet(eqx.Module):
         unet, unet_reg = self.gen_unet(unet, input_emb)
         recomb, recomb_reg = self.gen_recomb(recomb, input_emb)
 
-        model = eqx.tree_at(
+        dyn_unet = eqx.tree_at(
             lambda _model: (_model.init_conv, _model.unet, _model.recomb, _model.final_conv),
-            self.unet,
+            dyn_unet,
             (init_conv, unet, recomb, final_conv),
         )
+
+        model = eqx.combine(dyn_unet, static_unet)
 
         aux["reg"] = init_reg + unet_reg + recomb_reg + final_reg
 

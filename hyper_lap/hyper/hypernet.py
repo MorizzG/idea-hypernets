@@ -15,7 +15,7 @@ from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 
 
 class HyperNet(eqx.Module):
-    unet: Unet = eqx.field(static=True)
+    unet: Unet  #  = eqx.field(static=True)
 
     kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
@@ -203,12 +203,14 @@ class HyperNet(eqx.Module):
     def __call__(self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]) -> Unet:
         input_emb = self.input_embedder(image, label)
 
-        init_conv, unet, recomb, final_conv = (
-            self.unet.init_conv,
-            self.unet.unet,
-            self.unet.recomb,
-            self.unet.final_conv,
-        )
+        dyn_unet, static_unet = eqx.partition(self.unet, eqx.is_array)
+
+        dyn_unet = jax.lax.stop_gradient(dyn_unet)
+
+        init_conv = dyn_unet.init_conv
+        unet = dyn_unet.unet
+        recomb = dyn_unet.recomb
+        final_conv = dyn_unet.final_conv
 
         init_conv = self.gen_init_conv(init_conv)
         final_conv = self.gen_final_conv(final_conv)
@@ -216,10 +218,12 @@ class HyperNet(eqx.Module):
         unet = self.gen_unet(unet, input_emb)
         recomb = self.gen_recomb(recomb, input_emb)
 
-        model = eqx.tree_at(
+        dyn_unet = eqx.tree_at(
             lambda _model: (_model.init_conv, _model.unet, _model.recomb, _model.final_conv),
-            self.unet,
+            dyn_unet,
             (init_conv, unet, recomb, final_conv),
         )
+
+        model = eqx.combine(dyn_unet, static_unet)
 
         return model
