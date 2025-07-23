@@ -193,16 +193,17 @@ def main():
 
     trainer.make_plots(film_unet, test_loader, image_folder=Path(f"./images/{model_name}"))
 
-    umap_datasets = [dataset for dataset in train_loader.datasets]
+    if not args.no_umap:
+        umap_datasets = [dataset for dataset in train_loader.datasets]
 
-    if test_loader is not None:
-        assert isinstance(test_loader.dataset, Dataset)
+        if test_loader is not None:
+            assert isinstance(test_loader.dataset, Dataset)
 
-        umap_datasets.append(test_loader.dataset)
+            umap_datasets.append(test_loader.dataset)
 
-    trainer.make_umap(
-        film_unet.embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
-    )
+        trainer.make_umap(
+            film_unet.embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
+        )
 
 
 if __name__ == "__main__":

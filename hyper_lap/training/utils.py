@@ -58,6 +58,7 @@ class Timer:
 @dataclass
 class Args:
     wandb: bool
+    no_umap: bool
 
     num_workers: int
 
@@ -87,6 +88,7 @@ def parse_args() -> tuple[Args, DictConfig]:
     parser = ArgumentParser()
 
     parser.add_argument("--wandb", action="store_true", help="Run with W&B logging")
+    parser.add_argument("--no-umap", action="store_true", help="Disable Umap generation")
 
     parser.add_argument(
         "--num-workers",
