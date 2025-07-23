@@ -84,7 +84,7 @@ def main():
             "lr": MISSING,
             "batch_size": MISSING,
             "unet_artifact": MISSING,
-            "lamda": MISSING,
+            "lamda": 0.0,
             "hypernet": {
                 "block_size": 8,
                 "input_emb_size": 3 * 1024,
