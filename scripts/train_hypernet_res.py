@@ -83,7 +83,6 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "embedder": MISSING,
             "unet_artifact": MISSING,
             "lamda": MISSING,
             "hypernet": {
@@ -91,7 +90,8 @@ def main():
                 "input_emb_size": 3 * 1024,
                 "pos_emb_size": 3 * 1024,
                 "kernel_size": 3,
-                "embedder_kind": "${embedder}",
+                "embedder_kind": "clip",
+                "generator_kind": "basic",
             },
         }
     )
