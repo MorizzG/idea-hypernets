@@ -33,12 +33,9 @@ class Metadata(BaseModel):
     # quantitative: str | None = None
     # tensor_image_size: Literal["3D"] | Literal["4D"] | None = None
 
-    __pydantic_extra__: dict[str, Any] = {}
-    # extra: dict[str, str] = Field(alias="__pydantic_extra__")
-
     @property
     def extra(self) -> dict[str, Any]:
-        return self.__pydantic_extra__
+        return self.__pydantic_extra__ or {}
 
     @staticmethod
     def load(root_dir: str | Path) -> "Metadata":
