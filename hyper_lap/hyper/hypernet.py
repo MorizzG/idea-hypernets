@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float, Integer, PRNGKeyArray
-from typing import Literal
+from typing import Any, Literal
 
 import equinox as eqx
 import jax
@@ -9,7 +9,7 @@ from chex import assert_equal_shape, assert_shape
 from equinox import nn
 
 from hyper_lap.hyper.embedder import InputEmbedder
-from hyper_lap.hyper.generator import Conv2dGenerator
+from hyper_lap.hyper.generator import Conv2dGenerator, Conv2dLoraGenerator
 from hyper_lap.models import Unet
 from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 
@@ -26,7 +26,7 @@ class HyperNet(eqx.Module):
 
     input_embedder: InputEmbedder
 
-    kernel_generator: Conv2dGenerator
+    kernel_generator: Conv2dGenerator | Conv2dLoraGenerator
 
     unet_pos_embs: list[Array]
     recomb_embs: list[Array]
@@ -49,6 +49,8 @@ class HyperNet(eqx.Module):
         pos_emb_size: int,
         kernel_size: int,
         embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
+        generator_kind: Literal["basic", "lora"] = "basic",
+        generator_kw_args: dict[str, Any] | None = None,
         key: PRNGKeyArray,
     ):
         super().__init__()
@@ -68,9 +70,29 @@ class HyperNet(eqx.Module):
 
         self.input_embedder = InputEmbedder(input_emb_size, kind=embedder_kind, key=emb_key)
 
-        self.kernel_generator = Conv2dGenerator(
-            block_size, block_size, kernel_size, input_emb_size, pos_emb_size, key=kernel_key
-        )
+        match generator_kind:
+            case "basic":
+                self.kernel_generator = Conv2dGenerator(
+                    block_size,
+                    block_size,
+                    kernel_size,
+                    input_emb_size,
+                    pos_emb_size,
+                    key=kernel_key,
+                    **(generator_kw_args or {}),
+                )
+            case "lora":
+                self.kernel_generator = Conv2dLoraGenerator(
+                    block_size,
+                    block_size,
+                    kernel_size,
+                    input_emb_size,
+                    pos_emb_size,
+                    key=kernel_key,
+                    **(generator_kw_args or {}),
+                )
+            case _:
+                raise ValueError(f"invalid generator_kind {generator_kind}")
 
         self.init_kernel = jr.normal(
             init_key, self.kernel_shape(unet.in_channels, base_channels, 1)
