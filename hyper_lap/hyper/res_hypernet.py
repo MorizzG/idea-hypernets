@@ -10,7 +10,7 @@ from chex import assert_equal_shape, assert_shape
 from equinox import nn
 
 from hyper_lap.hyper.embedder import InputEmbedder
-from hyper_lap.hyper.generator import Conv2dGenerator
+from hyper_lap.hyper.generator import Conv2dGenerator, Conv2dLoraGenerator
 from hyper_lap.models import Unet
 from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 
@@ -29,7 +29,7 @@ class ResHyperNet(eqx.Module):
 
     input_embedder: InputEmbedder
 
-    kernel_generator: Conv2dGenerator
+    kernel_generator: Conv2dGenerator | Conv2dLoraGenerator
 
     unet_pos_embs: list[Array]
     recomb_pos_embs: list[Array]
@@ -45,8 +45,8 @@ class ResHyperNet(eqx.Module):
 
     @staticmethod
     def init_conv_generator(
-        gen: Conv2dGenerator, eps: float, *, key: PRNGKeyArray
-    ) -> Conv2dGenerator:
+        gen: Conv2dGenerator | Conv2dLoraGenerator, eps: float, *, key: PRNGKeyArray
+    ) -> Conv2dGenerator | Conv2dLoraGenerator:
         def init_linear(linear: nn.Linear, *, key: PRNGKeyArray) -> nn.Linear:
             weight_key, bias_key = jr.split(key)
 
@@ -67,11 +67,13 @@ class ResHyperNet(eqx.Module):
 
             return linear
 
-        first_key, second_key = jr.split(key)
+        linears, treedef = jt.flatten(gen, is_leaf=lambda x: isinstance(x, eqx.nn.Linear))
 
-        gen = eqx.tree_at(lambda gen: gen.first, gen, init_linear(gen.first, key=first_key))
+        keys = jr.split(key, len(linears))
 
-        gen = eqx.tree_at(lambda gen: gen.second, gen, init_linear(gen.second, key=second_key))
+        linears = [init_linear(linear, key=key) for linear, key in zip(linears, keys)]
+
+        gen = jt.unflatten(treedef, linears)
 
         return gen
 
@@ -115,7 +117,7 @@ class ResHyperNet(eqx.Module):
 
         match generator_kind:
             case "basic":
-                self.kernel_generator = Conv2dGenerator(
+                gen = Conv2dGenerator(
                     block_size,
                     block_size,
                     kernel_size,
@@ -125,7 +127,7 @@ class ResHyperNet(eqx.Module):
                     **(generator_kw_args or {}),
                 )
             case "lora":
-                self.kernel_generator = Conv2dLoraGenerator(
+                gen = Conv2dLoraGenerator(
                     block_size,
                     block_size,
                     kernel_size,
