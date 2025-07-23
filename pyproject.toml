@@ -31,7 +31,7 @@ dependencies = [
     "omegaconf>=2.3.0",
     "tqdm>=4.67.0",
     "wandb>=0.19.6",
-    "umap-learn>=0.5.8",
+    "umap-learn>=0.5.9",
     "pydantic>=2.11.4",
 ]
 
@@ -64,7 +64,7 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
-umap-learn = { git = "https://github.com/lmcinnes/umap" }
+# umap-learn = { git = "https://github.com/lmcinnes/umap" }
 
 [build-system]
 requires = ["hatchling"]
