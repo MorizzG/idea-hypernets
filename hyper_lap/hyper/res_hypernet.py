@@ -83,9 +83,11 @@ class ResHyperNet(eqx.Module):
         input_emb_size: int,
         pos_emb_size: int,
         kernel_size: int,
-        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
-        key: PRNGKeyArray,
         filter_spec: PyTree | None = None,
+        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
+        generator_kind: Literal["basic", "lora"] = "basic",
+        generator_kw_args: dict[str, Any] | None = None,
+        key: PRNGKeyArray,
     ):
         super().__init__()
 
@@ -111,9 +113,29 @@ class ResHyperNet(eqx.Module):
 
         self.input_embedder = InputEmbedder(input_emb_size, kind=embedder_kind, key=emb_key)
 
-        gen = Conv2dGenerator(
-            block_size, block_size, kernel_size, input_emb_size, pos_emb_size, key=kernel_key
-        )
+        match generator_kind:
+            case "basic":
+                self.kernel_generator = Conv2dGenerator(
+                    block_size,
+                    block_size,
+                    kernel_size,
+                    input_emb_size,
+                    pos_emb_size,
+                    key=kernel_key,
+                    **(generator_kw_args or {}),
+                )
+            case "lora":
+                self.kernel_generator = Conv2dLoraGenerator(
+                    block_size,
+                    block_size,
+                    kernel_size,
+                    input_emb_size,
+                    pos_emb_size,
+                    key=kernel_key,
+                    **(generator_kw_args or {}),
+                )
+            case _:
+                raise ValueError(f"invalid generator_kind {generator_kind}")
 
         # we can reuse kernel_key here since we re-initialize the weights here
         self.kernel_generator = self.init_conv_generator(gen, eps, key=kernel_key)
