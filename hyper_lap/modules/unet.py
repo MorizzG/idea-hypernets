@@ -11,21 +11,21 @@ from .upsample import BilinearUpsample2d
 
 
 class Block(eqx.Module):
-    res_conv: Optional[nn.Conv2d]
+    """
+    Block module for U-Nets.
 
-    use_res: bool = eqx.field(static=True)
+    Groups n_convs convolutions, with same in_channels as out_channels.
+    """
 
     layers: nn.Sequential
 
     def __init__(
         self,
-        in_channels: int,
-        out_channels: int,
+        channels: int,
+        *,
         kernel_size: int = 3,
         groups: int = 8,
         n_convs: int = 2,
-        use_res: bool = False,
-        *,
         use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
@@ -34,38 +34,18 @@ class Block(eqx.Module):
         if n_convs < 1:
             raise ValueError("Must have at least one conv")
 
-        self.use_res = use_res
-
-        if use_res and in_channels != out_channels:
-            key, consume = jr.split(key)
-
-            self.res_conv = nn.Conv2d(in_channels, out_channels, 1, padding="SAME", key=consume)
-        else:
-            self.res_conv = None
-
         keys = jr.split(key, n_convs)
 
         layers = [
             ConvNormAct(
-                in_channels,
-                out_channels,
-                kernel_size,
-                groups=groups,
-                use_weight_standardized_conv=use_weight_standardized_conv,
-                key=keys[0],
-            )
-        ]
-
-        layers += [
-            ConvNormAct(
-                out_channels,
-                out_channels,
+                channels,
+                channels,
                 kernel_size,
                 groups=groups,
                 use_weight_standardized_conv=use_weight_standardized_conv,
                 key=key,
             )
-            for key in keys[1:]
+            for key in keys
         ]
 
         self.layers = nn.Sequential(layers)
@@ -78,11 +58,7 @@ class Block(eqx.Module):
         for layer in self.layers:
             x = layer(x)
 
-        if self.use_res:
-            if self.res_conv is not None:
-                res = self.res_conv(res)
-
-            x += res
+        x += res
 
         return x
 
@@ -91,6 +67,7 @@ class UnetDown(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
+    resamples: list[nn.Conv2d]
     blocks: list[Block]
     downs: list[nn.MaxPool2d]
 
@@ -113,14 +90,17 @@ class UnetDown(eqx.Module):
         channels = base_channels
 
         self.blocks = []
+        self.resamples = []
         self.downs = []
 
         for channel_mult in channel_mults[1:]:
             new_channels = channel_mult * base_channels
 
-            key, block_key = jr.split(key, 2)
+            key, resample_key, block_key = jr.split(key, 3)
 
-            self.blocks.append(Block(channels, new_channels, key=block_key, **block_args))
+            self.blocks.append(Block(channels, key=block_key, **block_args))
+
+            self.resamples.append(nn.Conv2d(channels, new_channels, 1, key=resample_key))
 
             channels = new_channels
 
@@ -131,8 +111,10 @@ class UnetDown(eqx.Module):
     ) -> tuple[Array, list[Array]]:
         skips: list[Array] = []
 
-        for block, down in zip(self.blocks, self.downs):
+        for block, resample, down in zip(self.blocks, self.resamples, self.downs):
             x = block(x)
+
+            x = resample(x)
 
             skips.append(x)
 
@@ -151,6 +133,7 @@ class UnetUp(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
+    resamples: list[nn.Conv2d]
     blocks: list[Block]
     ups: list[BilinearUpsample2d]
 
@@ -170,34 +153,39 @@ class UnetUp(eqx.Module):
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
 
-        self.blocks = []
         self.ups = []
+        self.resamples = []
+        self.blocks = []
 
         channels = base_channels * channel_mults[-1]
 
         for channel_mult in list(reversed(channel_mults))[1:]:
             new_channels = channel_mult * base_channels
 
-            key, block_key, up_key = jr.split(key, 3)
+            key, resample_key, block_key, up_key = jr.split(key, 4)
 
             # self.ups.append(ConvUpsample2d(channels, channels, key=up_key))
             self.ups.append(BilinearUpsample2d())
 
-            self.blocks.append(Block(2 * channels, new_channels, key=block_key, **block_args))
+            self.resamples.append(nn.Conv2d(2 * channels, new_channels, 1, key=resample_key))
 
             channels = new_channels
+
+            self.blocks.append(Block(channels, key=block_key, **block_args))
 
     def __call__(
         self, x: Array, skips: list[Array], *, key: Optional[PRNGKeyArray] = None
     ) -> Array:
         skips = skips.copy()
 
-        for up, block in zip(self.ups, self.blocks):
+        for up, resample, block in zip(self.ups, self.resamples, self.blocks):
             x = up(x)
 
             skip = skips.pop()
 
             x = jnp.concat([skip, x], axis=0)
+
+            x = resample(x)
 
             x = block(x)
 
@@ -231,7 +219,7 @@ class UnetModule(eqx.Module):
 
         middle_channels = base_channels * channel_mults[-1]
 
-        self.middle = Block(middle_channels, middle_channels, key=middle_key, **(block_args or {}))
+        self.middle = Block(middle_channels, key=middle_key, **(block_args or {}))
 
         self.up = UnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 

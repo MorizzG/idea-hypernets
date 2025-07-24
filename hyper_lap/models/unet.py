@@ -27,7 +27,6 @@ class Unet(eqx.Module):
         in_channels: int,
         out_channels: int,
         *,
-        use_res: bool,
         use_weight_standardized_conv: bool,
         key: PRNGKeyArray,
     ):
@@ -54,13 +53,11 @@ class Unet(eqx.Module):
             channel_mults,
             key=unet_key,
             block_args={
-                "use_res": use_res,
                 "use_weight_standardized_conv": use_weight_standardized_conv,
             },
         )
 
         self.recomb = Block(
-            base_channels,
             base_channels,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,
