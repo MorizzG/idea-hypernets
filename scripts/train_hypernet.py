@@ -77,7 +77,6 @@ def main():
                 "channel_mults": [1, 2, 4],
                 "in_channels": 3,
                 "out_channels": 2,
-                "use_res": False,
                 "use_weight_standardized_conv": False,
             },
             "hypernet": {

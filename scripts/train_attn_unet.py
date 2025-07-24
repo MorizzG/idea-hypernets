@@ -77,7 +77,6 @@ def main():
                 "out_channels": 2,
                 "emb_size": 3 * 1024,
                 "embedder_kind": "clip",
-                "use_res": False,
                 "use_weight_standardized_conv": False,
             },
         }

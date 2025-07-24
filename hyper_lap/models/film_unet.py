@@ -35,7 +35,6 @@ class FilmUnet(eqx.Module):
         out_channels: int,
         emb_size: int,
         embedder_kind: InputEmbedder.EmbedderKind,
-        use_res: bool,
         use_weight_standardized_conv: bool,
         key: PRNGKeyArray,
     ):
@@ -69,7 +68,6 @@ class FilmUnet(eqx.Module):
             emb_size,
             key=unet_key,
             block_args={
-                "use_res": use_res,
                 "use_weight_standardized_conv": use_weight_standardized_conv,
             },
         )

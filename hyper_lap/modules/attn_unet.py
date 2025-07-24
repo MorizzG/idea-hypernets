@@ -14,8 +14,6 @@ from .upsample import BilinearUpsample2d
 class ResBlock(eqx.Module):
     res_conv: Optional[nn.Conv2d]
 
-    use_res: bool = eqx.field(static=True)
-
     layers: nn.Sequential
 
     def __init__(
@@ -25,7 +23,6 @@ class ResBlock(eqx.Module):
         kernel_size: int = 3,
         groups: int = 8,
         n_convs: int = 2,
-        use_res: bool = False,
         *,
         use_weight_standardized_conv: bool,
         key: PRNGKeyArray,
@@ -34,15 +31,6 @@ class ResBlock(eqx.Module):
 
         if n_convs < 1:
             raise ValueError("Must have at least one conv")
-
-        self.use_res = use_res
-
-        if use_res and in_channels != out_channels:
-            key, consume = jr.split(key)
-
-            self.res_conv = nn.Conv2d(in_channels, out_channels, 1, padding="SAME", key=consume)
-        else:
-            self.res_conv = None
 
         keys = jr.split(key, n_convs)
 
@@ -78,12 +66,6 @@ class ResBlock(eqx.Module):
 
         for layer in self.layers:
             x = layer(x)
-
-        if self.use_res:
-            if self.res_conv is not None:
-                res = self.res_conv(res)
-
-            x += res
 
         return x
 

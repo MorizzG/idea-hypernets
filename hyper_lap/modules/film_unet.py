@@ -71,8 +71,6 @@ class ConvNormFilmAct(eqx.Module):
 class FilmBlock(eqx.Module):
     emb_size: int = eqx.field(static=True)
 
-    use_res: bool = eqx.field(static=True)
-
     emb_proj: nn.Linear
 
     res_conv: Optional[nn.Conv2d]
@@ -89,7 +87,6 @@ class FilmBlock(eqx.Module):
         kernel_size: int = 3,
         groups: int = 8,
         n_convs: int = 2,
-        use_res: bool = False,
         *,
         emb_size: int,
         use_weight_standardized_conv: bool = False,
@@ -102,20 +99,9 @@ class FilmBlock(eqx.Module):
 
         self.emb_size = emb_size
 
-        self.use_res = use_res
-
         key, emb_proj_key = jr.split(key)
 
         self.emb_proj = nn.Linear(emb_size, 2 * out_channels, key=emb_proj_key)
-
-        if use_res and in_channels != out_channels:
-            key, res_conv_key = jr.split(key)
-
-            self.res_conv = nn.Conv2d(
-                in_channels, out_channels, 1, padding="SAME", key=res_conv_key
-            )
-        else:
-            self.res_conv = None
 
         keys = jr.split(key, n_convs)
 
@@ -154,12 +140,6 @@ class FilmBlock(eqx.Module):
 
         for layer in self.layers:
             x = layer(x)
-
-        if self.use_res:
-            if self.res_conv is not None:
-                res = self.res_conv(res)
-
-            x += res
 
         return x
 
@@ -215,9 +195,9 @@ class FilmUnetDown(eqx.Module):
 
             c, h, w = x.shape
 
-            assert (
-                h % 2 == 0 and w % 2 == 0
-            ), f"spatial dims of shape {x.shape} are not divisible by 2"
+            assert h % 2 == 0 and w % 2 == 0, (
+                f"spatial dims of shape {x.shape} are not divisible by 2"
+            )
 
             x = down(x)
 
@@ -327,12 +307,12 @@ class FilmUnetModule(eqx.Module):
 
         down_factor = 2 ** len(self.channel_mults)
 
-        assert (
-            h % down_factor == 0
-        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
-        assert (
-            w % down_factor == 0
-        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        assert h % down_factor == 0, (
+            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        )
+        assert w % down_factor == 0, (
+            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        )
 
         x, skips = self.down(x, cond)
 

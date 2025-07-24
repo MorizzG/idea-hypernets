@@ -35,7 +35,6 @@ class AttentionUnet(eqx.Module):
         out_channels: int,
         emb_size: int,
         embedder_kind: InputEmbedder.EmbedderKind,
-        use_res: bool,
         use_weight_standardized_conv: bool,
         key: PRNGKeyArray,
     ):
@@ -68,7 +67,6 @@ class AttentionUnet(eqx.Module):
             channel_mults,
             key=unet_key,
             block_args={
-                "use_res": use_res,
                 "use_weight_standardized_conv": use_weight_standardized_conv,
             },
         )
