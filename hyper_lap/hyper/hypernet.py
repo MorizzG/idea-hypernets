@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
 from chex import assert_equal_shape, assert_shape
@@ -21,15 +22,17 @@ class HyperNet(eqx.Module):
     base_channels: int = eqx.field(static=True)
 
     block_size: int = eqx.field(static=True)
+
     input_emb_size: int = eqx.field(static=True)
     pos_emb_size: int = eqx.field(static=True)
 
     input_embedder: InputEmbedder
 
     kernel_generator: Conv2dGenerator | Conv2dLoraGenerator
+    resample_generator: Conv2dGenerator | Conv2dLoraGenerator
 
     unet_pos_embs: list[Array]
-    recomb_embs: list[Array]
+    recomb_pos_embs: list[Array]
 
     init_kernel: Array
     final_kernel: Array
@@ -64,9 +67,11 @@ class HyperNet(eqx.Module):
         self.input_emb_size = input_emb_size
         self.pos_emb_size = pos_emb_size
 
+        total_emb_size = input_emb_size + pos_emb_size
+
         base_channels = unet.base_channels
 
-        key, kernel_key, emb_key, init_key, final_key = jr.split(key, 5)
+        key, kernel_key, resample_key, emb_key, init_key, final_key = jr.split(key, 6)
 
         self.input_embedder = InputEmbedder(input_emb_size, kind=embedder_kind, key=emb_key)
 
@@ -76,9 +81,17 @@ class HyperNet(eqx.Module):
                     block_size,
                     block_size,
                     kernel_size,
-                    input_emb_size,
-                    pos_emb_size,
+                    total_emb_size,
                     key=kernel_key,
+                    **(generator_kw_args or {}),
+                )
+
+                self.resample_generator = Conv2dGenerator(
+                    block_size,
+                    block_size,
+                    1,
+                    pos_emb_size,
+                    key=resample_key,
                     **(generator_kw_args or {}),
                 )
             case "lora":
@@ -86,9 +99,17 @@ class HyperNet(eqx.Module):
                     block_size,
                     block_size,
                     kernel_size,
-                    input_emb_size,
-                    pos_emb_size,
+                    total_emb_size,
                     key=kernel_key,
+                    **(generator_kw_args or {}),
+                )
+
+                self.resample_generator = Conv2dLoraGenerator(
+                    block_size,
+                    block_size,
+                    1,
+                    pos_emb_size,
+                    key=resample_key,
                     **(generator_kw_args or {}),
                 )
             case _:
@@ -107,7 +128,7 @@ class HyperNet(eqx.Module):
 
         self.unet_pos_embs = self.generate_pos_embs(unet.unet, key=unet_pos_embs_key)
 
-        self.recomb_embs = self.generate_pos_embs(unet.recomb, key=recomb_pos_embs_key)
+        self.recomb_pos_embs = self.generate_pos_embs(unet.recomb, key=recomb_pos_embs_key)
 
     def generate_pos_embs(self, module: eqx.Module, *, key: PRNGKeyArray) -> list[Array]:
         leaves, _ = jt.flatten(eqx.filter(module, eqx.is_array))
@@ -122,7 +143,9 @@ class HyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert k1 == k2 == kernel_size, f"Array has unexpected shape: {leaf.shape}"
+            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
+                f"Array has unexpected shape: {leaf.shape}"
+            )
             assert c_out % block_size == 0 and c_in % block_size == 0, (
                 f"channels {c_out} {c_in} not divisible by block_size {block_size}"
             )
@@ -154,65 +177,50 @@ class HyperNet(eqx.Module):
 
         return final_conv
 
-    def gen_unet(self, unet: UnetModule, input_emb: Array) -> UnetModule:
-        block_size = self.block_size
-        kernel_size = self.kernel_size
-
+    def gen_weights(self, unet: UnetModule, input_emb: Array, pos_embs: list[Array]) -> UnetModule:
         model_weights, static_model = eqx.partition(unet, eqx.is_array)
 
         weights, treedef = jt.flatten(model_weights)
 
         # vmap over block in positional embeddings
         kernel_generator = self.kernel_generator
-        kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
-        kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
+        kernel_generator = jax.vmap(kernel_generator)
+        kernel_generator = jax.vmap(kernel_generator)
 
-        assert len(weights) == len(self.unet_pos_embs)
+        resample_generator = self.resample_generator
+        resample_generator = jax.vmap(resample_generator)
+        resample_generator = jax.vmap(resample_generator)
 
-        for i, pos_emb in enumerate(self.unet_pos_embs):
+        assert len(weights) == len(pos_embs), (
+            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        )
+
+        for i, pos_emb in enumerate(pos_embs):
             b_out, b_in, _ = pos_emb.shape
 
-            weight = kernel_generator(input_emb, pos_emb)
+            c_out, c_in, k1, k2 = weights[i].shape
 
-            assert_shape(weight, [b_out, b_in, block_size, block_size, kernel_size, kernel_size])
+            assert k1 == k2
+            assert b_out == c_out // self.block_size
+            assert b_in == c_in // self.block_size
 
-            weight = weight.transpose(0, 2, 1, 3, 4, 5)
-            weight = weight.reshape(b_out * block_size, b_in * block_size, kernel_size, kernel_size)
+            if k1 == self.kernel_size:
+                emb = jnp.concat([jnp.broadcast_to(input_emb, pos_emb.shape), pos_emb], axis=2)
 
-            assert weights[i].shape == weight.shape
+                weight = kernel_generator(emb)
+            elif k1 == 1:
+                emb = pos_emb
 
-            weights[i] = weight
+                weight = resample_generator(emb)
+            else:
+                raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
-        model_weights = jt.unflatten(treedef, weights)
-
-        model = eqx.combine(model_weights, static_model)
-
-        return model
-
-    def gen_recomb(self, recomb: Block, input_emb: Array) -> Block:
-        block_size = self.block_size
-        kernel_size = self.kernel_size
-
-        model_weights, static_model = eqx.partition(recomb, eqx.is_array)
-
-        weights, treedef = jt.flatten(model_weights)
-
-        # vmap over block in positional embeddings
-        kernel_generator = self.kernel_generator
-        kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
-        kernel_generator = jax.vmap(kernel_generator, in_axes=(None, 0), out_axes=0)
-
-        assert len(weights) == len(self.recomb_embs)
-
-        for i, pos_emb in enumerate(self.recomb_embs):
-            b_out, b_in, _ = pos_emb.shape
-
-            weight = kernel_generator(input_emb, pos_emb)
-
-            assert_shape(weight, [b_out, b_in, block_size, block_size, kernel_size, kernel_size])
+            assert_shape(weight, [b_out, b_in, self.block_size, self.block_size, k1, k2])
 
             weight = weight.transpose(0, 2, 1, 3, 4, 5)
-            weight = weight.reshape(b_out * block_size, b_in * block_size, kernel_size, kernel_size)
+            weight = weight.reshape(b_out * self.block_size, b_in * self.block_size, k1, k2)
+
+            assert_equal_shape([weight, weights[i]])
 
             weights[i] = weight
 
@@ -237,8 +245,8 @@ class HyperNet(eqx.Module):
         init_conv = self.gen_init_conv(init_conv)
         final_conv = self.gen_final_conv(final_conv)
 
-        unet = self.gen_unet(unet, input_emb)
-        recomb = self.gen_recomb(recomb, input_emb)
+        unet = self.gen_weights(unet, input_emb, self.unet_pos_embs)
+        recomb = self.gen_weights(recomb, input_emb, self.recomb_pos_embs)
 
         dyn_unet = eqx.tree_at(
             lambda _model: (_model.init_conv, _model.unet, _model.recomb, _model.final_conv),

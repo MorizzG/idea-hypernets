@@ -100,7 +100,9 @@ class UnetDown(eqx.Module):
 
             self.blocks.append(Block(channels, key=block_key, **block_args))
 
-            self.resamples.append(nn.Conv2d(channels, new_channels, 1, key=resample_key))
+            self.resamples.append(
+                nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
+            )
 
             channels = new_channels
 
@@ -167,7 +169,9 @@ class UnetUp(eqx.Module):
             # self.ups.append(ConvUpsample2d(channels, channels, key=up_key))
             self.ups.append(BilinearUpsample2d())
 
-            self.resamples.append(nn.Conv2d(2 * channels, new_channels, 1, key=resample_key))
+            self.resamples.append(
+                nn.Conv2d(2 * channels, new_channels, 1, use_bias=False, key=resample_key)
+            )
 
             channels = new_channels
 

@@ -9,8 +9,10 @@ from chex import assert_shape
 
 
 class Conv2dGenerator(eqx.Module):
-    input_emb_size: int = eqx.field(static=True)
-    pos_emb_size: int = eqx.field(static=True)
+    # input_emb_size: int = eqx.field(static=True)
+    # pos_emb_size: int = eqx.field(static=True)
+    emb_size: int = eqx.field(static=True)
+
     h_size: int = eqx.field(static=True)
 
     in_channels: int = eqx.field(static=True)
@@ -28,22 +30,27 @@ class Conv2dGenerator(eqx.Module):
         in_channels: int,
         out_channels: int,
         kernel_size: int,
-        input_emb_size: int,
-        pos_emb_size: int,
+        # input_emb_size: int,
+        # pos_emb_size: int,
+        emb_size: int,
         *,
         h_size: int | None = None,
         key: PRNGKeyArray,
     ):
         super().__init__()
 
-        total_emb_size = input_emb_size + pos_emb_size
+        # total_emb_size = input_emb_size + pos_emb_size
 
         if h_size is None:
-            h_size = input_emb_size + pos_emb_size
+            # h_size = input_emb_size + pos_emb_size
+            h_size = emb_size
 
-        self.input_emb_size = input_emb_size
-        self.pos_emb_size = pos_emb_size
+        # self.input_emb_size = input_emb_size
+        # self.pos_emb_size = pos_emb_size
+        self.emb_size = emb_size
+
         self.h_size = h_size
+
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -51,20 +58,20 @@ class Conv2dGenerator(eqx.Module):
         first_key, middle_key, second_key = jr.split(key, 3)
 
         # project from embeddings to hidden_size * in_channels
-        self.first = nn.Linear(total_emb_size, h_size * in_channels, key=first_key)
+        self.first = nn.Linear(emb_size, h_size * in_channels, key=first_key)
 
         self.middle = nn.Linear(h_size, h_size, key=middle_key)
 
         # project from hidden to kernels
         self.second = nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
 
-    def __call__(
-        self, input_emb: Float[Array, " input_emb_size"], pos_emb: Float[Array, " pos_emb_size"]
-    ) -> Float[Array, "c_out c_in k k"]:
-        assert input_emb.shape == (self.input_emb_size,)
-        assert pos_emb.shape == (self.pos_emb_size,)
+    def __call__(self, emb: Float[Array, " emb_size"]) -> Float[Array, "c_out c_in k k"]:
+        # assert input_emb.shape == (self.input_emb_size,)
+        # assert pos_emb.shape == (self.pos_emb_size,)
 
-        emb = jnp.concatenate([input_emb, pos_emb])
+        # emb = jnp.concatenate([input_emb, pos_emb])
+
+        assert_shape(emb, (self.emb_size,))
 
         x = self.first(emb)
 
@@ -92,8 +99,10 @@ class Conv2dGenerator(eqx.Module):
 
 
 class Conv2dLoraGenerator(eqx.Module):
-    input_emb_size: int = eqx.field(static=True)
-    pos_emb_size: int = eqx.field(static=True)
+    # input_emb_size: int = eqx.field(static=True)
+    # pos_emb_size: int = eqx.field(static=True)
+    emb_size: int = eqx.field(static=True)
+
     h_size: int = eqx.field(static=True)
     lora_rank: int = eqx.field(static=True)
 
@@ -113,8 +122,9 @@ class Conv2dLoraGenerator(eqx.Module):
         in_channels: int,
         out_channels: int,
         kernel_size: int,
-        input_emb_size: int,
-        pos_emb_size: int,
+        # input_emb_size: int,
+        # pos_emb_size: int,
+        emb_size: int,
         *,
         h_size: int | None = None,
         lora_rank: int = 5,
@@ -122,13 +132,16 @@ class Conv2dLoraGenerator(eqx.Module):
     ):
         super().__init__()
 
-        total_emb_size = input_emb_size + pos_emb_size
+        # total_emb_size = input_emb_size + pos_emb_size
 
         if h_size is None:
-            h_size = input_emb_size + pos_emb_size
+            # h_size = input_emb_size + pos_emb_size
+            h_size = emb_size
 
-        self.input_emb_size = input_emb_size
-        self.pos_emb_size = pos_emb_size
+        # self.input_emb_size = input_emb_size
+        # self.pos_emb_size = pos_emb_size
+        self.emb_size = emb_size
+
         self.h_size = h_size
         self.lora_rank = lora_rank
 
@@ -139,7 +152,7 @@ class Conv2dLoraGenerator(eqx.Module):
         first_key, middle_key, second_key = jr.split(key, 3)
 
         # project from embeddings to hidden_size * in_channels
-        self.first = nn.Linear(total_emb_size, h_size, key=first_key)
+        self.first = nn.Linear(emb_size, h_size, key=first_key)
 
         self.middle = nn.Linear(h_size, h_size, key=middle_key)
 
@@ -153,13 +166,14 @@ class Conv2dLoraGenerator(eqx.Module):
 
     def __call__(
         self,
-        input_emb: Float[Array, " input_emb_size"],
-        pos_emb: Float[Array, " pos_emb_size"],
+        emb: Float[Array, " emb_size"],
     ) -> Float[Array, "c_out c_in k k"]:
-        assert input_emb.shape == (self.input_emb_size,)
-        assert pos_emb.shape == (self.pos_emb_size,)
+        # assert input_emb.shape == (self.input_emb_size,)
+        # assert pos_emb.shape == (self.pos_emb_size,)
 
-        emb = jnp.concatenate([input_emb, pos_emb])
+        # emb = jnp.concatenate([input_emb, pos_emb])
+
+        assert_shape(emb, (self.emb_size,))
 
         x = self.first(emb)
 
