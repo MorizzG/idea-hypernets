@@ -10,7 +10,7 @@ from hyper_lap.modules.attn_unet import AttnUnetModule
 from hyper_lap.modules.unet import Block, ConvNormAct
 
 
-class FilmUnet(eqx.Module):
+class AttentionUnet(eqx.Module):
     in_channels: int = eqx.field(static=True)
     out_channels: int = eqx.field(static=True)
 
@@ -34,7 +34,7 @@ class FilmUnet(eqx.Module):
         in_channels: int,
         out_channels: int,
         emb_size: int,
-        emb_kind: InputEmbedder.EmbedderKind,
+        embedder_kind: InputEmbedder.EmbedderKind,
         use_res: bool,
         use_weight_standardized_conv: bool,
         key: PRNGKeyArray,
@@ -51,7 +51,7 @@ class FilmUnet(eqx.Module):
 
         key, emb_key = jr.split(key)
 
-        self.embedder = InputEmbedder(emb_size, kind=emb_kind, key=emb_key)
+        self.embedder = InputEmbedder(emb_size, kind=embedder_kind, key=emb_key)
 
         init_key, unet_key, recomb_key, final_key = jr.split(key, 4)
 

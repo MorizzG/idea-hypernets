@@ -115,6 +115,7 @@ class AttnUnetDown(eqx.Module):
         channels = base_channels
 
         self.res_blocks = []
+        self.attn_blocks = []
         self.downs = []
 
         for channel_mult in channel_mults[1:]:
@@ -178,6 +179,7 @@ class AttnUnetUp(eqx.Module):
         self.channel_mults = list(channel_mults)
 
         self.res_blocks = []
+        self.attn_blocks = []
         self.ups = []
 
         channels = base_channels * channel_mults[-1]

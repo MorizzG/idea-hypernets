@@ -20,13 +20,13 @@ from umap import UMAP
 from hyper_lap.datasets import MultiDataLoader
 from hyper_lap.datasets.base import Dataset
 from hyper_lap.hyper import HyperNet, InputEmbedder, ResHyperNet
-from hyper_lap.models import FilmUnet, Unet
+from hyper_lap.models import AttentionUnet, FilmUnet, Unet
 from hyper_lap.training.utils import to_PIL
 
 from .metrics import calc_metrics
 
 
-class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet]:
+class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet]:
     type TrainingStep = Callable[
         [Net, dict[str, Array], GradientTransformation, OptState],
         tuple[Net, OptState, dict[str, Any]],
