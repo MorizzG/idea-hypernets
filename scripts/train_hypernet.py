@@ -72,7 +72,6 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "embedder": MISSING,
             "unet": {
                 "base_channels": 8,
                 "channel_mults": [1, 2, 4],
@@ -86,7 +85,7 @@ def main():
                 "input_emb_size": 3 * 1024,
                 "pos_emb_size": 3 * 1024,
                 "kernel_size": 3,
-                "embedder_kind": "${embedder}",
+                "embedder_kind": "clip",
             },
         }
     )
@@ -154,7 +153,7 @@ def main():
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder, "hypernet"]
+        wandb.run.tags = [config.dataset, config.hypernet.embedder_kind, "hypernet"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,

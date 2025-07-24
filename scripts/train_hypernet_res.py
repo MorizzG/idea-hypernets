@@ -163,7 +163,7 @@ def main():
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder, "res_hypernet"]
+        wandb.run.tags = [config.dataset, config.hypernet.embedder_kind, "res_hypernet"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,

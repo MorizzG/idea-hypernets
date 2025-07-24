@@ -70,14 +70,13 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "embedder": MISSING,
             "film_unet": {
                 "base_channels": 8,
                 "channel_mults": [1, 2, 4],
                 "in_channels": 3,
                 "out_channels": 2,
                 "emb_size": 3 * 1024,
-                "emb_kind": "${embedder}",
+                "embedder_kind": "clip",
                 "use_res": False,
                 "use_weight_standardized_conv": False,
             },
@@ -127,12 +126,12 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
-    model_name = f"filmunet-{config.dataset}-{config.embedder}"
+    model_name = f"filmunet-{config.dataset}-{config.film_unet.embedder_kind}"
 
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder, "film"]
+        wandb.run.tags = [config.dataset, config.film_unet.embedder_kind, "film"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,

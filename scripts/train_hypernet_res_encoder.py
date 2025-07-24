@@ -69,13 +69,12 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "embedder": MISSING,
             "unet_artifact": MISSING,
             "hypernet": {
                 "block_size": 8,
                 "emb_size": 3 * 1024,
                 "kernel_size": 3,
-                "embedder_kind": "${embedder}",
+                "embedder_kind": "clip",
             },
         }
     )
@@ -169,12 +168,12 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
-    model_name = f"reshypernet-{config.dataset}-{config.embedder}"
+    model_name = f"reshypernet-{config.dataset}-{config.hypernet.embedder_kind}"
 
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder, "res_hypernet"]
+        wandb.run.tags = [config.dataset, config.hypernet.embedder_kind, "res_hypernet"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,
