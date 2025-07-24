@@ -323,31 +323,38 @@ def to_PIL(img: np.ndarray | Array) -> Image.Image:
 
 
 def load_model_artifact(name: str) -> tuple[dict, Path]:
-    if wandb.run is not None:
-        artifact = wandb.run.use_artifact(name)
-    else:
-        api = wandb.Api()
+    # first try to interpret artifact as a path
+    config_path = Path(name).with_suffix(".json")
+    weights_path = Path(name).with_suffix(".safetensors")
 
-        artifact = api.artifact(name)
+    if not (config_path.exists() and weights_path.exists()):
+        # if paths do not exists, interpret artifact as a W&B artifact and try to load it
+        if wandb.run is not None:
+            artifact = wandb.run.use_artifact(name)
+        else:
+            api = wandb.Api()
 
-    artifact_dir = Path(artifact.download())
+            artifact = api.artifact(name)
 
-    config_path = None
-    weights_path = None
+        artifact_dir = Path(artifact.download())
 
-    for file in artifact_dir.iterdir():
-        if not file.is_file():
-            raise RuntimeError(f"Unexpected dir entry {file}")
+        config_path = None
+        weights_path = None
 
-        match file.suffix:
-            case ".json":
-                config_path = file
-            case ".safetensors":
-                weights_path = file
-            case _:
-                raise RuntimeError("Unexpected file {file}")
+        for file in artifact_dir.iterdir():
+            if not file.is_file():
+                raise RuntimeError(f"Unexpected dir entry {file}")
+
+            match file.suffix:
+                case ".json":
+                    config_path = file
+                case ".safetensors":
+                    weights_path = file
+                case _:
+                    raise RuntimeError("Unexpected file {file}")
 
     assert config_path is not None and weights_path is not None
+    assert config_path.exists() and weights_path.exists()
 
     with config_path.open("r") as f:
         config = json.load(f)
