@@ -27,7 +27,7 @@ class Unet(eqx.Module):
         in_channels: int,
         out_channels: int,
         *,
-        use_weight_standardized_conv: bool,
+        use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
         super().__init__()
@@ -58,12 +58,14 @@ class Unet(eqx.Module):
         )
 
         self.recomb = Block(
-            base_channels,
+            2 * base_channels,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,
         )
 
-        self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
+        self.final_conv = nn.Conv2d(
+            2 * base_channels, out_channels, 1, use_bias=False, key=final_key
+        )
 
     def __call__(
         self, x: Float[Array, "c_in h w"], *, key: Optional[PRNGKeyArray] = None

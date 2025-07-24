@@ -174,6 +174,8 @@ def main():
 
     save_with_config_safetensors(model_path, OmegaConf.to_object(config), unet)
 
+    print(f"Saved model at {model_path}")
+
     if wandb.run is not None:
         model_artifact = wandb.Artifact(model_name, type="model")
 

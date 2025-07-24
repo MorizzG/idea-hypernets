@@ -114,11 +114,13 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            unet_config, path = load_model_artifact(config.unet_artifact)
+            unet_config, unet_weights_path = load_model_artifact(config.unet_artifact)
+
+            print(f"Loading U-Net weights from {unet_weights_path}")
 
             unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
 
-            unet = load_pytree(path, unet)
+            unet = load_pytree(unet_weights_path, unet)
 
             hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
@@ -141,11 +143,11 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            unet_config, path = load_model_artifact(config.unet_artifact)
+            unet_config, unet_weights_path = load_model_artifact(config.unet_artifact)
 
             unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
 
-            unet = load_pytree(path, unet)
+            unet = load_pytree(unet_weights_path, unet)
 
             hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 

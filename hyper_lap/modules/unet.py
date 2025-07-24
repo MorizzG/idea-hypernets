@@ -17,6 +17,12 @@ class Block(eqx.Module):
     Groups n_convs convolutions, with same in_channels as out_channels.
     """
 
+    channels: int = eqx.field(static=True)
+    kernel_size: int = eqx.field(static=True)
+    groups: int = eqx.field(static=True)
+    n_convs: int = eqx.field(static=True)
+    use_weight_standardized_conv: bool = eqx.field(static=True)
+
     layers: nn.Sequential
 
     def __init__(
@@ -33,6 +39,12 @@ class Block(eqx.Module):
 
         if n_convs < 1:
             raise ValueError("Must have at least one conv")
+
+        self.channels = channels
+        self.kernel_size = kernel_size
+        self.groups = groups
+        self.n_convs = n_convs
+        self.use_weight_standardized_conv = use_weight_standardized_conv
 
         keys = jr.split(key, n_convs)
 
@@ -67,9 +79,8 @@ class UnetDown(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
-    resamples: list[nn.Conv2d]
     blocks: list[Block]
-    downs: list[nn.MaxPool2d]
+    downs: list[nn.Conv2d]
 
     def __init__(
         self,
@@ -90,33 +101,28 @@ class UnetDown(eqx.Module):
         channels = base_channels
 
         self.blocks = []
-        self.resamples = []
         self.downs = []
 
         for channel_mult in channel_mults[1:]:
             new_channels = channel_mult * base_channels
 
-            key, resample_key, block_key = jr.split(key, 3)
+            key, down_key, block_key = jr.split(key, 3)
 
             self.blocks.append(Block(channels, key=block_key, **block_args))
 
-            self.resamples.append(
-                nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
+            self.downs.append(
+                nn.Conv2d(channels, new_channels, 2, stride=2, use_bias=False, key=down_key)
             )
 
             channels = new_channels
-
-            self.downs.append(nn.MaxPool2d(2, 2))
 
     def __call__(
         self, x: Array, *, key: Optional[PRNGKeyArray] = None
     ) -> tuple[Array, list[Array]]:
         skips: list[Array] = []
 
-        for block, resample, down in zip(self.blocks, self.resamples, self.downs):
+        for block, down in zip(self.blocks, self.downs):
             x = block(x)
-
-            x = resample(x)
 
             skips.append(x)
 
@@ -135,9 +141,8 @@ class UnetUp(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
-    resamples: list[nn.Conv2d]
+    ups: list[nn.ConvTranspose2d]
     blocks: list[Block]
-    ups: list[BilinearUpsample2d]
 
     def __init__(
         self,
@@ -156,7 +161,6 @@ class UnetUp(eqx.Module):
         self.channel_mults = list(channel_mults)
 
         self.ups = []
-        self.resamples = []
         self.blocks = []
 
         channels = base_channels * channel_mults[-1]
@@ -164,16 +168,13 @@ class UnetUp(eqx.Module):
         for channel_mult in list(reversed(channel_mults))[1:]:
             new_channels = channel_mult * base_channels
 
-            key, resample_key, block_key, up_key = jr.split(key, 4)
+            key, up_key, block_key = jr.split(key, 3)
 
-            # self.ups.append(ConvUpsample2d(channels, channels, key=up_key))
-            self.ups.append(BilinearUpsample2d())
-
-            self.resamples.append(
-                nn.Conv2d(2 * channels, new_channels, 1, use_bias=False, key=resample_key)
+            self.ups.append(
+                nn.ConvTranspose2d(channels, new_channels, 2, stride=2, use_bias=False, key=up_key)
             )
 
-            channels = new_channels
+            channels = 2 * new_channels
 
             self.blocks.append(Block(channels, key=block_key, **block_args))
 
@@ -182,14 +183,14 @@ class UnetUp(eqx.Module):
     ) -> Array:
         skips = skips.copy()
 
-        for up, resample, block in zip(self.ups, self.resamples, self.blocks):
+        for up, block in zip(self.ups, self.blocks):
             x = up(x)
 
             skip = skips.pop()
 
             x = jnp.concat([skip, x], axis=0)
 
-            x = resample(x)
+            # x = resample(x)
 
             x = block(x)
 

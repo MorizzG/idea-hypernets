@@ -31,7 +31,7 @@ class ResHyperNet(eqx.Module):
     input_embedder: InputEmbedder
 
     kernel_generator: Conv2dGenerator | Conv2dLoraGenerator
-    resample_generator: Conv2dGenerator | Conv2dLoraGenerator
+    up_down_generator: Conv2dGenerator | Conv2dLoraGenerator
 
     unet_pos_embs: list[Array]
     recomb_pos_embs: list[Array]
@@ -115,7 +115,7 @@ class ResHyperNet(eqx.Module):
 
         base_channels = unet.base_channels
 
-        key, kernel_key, resample_key, emb_key, init_key, final_key = jr.split(key, 6)
+        key, kernel_key, up_down_key, emb_key, init_key, final_key = jr.split(key, 6)
 
         self.input_embedder = InputEmbedder(input_emb_size, kind=embedder_kind, key=emb_key)
 
@@ -130,12 +130,12 @@ class ResHyperNet(eqx.Module):
                     **(generator_kw_args or {}),
                 )
 
-                self.resample_generator = Conv2dGenerator(
+                self.up_down_generator = Conv2dGenerator(
                     block_size,
                     block_size,
-                    1,
+                    2,
                     pos_emb_size,
-                    key=resample_key,
+                    key=up_down_key,
                     **(generator_kw_args or {}),
                 )
             case "lora":
@@ -148,12 +148,12 @@ class ResHyperNet(eqx.Module):
                     **(generator_kw_args or {}),
                 )
 
-                self.resample_generator = Conv2dLoraGenerator(
+                self.up_down_generator = Conv2dLoraGenerator(
                     block_size,
                     block_size,
-                    1,
+                    2,
                     pos_emb_size,
-                    key=resample_key,
+                    key=up_down_key,
                     **(generator_kw_args or {}),
                 )
             case _:
@@ -162,12 +162,8 @@ class ResHyperNet(eqx.Module):
         # we can reuse kernel_key here since we re-initialize the weights here
         self.kernel_generator = self.init_conv_generator(self.kernel_generator, eps, key=kernel_key)
 
-        self.init_kernel = eps * jr.normal(
-            init_key, self.kernel_shape(unet.in_channels, base_channels, 1)
-        )
-        self.final_kernel = eps * jr.normal(
-            final_key, self.kernel_shape(base_channels, unet.out_channels, 1)
-        )
+        self.init_kernel = eps * jr.normal(init_key, unet.init_conv.conv.weight.shape)
+        self.final_kernel = eps * jr.normal(final_key, unet.final_conv.weight.shape)
 
         # generate positional embeddings for unet module
 
@@ -196,7 +192,7 @@ class ResHyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
+            assert k1 == k2 == kernel_size or k1 == k2 == 2, (
                 f"Array has unexpected shape: {leaf.shape}"
             )
             assert c_out % block_size == 0 and c_in % block_size == 0, (
@@ -259,9 +255,9 @@ class ResHyperNet(eqx.Module):
         kernel_generator = jax.vmap(kernel_generator)
         kernel_generator = jax.vmap(kernel_generator)
 
-        resample_generator = self.resample_generator
-        resample_generator = jax.vmap(resample_generator)
-        resample_generator = jax.vmap(resample_generator)
+        up_down_generator = self.up_down_generator
+        up_down_generator = jax.vmap(up_down_generator)
+        up_down_generator = jax.vmap(up_down_generator)
 
         reg = jnp.array(0.0)
 
@@ -282,10 +278,10 @@ class ResHyperNet(eqx.Module):
                 emb = jnp.concat([jnp.broadcast_to(input_emb, pos_emb.shape), pos_emb], axis=2)
 
                 weight = kernel_generator(emb)
-            elif k1 == 1:
+            elif k1 == 2:
                 emb = pos_emb
 
-                weight = resample_generator(emb)
+                weight = up_down_generator(emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
