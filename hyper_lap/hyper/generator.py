@@ -1,5 +1,7 @@
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from abc import ABC
+
 import equinox as eqx
 import equinox.nn as nn
 import jax
@@ -8,7 +10,11 @@ import jax.random as jr
 from chex import assert_shape
 
 
-class Conv2dGenerator(eqx.Module):
+class Conv2dGeneratorABC(ABC):
+    def __call__(self, emb: Float[Array, " emb_size"]) -> Float[Array, "c_out c_in k k"]: ...
+
+
+class Conv2dGenerator(eqx.Module, Conv2dGeneratorABC):
     # input_emb_size: int = eqx.field(static=True)
     # pos_emb_size: int = eqx.field(static=True)
     emb_size: int = eqx.field(static=True)
@@ -98,7 +104,7 @@ class Conv2dGenerator(eqx.Module):
         return kernel
 
 
-class Conv2dLoraGenerator(eqx.Module):
+class Conv2dLoraGenerator(eqx.Module, Conv2dGeneratorABC):
     # input_emb_size: int = eqx.field(static=True)
     # pos_emb_size: int = eqx.field(static=True)
     emb_size: int = eqx.field(static=True)

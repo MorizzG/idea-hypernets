@@ -10,7 +10,7 @@ from chex import assert_equal_shape, assert_shape
 from equinox import nn
 
 from hyper_lap.hyper.embedder import InputEmbedder
-from hyper_lap.hyper.generator import Conv2dGenerator, Conv2dLoraGenerator
+from hyper_lap.hyper.generator import Conv2dGenerator, Conv2dGeneratorABC, Conv2dLoraGenerator
 from hyper_lap.models import Unet
 from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 
@@ -18,7 +18,7 @@ from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 class ResHyperNet(eqx.Module):
     unet: Unet  # = eqx.field(static=True)
 
-    filter_spec: PyTree
+    filter_spec: PyTree = eqx.field(static=True)
 
     kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
@@ -30,8 +30,8 @@ class ResHyperNet(eqx.Module):
 
     input_embedder: InputEmbedder
 
-    kernel_generator: Conv2dGenerator | Conv2dLoraGenerator
-    up_down_generator: Conv2dGenerator | Conv2dLoraGenerator
+    kernel_generator: Conv2dGeneratorABC
+    up_down_generator: Conv2dGeneratorABC
 
     unet_pos_embs: list[Array]
     recomb_pos_embs: list[Array]
@@ -47,8 +47,8 @@ class ResHyperNet(eqx.Module):
 
     @staticmethod
     def init_conv_generator(
-        gen: Conv2dGenerator | Conv2dLoraGenerator, eps: float, *, key: PRNGKeyArray
-    ) -> Conv2dGenerator | Conv2dLoraGenerator:
+        gen: Conv2dGeneratorABC, eps: float, *, key: PRNGKeyArray
+    ) -> Conv2dGeneratorABC:
         def init_linear(linear: nn.Linear, *, key: PRNGKeyArray) -> nn.Linear:
             weight_key, bias_key = jr.split(key)
 
@@ -88,7 +88,7 @@ class ResHyperNet(eqx.Module):
         pos_emb_size: int,
         kernel_size: int,
         filter_spec: PyTree | None = None,
-        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
+        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"] = "clip",
         generator_kind: Literal["basic", "lora"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
         key: PRNGKeyArray,
