@@ -109,9 +109,14 @@ def parse_args() -> tuple[Args, DictConfig]:
 
     args, unknown_args = parser.parse_known_args()
 
+    args = Args(**vars(args))
+
     arg_config = OmegaConf.from_cli(unknown_args)
 
-    return Args(**vars(args)), arg_config
+    if args.run_name and not args.wandb:
+        raise ValueError("Can't set run name without wandb")
+
+    return args, arg_config
 
 
 def print_config(config: Any):
