@@ -10,7 +10,12 @@ from chex import assert_equal_shape, assert_shape
 from equinox import nn
 
 from hyper_lap.hyper.embedder import InputEmbedder
-from hyper_lap.hyper.generator import Conv2dGenerator, Conv2dGeneratorABC, Conv2dLoraGenerator
+from hyper_lap.hyper.generator import (
+    Conv2dGenerator,
+    Conv2dGeneratorABC,
+    Conv2dGeneratorNew,
+    Conv2dLoraGenerator,
+)
 from hyper_lap.models import Unet
 from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
 
@@ -89,7 +94,7 @@ class ResHyperNet(eqx.Module):
         kernel_size: int,
         filter_spec: PyTree | None = None,
         embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"] = "clip",
-        generator_kind: Literal["basic", "lora"] = "basic",
+        generator_kind: Literal["basic", "lora", "new"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
         key: PRNGKeyArray,
     ):
@@ -121,43 +126,31 @@ class ResHyperNet(eqx.Module):
 
         match generator_kind:
             case "basic":
-                self.kernel_generator = Conv2dGenerator(
-                    block_size,
-                    block_size,
-                    kernel_size,
-                    total_emb_size,
-                    key=kernel_key,
-                    **(generator_kw_args or {}),
-                )
-
-                self.up_down_generator = Conv2dGenerator(
-                    block_size,
-                    block_size,
-                    1,
-                    pos_emb_size,
-                    key=up_down_key,
-                    **(generator_kw_args or {}),
-                )
+                Gen = Conv2dGenerator
             case "lora":
-                self.kernel_generator = Conv2dLoraGenerator(
-                    block_size,
-                    block_size,
-                    kernel_size,
-                    total_emb_size,
-                    key=kernel_key,
-                    **(generator_kw_args or {}),
-                )
-
-                self.up_down_generator = Conv2dLoraGenerator(
-                    block_size,
-                    block_size,
-                    1,
-                    pos_emb_size,
-                    key=up_down_key,
-                    **(generator_kw_args or {}),
-                )
+                Gen = Conv2dLoraGenerator
+            case "new":
+                Gen = Conv2dGeneratorNew
             case _:
                 raise ValueError(f"invalid generator_kind {generator_kind}")
+
+        self.kernel_generator = Gen(
+            block_size,
+            block_size,
+            kernel_size,
+            total_emb_size,
+            key=kernel_key,
+            **(generator_kw_args or {}),
+        )
+
+        self.up_down_generator = Gen(
+            block_size,
+            block_size,
+            1,
+            pos_emb_size,
+            key=up_down_key,
+            **(generator_kw_args or {}),
+        )
 
         # we can reuse kernel_key here since we re-initialize the weights here
         self.kernel_generator = self.init_conv_generator(self.kernel_generator, eps, key=kernel_key)
