@@ -40,7 +40,7 @@ def training_step(
     def grad_fn(film_unet: FilmUnet) -> Array:
         cond_emb = film_unet.embedder(images[0], labels[0])
 
-        logits = jax.vmap(film_unet, in_axes=(0, None))(images, cond_emb)
+        logits = jax.vmap(film_unet, in_axes=(0, None, None))(images, images[0], labels[0])
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
 

@@ -14,10 +14,10 @@ class FilmUnet(eqx.Module):
     in_channels: int = eqx.field(static=True)
     out_channels: int = eqx.field(static=True)
 
-    emb_size: int = eqx.field(static=True)
-
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
+
+    emb_size: int = eqx.field(static=True)
 
     embedder: InputEmbedder
 
@@ -28,14 +28,14 @@ class FilmUnet(eqx.Module):
 
     def __init__(
         self,
-        *,
         base_channels: int,
         channel_mults: Sequence[int],
         in_channels: int,
         out_channels: int,
+        *,
         emb_size: int,
-        embedder_kind: InputEmbedder.EmbedderKind,
-        use_weight_standardized_conv: bool,
+        embedder_kind: InputEmbedder.EmbedderKind = "clip",
+        use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
         super().__init__()
@@ -43,10 +43,10 @@ class FilmUnet(eqx.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
 
-        self.emb_size = emb_size
-
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
+
+        self.emb_size = emb_size
 
         key, emb_key = jr.split(key)
 
@@ -73,17 +73,25 @@ class FilmUnet(eqx.Module):
         )
 
         self.recomb = Block(
-            base_channels,
-            base_channels,
+            2 * base_channels,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,
         )
 
-        self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
+        self.final_conv = nn.Conv2d(
+            2 * base_channels, out_channels, 1, use_bias=False, key=final_key
+        )
 
     def __call__(
-        self, x: Float[Array, "c_in h w"], cond: Array, *, key: Optional[PRNGKeyArray] = None
+        self,
+        x: Float[Array, "c_in h w"],
+        image: Array,
+        label: Array,
+        *,
+        key: Optional[PRNGKeyArray] = None,
     ) -> Float[Array, "c_out h w"]:
+        cond = self.embedder(image, label)
+
         x = self.init_conv(x)
         x = self.unet(x, cond)
         x = self.recomb(x)
