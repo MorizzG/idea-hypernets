@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from .conv import ConvNormAct
-from .upsample import BilinearUpsample2d, ConvDownsample2d, ConvUpsample2d
 
 
 class Block(eqx.Module):
@@ -80,7 +79,7 @@ class UnetDown(eqx.Module):
     channel_mults: list[int] = eqx.field(static=True)
 
     blocks: list[Block]
-    downs: list[ConvDownsample2d]
+    downs: list[nn.Conv2d]
 
     def __init__(
         self,
@@ -110,7 +109,10 @@ class UnetDown(eqx.Module):
 
             self.blocks.append(Block(channels, key=block_key, **block_args))
 
-            self.downs.append(ConvDownsample2d(channels, new_channels, key=down_key))
+            # self.downs.append(ConvDownsample2d(channels, new_channels, key=down_key))
+            self.downs.append(
+                nn.Conv2d(channels, new_channels, 2, stride=2, use_bias=False, key=down_key)
+            )
 
             channels = new_channels
 
@@ -139,7 +141,7 @@ class UnetUp(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
-    ups: list[ConvUpsample2d]
+    ups: list[nn.ConvTranspose2d]
     blocks: list[Block]
 
     def __init__(
@@ -168,7 +170,10 @@ class UnetUp(eqx.Module):
 
             key, up_key, block_key = jr.split(key, 3)
 
-            self.ups.append(ConvUpsample2d(channels, new_channels, key=up_key))
+            # self.ups.append(ConvUpsample2d(channels, new_channels, key=up_key))
+            self.ups.append(
+                nn.ConvTranspose2d(channels, new_channels, 2, stride=2, use_bias=False, key=up_key)
+            )
 
             channels = 2 * new_channels
 
