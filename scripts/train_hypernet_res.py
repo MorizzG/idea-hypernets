@@ -87,8 +87,8 @@ def main():
             "lamda": 0.0,
             "hypernet": {
                 "block_size": 8,
-                "input_emb_size": 3 * 1024,
-                "pos_emb_size": 3 * 1024,
+                "input_emb_size": 1024,
+                "pos_emb_size": 1024,
                 "kernel_size": 3,
                 "embedder_kind": "clip",
                 "generator_kind": "basic",

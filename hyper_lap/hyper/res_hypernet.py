@@ -146,7 +146,7 @@ class ResHyperNet(eqx.Module):
         self.up_down_generator = Gen(
             block_size,
             block_size,
-            2,
+            1,
             pos_emb_size,
             key=up_down_key,
             **(generator_kw_args or {}),
@@ -185,7 +185,7 @@ class ResHyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert k1 == k2 == kernel_size or k1 == k2 == 2, (
+            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
                 f"Array has unexpected shape: {leaf.shape}"
             )
             assert c_out % block_size == 0 and c_in % block_size == 0, (
@@ -271,7 +271,7 @@ class ResHyperNet(eqx.Module):
                 emb = jnp.concat([jnp.broadcast_to(input_emb, pos_emb.shape), pos_emb], axis=2)
 
                 weight = kernel_generator(emb)
-            elif k1 == 2:
+            elif k1 == 1:
                 emb = pos_emb
 
                 weight = up_down_generator(emb)

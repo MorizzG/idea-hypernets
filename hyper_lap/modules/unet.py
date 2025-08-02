@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from .conv import ConvNormAct
-from .upsample import ConvDownsample2d, ConvUpsample2d
+from .upsample import BilinearUpsample2d, ConvDownsample2d, ConvUpsample2d
 
 
 class Block(eqx.Module):
@@ -81,7 +81,8 @@ class UnetDown(eqx.Module):
 
     blocks: list[Block]
     # downs: list[nn.Conv2d]
-    downs: list[ConvDownsample2d]
+    resamples: list[nn.Conv2d]
+    downs: list[nn.MaxPool2d]
 
     def __init__(
         self,
@@ -103,18 +104,24 @@ class UnetDown(eqx.Module):
 
         self.blocks = []
         self.downs = []
+        self.resamples = []
 
         for channel_mult in channel_mults[1:]:
             new_channels = channel_mult * base_channels
 
-            key, down_key, block_key = jr.split(key, 3)
+            key, resample_key, block_key = jr.split(key, 3)
 
             self.blocks.append(Block(channels, key=block_key, **block_args))
 
-            self.downs.append(ConvDownsample2d(channels, new_channels, key=down_key))
+            self.resamples.append(
+                nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
+            )
+
             # self.downs.append(
             #     nn.Conv2d(channels, new_channels, 2, stride=2, use_bias=False, key=down_key)
             # )
+            # self.downs.append(ConvDownsample2d(channels, new_channels, key=down_key))
+            self.downs.append(nn.MaxPool2d(2, 2))
 
             channels = new_channels
 
@@ -123,7 +130,7 @@ class UnetDown(eqx.Module):
     ) -> tuple[Array, list[Array]]:
         skips: list[Array] = []
 
-        for block, down in zip(self.blocks, self.downs):
+        for block, resample, down in zip(self.blocks, self.resamples, self.downs):
             x = block(x)
 
             skips.append(x)
@@ -133,6 +140,8 @@ class UnetDown(eqx.Module):
             assert h % 2 == 0 and w % 2 == 0, (
                 f"spatial dims of shape {x.shape} are not divisible by 2"
             )
+
+            x = resample(x)
 
             x = down(x)
 
@@ -144,7 +153,9 @@ class UnetUp(eqx.Module):
     channel_mults: list[int] = eqx.field(static=True)
 
     # ups: list[nn.ConvTranspose2d]
-    ups: list[ConvUpsample2d]
+    # ups: list[ConvUpsample2d]
+    ups: list[BilinearUpsample2d]
+    resamples: list[nn.Conv2d]
     blocks: list[Block]
 
     def __init__(
@@ -165,18 +176,23 @@ class UnetUp(eqx.Module):
 
         self.ups = []
         self.blocks = []
+        self.resamples = []
 
         channels = base_channels * channel_mults[-1]
 
         for channel_mult in list(reversed(channel_mults))[1:]:
             new_channels = channel_mult * base_channels
 
-            key, up_key, block_key = jr.split(key, 3)
+            key, resample_key, block_key = jr.split(key, 3)
 
-            self.ups.append(ConvUpsample2d(channels, new_channels, key=up_key))
             # self.ups.append(
             #     nn.ConvTranspose2d(channels, new_channels, 2, stride=2, use_bias=False, key=up_key)
             # )
+            # self.ups.append(ConvUpsample2d(channels, new_channels, key=up_key))
+            self.ups.append(BilinearUpsample2d())
+            self.resamples.append(
+                nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
+            )
 
             channels = 2 * new_channels
 
@@ -187,8 +203,10 @@ class UnetUp(eqx.Module):
     ) -> Array:
         skips = skips.copy()
 
-        for up, block in zip(self.ups, self.blocks):
+        for up, resample, block in zip(self.ups, self.resamples, self.blocks):
             x = up(x)
+
+            x = resample(x)
 
             skip = skips.pop()
 
