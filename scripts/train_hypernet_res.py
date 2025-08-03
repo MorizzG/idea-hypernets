@@ -93,7 +93,7 @@ def main():
                 "embedder_kind": "clip",
                 "generator_kind": "basic",
                 "generator_kw_args": {
-                    "h_size": "1024",
+                    "h_size": 1024,
                 },
             },
         }
