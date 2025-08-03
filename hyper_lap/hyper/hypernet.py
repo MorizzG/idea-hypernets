@@ -12,7 +12,7 @@ from equinox import nn
 from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.hyper.generator import Conv2dGenerator, Conv2dLoraGenerator
 from hyper_lap.models import Unet
-from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
+from hyper_lap.modules.unet import ConvNormAct, UnetModule
 
 
 class HyperNet(eqx.Module):
@@ -183,7 +183,13 @@ class HyperNet(eqx.Module):
         weights, treedef = jt.flatten(model_weights)
 
         # vmap over block in positional embeddings
-        kernel_generator = self.kernel_generator
+
+        # input_emb is same for all weights, so we can capture it
+        def kernel_generator(pos_emb):
+            emb = jnp.concat([input_emb, pos_emb])
+
+            return self.kernel_generator(emb)
+
         kernel_generator = jax.vmap(kernel_generator)
         kernel_generator = jax.vmap(kernel_generator)
 
@@ -205,13 +211,9 @@ class HyperNet(eqx.Module):
             assert b_in == c_in // self.block_size
 
             if k1 == self.kernel_size:
-                emb = jnp.concat([jnp.broadcast_to(input_emb, pos_emb.shape), pos_emb], axis=2)
-
-                weight = kernel_generator(emb)
+                weight = kernel_generator(pos_emb)
             elif k1 == 1:
-                emb = pos_emb
-
-                weight = resample_generator(emb)
+                weight = resample_generator(pos_emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 

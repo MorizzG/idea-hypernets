@@ -244,7 +244,13 @@ class ResHyperNet(eqx.Module):
         weights, treedef = jt.flatten(model_weights)
 
         # vmap over block in positional embeddings
-        kernel_generator = self.kernel_generator
+
+        # input_emb is same for all weights, so we can capture it
+        def kernel_generator(pos_emb):
+            emb = jnp.concat([input_emb, pos_emb])
+
+            return self.kernel_generator(emb)
+
         kernel_generator = jax.vmap(kernel_generator)
         kernel_generator = jax.vmap(kernel_generator)
 
@@ -268,13 +274,9 @@ class ResHyperNet(eqx.Module):
             assert b_in == c_in // self.block_size
 
             if k1 == self.kernel_size:
-                emb = jnp.concat([jnp.broadcast_to(input_emb, pos_emb.shape), pos_emb], axis=2)
-
-                weight = kernel_generator(emb)
+                weight = kernel_generator(pos_emb)
             elif k1 == 1:
-                emb = pos_emb
-
-                weight = up_down_generator(emb)
+                weight = up_down_generator(pos_emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
