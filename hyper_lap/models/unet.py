@@ -5,7 +5,7 @@ import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
-from hyper_lap.modules.unet import Block, ConvNormAct, UnetModule
+from hyper_lap.modules.unet import ConvNormAct, ResBlock, UnetModule
 
 
 class Unet(eqx.Module):
@@ -17,7 +17,7 @@ class Unet(eqx.Module):
 
     init_conv: ConvNormAct
     unet: UnetModule
-    recomb: Block
+    recomb: ResBlock
     final_conv: nn.Conv2d
 
     def __init__(
@@ -57,7 +57,7 @@ class Unet(eqx.Module):
             },
         )
 
-        self.recomb = Block(
+        self.recomb = ResBlock(
             2 * base_channels,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,

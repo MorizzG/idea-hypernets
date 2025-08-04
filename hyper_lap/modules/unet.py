@@ -10,7 +10,7 @@ from .conv import ConvNormAct
 from .upsample import BilinearUpsample2d, ConvDownsample2d, ConvUpsample2d
 
 
-class Block(eqx.Module):
+class ResBlock(eqx.Module):
     """
     Block module for U-Nets.
 
@@ -79,7 +79,7 @@ class UnetDown(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
-    blocks: list[Block]
+    blocks: list[ResBlock]
     # downs: list[nn.Conv2d]
     resamples: list[nn.Conv2d]
     downs: list[nn.MaxPool2d]
@@ -111,19 +111,19 @@ class UnetDown(eqx.Module):
 
             key, resample_key, block_key = jr.split(key, 3)
 
-            self.blocks.append(Block(channels, key=block_key, **block_args))
+            self.blocks.append(ResBlock(channels, key=block_key, **block_args))
 
             self.resamples.append(
                 nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
             )
+
+            channels = new_channels
 
             # self.downs.append(
             #     nn.Conv2d(channels, new_channels, 2, stride=2, use_bias=False, key=down_key)
             # )
             # self.downs.append(ConvDownsample2d(channels, new_channels, key=down_key))
             self.downs.append(nn.MaxPool2d(2, 2))
-
-            channels = new_channels
 
     def __call__(
         self, x: Array, *, key: Optional[PRNGKeyArray] = None
@@ -156,7 +156,7 @@ class UnetUp(eqx.Module):
     # ups: list[ConvUpsample2d]
     ups: list[BilinearUpsample2d]
     resamples: list[nn.Conv2d]
-    blocks: list[Block]
+    blocks: list[ResBlock]
 
     def __init__(
         self,
@@ -190,13 +190,14 @@ class UnetUp(eqx.Module):
             # )
             # self.ups.append(ConvUpsample2d(channels, new_channels, key=up_key))
             self.ups.append(BilinearUpsample2d())
+
             self.resamples.append(
                 nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
             )
 
             channels = 2 * new_channels
 
-            self.blocks.append(Block(channels, key=block_key, **block_args))
+            self.blocks.append(ResBlock(channels, key=block_key, **block_args))
 
     def __call__(
         self, x: Array, skips: list[Array], *, key: Optional[PRNGKeyArray] = None
@@ -222,7 +223,7 @@ class UnetModule(eqx.Module):
     channel_mults: list[int] = eqx.field(static=True)
 
     down: UnetDown
-    middle: Block
+    middle: ResBlock
     up: UnetUp
 
     def __init__(
@@ -244,7 +245,7 @@ class UnetModule(eqx.Module):
 
         middle_channels = base_channels * channel_mults[-1]
 
-        self.middle = Block(middle_channels, key=middle_key, **(block_args or {}))
+        self.middle = ResBlock(middle_channels, key=middle_key, **(block_args or {}))
 
         self.up = UnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 

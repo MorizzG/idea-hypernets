@@ -24,7 +24,7 @@ class FeedForward(eqx.Module):
     def __call__(self, x: Float[Array, " d"]) -> Float[Array, " d"]:
         x = self.linear1(x)
 
-        x = jax.nn.swish(x)
+        x = jax.nn.silu(x)
 
         x = self.linear2(x)
 
@@ -257,11 +257,14 @@ class SpatialCrossAttention(eqx.Module):
         self.attn = Attention(channels, num_heads, dim_head, key=key)
 
     def __call__(
-        self, img: Float[Array, "c h w"], context: Float[Array, "m d"]
+        self, img: Float[Array, "c h w"], context: Float[Array, "m d"] | None = None
     ) -> Float[Array, "c h w"]:
         c, h, w = img.shape
 
         x = img.reshape(c, h * w).transpose(1, 0)
+
+        if context is None:
+            context = x
 
         assert_equal_shape([x, context], dims=1)
 

@@ -14,7 +14,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.models import AttentionUnet
+from hyper_lap.models import VitSegmentator
 from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.trainer import Trainer
@@ -28,32 +28,32 @@ from hyper_lap.training.utils import (
 
 
 @eqx.filter_jit
-@eqx.debug.assert_max_traces(max_traces=1)
+@eqx.debug.assert_max_traces(max_traces=3)
 def training_step(
-    attn_unet: AttentionUnet,
+    vit_seg: VitSegmentator,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[AttentionUnet, OptState, dict[str, Any]]:
+) -> tuple[VitSegmentator, OptState, dict[str, Any]]:
     images = batch["image"]
     labels = batch["label"]
 
-    def grad_fn(attn_unet: AttentionUnet) -> Array:
-        logits = jax.vmap(attn_unet)(images)
+    def grad_fn(vit_seg: VitSegmentator) -> Array:
+        logits = jax.vmap(vit_seg)(images)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
 
         return loss
 
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(attn_unet)
+    loss, grads = eqx.filter_value_and_grad(grad_fn)(vit_seg)
 
     aux = {"loss": loss}
 
-    updates, opt_state = opt.update(grads, opt_state, attn_unet)  # type: ignore
+    updates, opt_state = opt.update(grads, opt_state, vit_seg)  # type: ignore
 
-    attn_unet = eqx.apply_updates(attn_unet, updates)
+    vit_seg = eqx.apply_updates(vit_seg, updates)
 
-    return attn_unet, opt_state, aux
+    return vit_seg, opt_state, aux
 
 
 def main():
@@ -69,9 +69,13 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "attn_unet": {
-                "base_channels": 8,
-                "channel_mults": [1, 2, 4],
+            "vit_seg": {
+                "image_size": 336,
+                "patch_size": 16,
+                "d_model": 512,
+                "depth": 6,
+                "num_heads": 8,
+                "dim_head": None,
                 "in_channels": 3,
                 "out_channels": 2,
             },
@@ -98,7 +102,7 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            attn_unet = AttentionUnet(**config.attn_unet, key=jr.PRNGKey(config.seed))
+            vit_seg = VitSegmentator(**config.vit_seg, key=jr.PRNGKey(config.seed))
 
         case "resume":
             assert args.artifact is not None
@@ -112,21 +116,21 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            attn_unet = AttentionUnet(**config.attn_unet, key=jr.PRNGKey(config.seed))
+            vit_seg = VitSegmentator(**config.vit_seg, key=jr.PRNGKey(config.seed))
 
-            attn_unet = load_pytree(weights_path, attn_unet)
+            vit_seg = load_pytree(weights_path, vit_seg)
 
         case cmd:
             raise RuntimeError(f"Unrecognised command {cmd}")
 
     print_config(OmegaConf.to_object(config))
 
-    model_name = f"attnunet-{config.dataset}"
+    model_name = f"vit_seg-{config.dataset}"
 
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.attn_unet.embedder_kind, "attention"]
+        wandb.run.tags = [config.dataset, "attention"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,
@@ -139,7 +143,7 @@ def main():
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     trainer: Trainer = Trainer(
-        attn_unet, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
+        vit_seg, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
     )
 
     for _ in trange(config.epochs):
@@ -153,7 +157,7 @@ def main():
                 }
             )
 
-        attn_unet, aux = trainer.train(attn_unet)
+        vit_seg, aux = trainer.train(vit_seg)
 
         if wandb.run is not None:
             wandb.run.log(
@@ -166,13 +170,13 @@ def main():
         else:
             tqdm.write(f"Loss: {np.mean(aux['loss']):.3}")
 
-        trainer.validate(attn_unet)
+        trainer.validate(vit_seg)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
     model_path.parent.mkdir(exist_ok=True)
 
-    save_with_config_safetensors(model_path, OmegaConf.to_object(config), attn_unet)
+    save_with_config_safetensors(model_path, OmegaConf.to_object(config), vit_seg)
 
     if wandb.run is not None:
         model_artifact = wandb.Artifact(model_name, type="model")
@@ -185,19 +189,7 @@ def main():
     print()
     print()
 
-    trainer.make_plots(attn_unet, test_loader, image_folder=Path(f"./images/{model_name}"))
-
-    if not args.no_umap:
-        umap_datasets = [dataset for dataset in train_loader.datasets]
-
-        if test_loader is not None:
-            assert isinstance(test_loader.dataset, Dataset)
-
-            umap_datasets.append(test_loader.dataset)
-
-        trainer.make_umap(
-            attn_unet.embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
-        )
+    trainer.make_plots(vit_seg, test_loader, image_folder=Path(f"./images/{model_name}"))
 
 
 if __name__ == "__main__":

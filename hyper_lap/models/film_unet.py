@@ -7,7 +7,7 @@ import jax.random as jr
 
 from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.modules.film_unet import FilmUnetModule
-from hyper_lap.modules.unet import Block, ConvNormAct
+from hyper_lap.modules.unet import ConvNormAct, ResBlock
 
 
 class FilmUnet(eqx.Module):
@@ -23,7 +23,7 @@ class FilmUnet(eqx.Module):
 
     init_conv: ConvNormAct
     unet: FilmUnetModule
-    recomb: Block
+    recomb: ResBlock
     final_conv: nn.Conv2d
 
     def __init__(
@@ -72,7 +72,7 @@ class FilmUnet(eqx.Module):
             },
         )
 
-        self.recomb = Block(
+        self.recomb = ResBlock(
             2 * base_channels,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,

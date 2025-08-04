@@ -11,26 +11,32 @@ from hyper_lap.modules.attention import Encoder
 
 
 class SinusoidalPositionEmbeddings(eqx.Module):
-    dim_model: int = eqx.field(static=True)
+    d_model: int = eqx.field(static=True)
 
-    def __init__(self, dim_model: int):
+    freqs: Array
+
+    def __init__(self, d_model: int):
         super().__init__()
 
-        assert dim_model % 2 == 0, "dim must be divisible by 2"
+        assert d_model % 2 == 0, "dim must be divisible by 2"
 
-        self.dim_model = dim_model
+        self.d_model = d_model
 
-    def __call__(self, n: int) -> Float[Array, ""]:
-        t = jnp.arange(n)
-
-        half_dim = self.dim_model // 2
+        half_dim = d_model // 2
 
         freqs = jnp.log(10_000) / (half_dim - 1)
         freqs = jnp.exp(-jnp.arange(half_dim) * freqs)
 
-        embeddings = t[:, None] * freqs[None, :]
+        self.freqs = freqs
+
+    def __call__(self, n: int) -> Float[Array, "n d_model"]:
+        t = jnp.arange(n)
+
+        embeddings = t[:, None] * self.freqs[None, :]
 
         embeddings = jnp.concat([jnp.sin(embeddings), jnp.cos(embeddings)], axis=-1)
+
+        embeddings = jax.lax.stop_gradient(embeddings)
 
         return embeddings
 

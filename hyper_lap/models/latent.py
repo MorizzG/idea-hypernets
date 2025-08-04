@@ -7,7 +7,7 @@ import jax.random as jr
 from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.modules.conv import ConvNormAct
 from hyper_lap.modules.film_unet import FilmUnetModule
-from hyper_lap.modules.unet import Block
+from hyper_lap.modules.unet import ResBlock
 from hyper_lap.modules.vae import VAE
 from hyper_lap.serialisation.safetensors import load_pytree
 
@@ -24,7 +24,7 @@ class LatentModel(eqx.Module):
 
     out_conv: ConvNormAct
 
-    recomb: Block
+    recomb: ResBlock
 
     final_conv: nn.Conv2d
 
@@ -53,7 +53,7 @@ class LatentModel(eqx.Module):
 
         self.out_conv = ConvNormAct(base_channels, 4, groups=4, key=out_key)
 
-        self.recomb = Block(3, 3, groups=3, key=recomb_key)
+        self.recomb = ResBlock(3, 3, groups=3, key=recomb_key)
 
         self.final_conv = nn.Conv2d(3, 2, 1, use_bias=False, key=final_key)
 

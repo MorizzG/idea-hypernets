@@ -7,6 +7,7 @@ from . import (
     vit as vit,
 )
 from ._util import ReLU as ReLU, SiLU as SiLU
+from .attn_unet import AttnUnetModule as AttnUnetModule
 from .convnext import ConvNeXt as ConvNeXt
 from .resnet import ResNet as ResNet
 from .vit import ViT as ViT

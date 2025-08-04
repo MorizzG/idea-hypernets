@@ -20,13 +20,13 @@ from umap import UMAP
 from hyper_lap.datasets import MultiDataLoader
 from hyper_lap.datasets.base import Dataset
 from hyper_lap.hyper import HyperNet, InputEmbedder, ResHyperNet
-from hyper_lap.models import AttentionUnet, FilmUnet, Unet
+from hyper_lap.models import AttentionUnet, FilmUnet, Unet, VitSegmentator
 from hyper_lap.training.utils import to_PIL
 
 from .metrics import calc_metrics
 
 
-class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet]:
+class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | VitSegmentator]:
     type TrainingStep = Callable[
         [Net, dict[str, Array], GradientTransformation, OptState],
         tuple[Net, OptState, dict[str, Any]],
@@ -67,7 +67,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet]:
 
         assert_equal_shape_suffix([images, labels], 2)
 
-        if isinstance(net, Unet):
+        if isinstance(net, (Unet, VitSegmentator)):
             return eqx.filter_jit(eqx.filter_vmap(net))(images)
         elif isinstance(net, (HyperNet, ResHyperNet)):
             unet = eqx.filter_jit(net)(images[0], labels[0])
