@@ -1,5 +1,5 @@
-from jaxtyping import Array, Float
-from typing import Any, Callable
+from jaxtyping import Array, Float, Integer
+from typing import Any, Callable, overload
 
 import shutil
 from pathlib import Path
@@ -28,8 +28,8 @@ from .metrics import calc_metrics
 
 class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | VitSegmentator]:
     type TrainingStep = Callable[
-        [Net, dict[str, Array], GradientTransformation, OptState],
-        tuple[Net, OptState, dict[str, Any]],
+        [Net, InputEmbedder | None, dict[str, Array], GradientTransformation, OptState],
+        tuple[Net, InputEmbedder | None, OptState, dict[str, Any]],
     ]
 
     epoch: int
@@ -46,7 +46,11 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
     @staticmethod
     def net_forward(
-        net: Net, images: Float[Array, "*b c h w"], labels: Float[Array, "*b h w"]
+        net: Net,
+        input_embedder: InputEmbedder | None,
+        images: Float[Array, "*b c h w"],
+        labels: Integer[Array, "*b h w"],
+        dataset_idx: Integer[Array, ""],
     ) -> Array:
         if images.ndim == 3 and labels.ndim == 2:
             # unbatched
@@ -54,7 +58,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
             images = jnp.expand_dims(images, 0)
             labels = jnp.expand_dims(labels, 0)
 
-            logits = Trainer.net_forward(net, images, labels)
+            logits = Trainer.net_forward(net, input_embedder, images, labels, dataset_idx)
 
             assert_axis_dimension(logits, 0, 1)
 
@@ -70,11 +74,17 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
         if isinstance(net, (Unet, VitSegmentator)):
             return eqx.filter_jit(eqx.filter_vmap(net))(images)
         elif isinstance(net, (HyperNet, ResHyperNet)):
-            unet = eqx.filter_jit(net)(images[0], labels[0])
+            assert input_embedder is not None
+
+            input_emb = input_embedder(images[0], labels[0], dataset_idx)
+
+            unet = eqx.filter_jit(net)(input_emb)
 
             return eqx.filter_jit(eqx.filter_vmap(unet))(images)
         elif isinstance(net, FilmUnet):
-            cond_emb = net.embedder(images[0], labels[0])
+            assert input_embedder is not None
+
+            cond_emb = input_embedder(images[0], labels[0], dataset_idx)
 
             return eqx.filter_jit(eqx.filter_vmap(net, in_axes=(0, None)))(images, cond_emb)
         else:
@@ -83,6 +93,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
     def __init__(
         self,
         net: Net,
+        input_embedder: InputEmbedder | None,
         training_step: TrainingStep,
         train_loader: MultiDataLoader,
         val_loader: MultiDataLoader,
@@ -99,7 +110,10 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
         self.opt = optax.adamw(self.lr)
 
-        self.opt_state = self.opt.init(eqx.filter(net, eqx.is_array_like))
+        if input_embedder is not None:
+            self.opt_state = self.opt.init(eqx.filter((net, input_embedder), eqx.is_array_like))
+        else:
+            self.opt_state = self.opt.init(eqx.filter(net, eqx.is_array_like))
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -113,7 +127,17 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
         return float(self.lr(self.opt_state[2].count))  # type: ignore
 
-    def train(self, net: Net) -> tuple[Net, dict[str, list[Any]]]:
+    @overload
+    def train(
+        self, net: Net, embedder: InputEmbedder
+    ) -> tuple[Net, InputEmbedder, dict[str, list[Any]]]: ...
+
+    @overload
+    def train(self, net: Net, embedder: None) -> tuple[Net, None, dict[str, list[Any]]]: ...
+
+    def train(
+        self, net: Net, embedder: InputEmbedder | None
+    ) -> tuple[Net, InputEmbedder | None, dict[str, list[Any]]]:
         self.epoch += 1
 
         tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
@@ -123,7 +147,9 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
         for batch_tensor in tqdm(self.train_loader, leave=False):
             batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
-            net, self.opt_state, aux = self.training_step(net, batch, self.opt, self.opt_state)
+            net, embedder, self.opt_state, aux = self.training_step(
+                net, embedder, batch, self.opt, self.opt_state
+            )
 
             auxs.append(aux)
 
@@ -141,22 +167,23 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
         aux = {key: [try_unbox(aux[key]) for aux in auxs] for key in auxs[0].keys()}
 
-        return net, aux
+        return net, embedder, aux
 
-    def validate(self, net: Net):
+    def validate(self, net: Net, input_embedder: InputEmbedder | None):
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
         all_metrics: dict[str, dict[str, Array]] = {}
 
-        for dataloader in self.val_loader.dataloaders:
+        for i, dataloader in enumerate(self.val_loader.dataloaders):
             dataset_name: str = dataloader.dataset.name  # type: ignore
+            dataset_idx = jnp.array(i)
 
             batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
             images = batch["image"]
             labels = batch["label"]
 
-            logits = self.net_forward(net, images, labels)
+            logits = self.net_forward(net, input_embedder, images, labels, dataset_idx)
 
             metrics = calc_metrics(logits, labels)
 
@@ -182,13 +209,22 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
         tqdm.write("")
 
-    def make_plots(self, net: Net, test_loader: DataLoader | None, *, image_folder: Path):
+    def make_plots(
+        self,
+        net: Net,
+        input_embedder: InputEmbedder | None,
+        test_loader: DataLoader | None,
+        *,
+        image_folder: Path,
+    ):
         if image_folder.exists():
             shutil.rmtree(image_folder)
 
         image_folder.mkdir(parents=True)
 
-        for dataset, dataloader in zip(self.val_loader.datasets, self.val_loader.dataloaders):
+        for i, (dataset, dataloader) in enumerate(
+            zip(self.val_loader.datasets, self.val_loader.dataloaders)
+        ):
             print(f"Dataset {dataset.name}")
             print()
 
@@ -196,11 +232,12 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
             images = batch["image"]
             labels = batch["label"]
+            dataset_idx = jnp.array(i)
 
             image = images[1]
             label = labels[1]
 
-            logits = self.net_forward(net, image, label)
+            logits = self.net_forward(net, input_embedder, image, label, dataset_idx)
             pred = jnp.argmax(logits, axis=0)
 
             fig, axs = plt.subplots(ncols=3)
@@ -228,7 +265,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
                 wandb.run.log({f"images/train/{dataset.name}": image})
 
-            logits = self.net_forward(net, images, labels)
+            logits = self.net_forward(net, input_embedder, images, labels, dataset_idx)
 
             metrics = calc_metrics(logits, labels)
 
@@ -252,7 +289,9 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
         batch = jt.map(jnp.asarray, next(iter(test_loader)))
 
-        logits = self.net_forward(net, batch["image"], batch["label"])
+        logits = self.net_forward(
+            net, input_embedder, batch["image"], batch["label"], jnp.array(-1)
+        )
 
         metrics = calc_metrics(logits, batch["label"])
 
@@ -263,7 +302,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
         image = jnp.asarray(batch["image"][1])
         label = jnp.asarray(batch["label"][1])
 
-        logits = self.net_forward(net, image, label)
+        logits = self.net_forward(net, input_embedder, image, label, jnp.array(-1))
         pred = jnp.argmax(logits, axis=0)
 
         fig, axs = plt.subplots(ncols=3)
@@ -293,7 +332,7 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
         if not image_folder.exists():
             image_folder.mkdir(parents=True)
 
-        embedder_jit = eqx.filter_jit(eqx.filter_vmap(embedder))
+        embedder_jit = eqx.filter_jit(eqx.filter_vmap(embedder, in_axes=(0, 0, None)))
 
         for dataset in datasets:
             assert isinstance(dataset, Dataset)
@@ -309,7 +348,9 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
             for dataset, dataloader in zip(multi_dataloader.datasets, multi_dataloader.dataloaders)
         }
 
-        embs = {name: embedder_jit(X["image"], X["label"]) for name, X in samples.items()}
+        embs = {
+            name: embedder_jit(X["image"], X["label"], jnp.array(-1)) for name, X in samples.items()
+        }
 
         umap = UMAP()
         umap.fit(jnp.concat([embs for embs in embs.values()]))

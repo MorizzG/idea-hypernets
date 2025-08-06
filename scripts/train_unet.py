@@ -30,10 +30,11 @@ from hyper_lap.training.utils import (
 @eqx.filter_jit
 def training_step(
     unet: Unet,
+    _input_embedder: Any,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[Unet, OptState, dict[str, Any]]:
+) -> tuple[Unet, None, OptState, dict[str, Any]]:
     images = batch["image"]
     labels = batch["label"]
 
@@ -52,7 +53,7 @@ def training_step(
 
     unet = eqx.apply_updates(unet, updates)
 
-    return unet, opt_state, aux
+    return unet, None, opt_state, aux
 
 
 def main():
@@ -139,7 +140,7 @@ def main():
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     trainer: Trainer[Unet] = Trainer(
-        unet, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
+        unet, None, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
     )
 
     for _ in trange(config.epochs):
@@ -153,7 +154,7 @@ def main():
                 }
             )
 
-        unet, aux = trainer.train(unet)
+        unet, _, aux = trainer.train(unet, None)
 
         if wandb.run is not None:
             wandb.run.log(
@@ -166,7 +167,7 @@ def main():
         else:
             tqdm.write(f"Loss: {np.mean(aux['loss']):.3}")
 
-        trainer.validate(unet)
+        trainer.validate(unet, None)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
@@ -187,7 +188,7 @@ def main():
     print()
     print()
 
-    trainer.make_plots(unet, test_loader, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(unet, None, test_loader, image_folder=Path(f"./images/{model_name}"))
 
 
 if __name__ == "__main__":

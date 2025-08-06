@@ -218,6 +218,15 @@ def make_dataloaders(
         case _:
             raise ValueError(f"Invalid dataset {dataset}")
 
+    assert trainsets.keys() == valsets.keys(), (
+        f"trainsets and valsets have different keys: {', '.join(trainsets.keys())} vs {', '.join(valsets.keys())}"
+    )
+
+    if not set(trainset_names) <= trainsets.keys():
+        raise ValueError(
+            f"invalid trainsets {trainset_names}. valid names are: {', '.join(trainsets.keys())}"
+        )
+
     if testset_name is not None:
         testset = trainsets[testset_name]
     else:

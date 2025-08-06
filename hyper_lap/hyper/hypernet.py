@@ -10,7 +10,12 @@ from chex import assert_equal_shape, assert_shape
 from equinox import nn
 
 from hyper_lap.hyper.embedder import InputEmbedder
-from hyper_lap.hyper.generator import Conv2dGenerator, Conv2dLoraGenerator
+from hyper_lap.hyper.generator import (
+    Conv2dGenerator,
+    Conv2dGeneratorABC,
+    Conv2dGeneratorNew,
+    Conv2dLoraGenerator,
+)
 from hyper_lap.models import Unet
 from hyper_lap.modules.unet import ConvNormAct, UnetModule
 
@@ -26,10 +31,8 @@ class HyperNet(eqx.Module):
     input_emb_size: int = eqx.field(static=True)
     pos_emb_size: int = eqx.field(static=True)
 
-    input_embedder: InputEmbedder
-
-    kernel_generator: Conv2dGenerator | Conv2dLoraGenerator
-    resample_generator: Conv2dGenerator | Conv2dLoraGenerator
+    kernel_generator: Conv2dGeneratorABC
+    resample_generator: Conv2dGeneratorABC
 
     unet_pos_embs: list[Array]
     recomb_pos_embs: list[Array]
@@ -46,12 +49,11 @@ class HyperNet(eqx.Module):
     def __init__(
         self,
         unet: Unet,
-        *,
         block_size: int,
         input_emb_size: int,
         pos_emb_size: int,
-        kernel_size: int,
-        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"],
+        *,
+        kernel_size: int = 3,
         generator_kind: Literal["basic", "lora"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
         key: PRNGKeyArray,
@@ -73,54 +75,36 @@ class HyperNet(eqx.Module):
 
         key, kernel_key, resample_key, emb_key, init_key, final_key = jr.split(key, 6)
 
-        self.input_embedder = InputEmbedder(input_emb_size, kind=embedder_kind, key=emb_key)
-
         match generator_kind:
             case "basic":
-                self.kernel_generator = Conv2dGenerator(
-                    block_size,
-                    block_size,
-                    kernel_size,
-                    total_emb_size,
-                    key=kernel_key,
-                    **(generator_kw_args or {}),
-                )
-
-                self.resample_generator = Conv2dGenerator(
-                    block_size,
-                    block_size,
-                    1,
-                    pos_emb_size,
-                    key=resample_key,
-                    **(generator_kw_args or {}),
-                )
+                Gen = Conv2dGenerator
             case "lora":
-                self.kernel_generator = Conv2dLoraGenerator(
-                    block_size,
-                    block_size,
-                    kernel_size,
-                    total_emb_size,
-                    key=kernel_key,
-                    **(generator_kw_args or {}),
-                )
-
-                self.resample_generator = Conv2dLoraGenerator(
-                    block_size,
-                    block_size,
-                    1,
-                    pos_emb_size,
-                    key=resample_key,
-                    **(generator_kw_args or {}),
-                )
+                Gen = Conv2dLoraGenerator
+            case "new":
+                Gen = Conv2dGeneratorNew
             case _:
                 raise ValueError(f"invalid generator_kind {generator_kind}")
 
-        self.init_kernel = jr.normal(
-            init_key, self.kernel_shape(unet.in_channels, base_channels, 1)
+        self.kernel_generator = Gen(
+            block_size,
+            block_size,
+            kernel_size,
+            total_emb_size,
+            key=kernel_key,
+            **(generator_kw_args or {}),
         )
-        self.final_kernel = jr.normal(
-            final_key, self.kernel_shape(base_channels, unet.out_channels, 1)
+
+        self.resample_generator = Gen(
+            block_size,
+            block_size,
+            1,
+            pos_emb_size,
+            key=resample_key,
+            **(generator_kw_args or {}),
         )
+
+        self.init_kernel = jr.normal(init_key, unet.init_conv.conv.weight.shape)
+        self.final_kernel = jr.normal(final_key, unet.final_conv.weight.shape)
 
         # generate positional embeddings for unet module
 
@@ -232,9 +216,7 @@ class HyperNet(eqx.Module):
 
         return model
 
-    def __call__(self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]) -> Unet:
-        input_emb = self.input_embedder(image, label)
-
+    def __call__(self, input_emb: Array) -> Unet:
         dyn_unet, static_unet = eqx.partition(self.unet, eqx.is_array)
 
         dyn_unet = jax.lax.stop_gradient(dyn_unet)

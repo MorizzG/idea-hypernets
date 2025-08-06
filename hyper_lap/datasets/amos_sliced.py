@@ -17,6 +17,10 @@ class AmosSliced(Dataset):
     def metadata(self) -> Metadata:
         return self._metadata
 
+    @metadata.setter
+    def metadata(self, metadata: Metadata):
+        self._metadata = metadata
+
     @property
     def name(self) -> str:
         # "AMOS " +

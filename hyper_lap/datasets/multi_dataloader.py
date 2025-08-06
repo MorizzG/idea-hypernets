@@ -27,6 +27,7 @@ class MultiDataLoader:
         for dataset in datasets:
             generator = torch.Generator()
             generator.manual_seed(42)
+
             sampler = RandomSampler(dataset, num_samples=num_samples, generator=generator)
 
             self.dataloaders.append(DataLoader(dataset, sampler=sampler, **dataloader_args))
@@ -44,6 +45,10 @@ class MultiDataLoader:
 
             try:
                 batch: dict[str, np.ndarray] = next(next_iter)
+
+                batch["dataset_idx"] = np.array(idx)
+
+                batch = {name: np.asarray(val) for name, val in batch.items()}
 
                 yield batch
             except StopIteration:

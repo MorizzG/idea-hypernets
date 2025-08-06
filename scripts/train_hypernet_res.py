@@ -15,7 +15,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.hyper import ResHyperNet
+from hyper_lap.hyper import InputEmbedder, ResHyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
@@ -33,17 +33,27 @@ from hyper_lap.training.utils import (
 @eqx.filter_jit
 def training_step(
     hypernet: ResHyperNet,
+    input_embedder: InputEmbedder | None,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
     *,
     lamda: float,
-) -> tuple[ResHyperNet, OptState, dict[str, Any]]:
+) -> tuple[ResHyperNet, InputEmbedder, OptState, dict[str, Any]]:
+    assert input_embedder is not None
+
     images = batch["image"]
     labels = batch["label"]
+    dataset_idx = batch["dataset_idx"]
 
-    def grad_fn(hypernet: ResHyperNet) -> tuple[Array, dict[str, Any]]:
-        model, aux = hypernet(images[0], labels[0], with_aux=True)
+    def grad_fn(
+        hypernet_embedder: tuple[ResHyperNet, InputEmbedder],
+    ) -> tuple[Array, dict[str, Any]]:
+        hypernet, input_embedder = hypernet_embedder
+
+        input_embedding = input_embedder(images[0], labels[0], dataset_idx)
+
+        model, aux = hypernet(input_embedding, with_aux=True)
 
         logits = jax.vmap(model)(images)
 
@@ -61,13 +71,15 @@ def training_step(
 
         return loss, aux
 
-    (loss, aux), grads = eqx.filter_value_and_grad(grad_fn, has_aux=True)(hypernet)
+    (loss, aux), grads = eqx.filter_value_and_grad(grad_fn, has_aux=True)(
+        (hypernet, input_embedder)
+    )
 
-    updates, opt_state = opt.update(grads, opt_state, hypernet)  # type: ignore
+    updates, opt_state = opt.update(grads, opt_state, (hypernet, input_embedder))  # type: ignore
 
-    hypernet = eqx.apply_updates(hypernet, updates)
+    (hypernet, input_embedder) = eqx.apply_updates((hypernet, input_embedder), updates)
 
-    return hypernet, opt_state, aux
+    return hypernet, input_embedder, opt_state, aux  # type: ignore
 
 
 def main():
@@ -88,13 +100,17 @@ def main():
             "hypernet": {
                 "block_size": 8,
                 "input_emb_size": 1024,
+                "input_emb_size": "${embedder.emb_size}",
                 "pos_emb_size": 1024,
                 "kernel_size": 3,
-                "embedder_kind": "clip",
                 "generator_kind": "basic",
                 "generator_kw_args": {
                     "h_size": 1024,
                 },
+            },
+            "embedder": {
+                "kind": "clip",
+                "emb_size": 3 * 1024,
             },
         }
     )
@@ -163,12 +179,12 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
-    model_name = f"reshypernet-{config.dataset}-{config.hypernet.embedder_kind}"
+    model_name = f"reshypernet-{config.dataset}-{config.embedder.kind}"
 
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.hypernet.embedder_kind, "res_hypernet"]
+        wandb.run.tags = [config.dataset, config.embedder.kind, "res_hypernet"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,
@@ -180,8 +196,15 @@ def main():
 
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
+    input_embedder = InputEmbedder(
+        num_datasets=len(train_loader.datasets),
+        **config.embedder,
+        key=jr.PRNGKey(config.seed),
+    )
+
     trainer: Trainer[ResHyperNet] = Trainer(
         hypernet,
+        input_embedder,
         partial(training_step, lamda=config.lamda),
         train_loader,
         val_loader,
@@ -192,7 +215,7 @@ def main():
     print("Validation before training:")
     print()
 
-    trainer.validate(hypernet)
+    trainer.validate(hypernet, input_embedder)
 
     for _ in trange(config.epochs):
         if "lr_schedule" in vars():
@@ -206,7 +229,7 @@ def main():
                     }
                 )
 
-        hypernet, aux = trainer.train(hypernet)
+        hypernet, input_embedder, aux = trainer.train(hypernet, input_embedder)
 
         if wandb.run is not None:
             wandb.run.log(
@@ -223,7 +246,7 @@ def main():
             tqdm.write(f"Reg. Loss: {np.mean(aux['reg_loss']):.3}")
             tqdm.write("")
 
-        trainer.validate(hypernet)
+        trainer.validate(hypernet, input_embedder)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
@@ -242,7 +265,9 @@ def main():
     print()
     print()
 
-    trainer.make_plots(hypernet, test_loader, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(
+        hypernet, input_embedder, test_loader, image_folder=Path(f"./images/{model_name}")
+    )
 
     if not args.no_umap:
         umap_datasets = [dataset for dataset in train_loader.datasets]
@@ -253,7 +278,7 @@ def main():
             umap_datasets.append(test_loader.dataset)
 
         trainer.make_umap(
-            hypernet.input_embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
+            input_embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
         )
 
 

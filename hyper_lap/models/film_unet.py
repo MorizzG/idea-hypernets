@@ -19,8 +19,6 @@ class FilmUnet(eqx.Module):
 
     emb_size: int = eqx.field(static=True)
 
-    embedder: InputEmbedder
-
     init_conv: ConvNormAct
     unet: FilmUnetModule
     recomb: ResBlock
@@ -49,8 +47,6 @@ class FilmUnet(eqx.Module):
         self.emb_size = emb_size
 
         key, emb_key = jr.split(key)
-
-        self.embedder = InputEmbedder(emb_size, kind=embedder_kind, key=emb_key)
 
         init_key, unet_key, recomb_key, final_key = jr.split(key, 4)
 
@@ -85,13 +81,10 @@ class FilmUnet(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "c_in h w"],
-        image: Array,
-        label: Array,
+        cond: Array,
         *,
         key: Optional[PRNGKeyArray] = None,
     ) -> Float[Array, "c_out h w"]:
-        cond = self.embedder(image, label)
-
         x = self.init_conv(x)
         x = self.unet(x, cond)
         x = self.recomb(x)

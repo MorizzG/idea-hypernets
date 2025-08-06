@@ -18,17 +18,22 @@ from hyper_lap.modules.vit import ViT
 class LearnedEmbedding(eqx.Module):
     emb_size: int = eqx.field(static=True)
 
-    embedding: Array
+    embedding: nn.Embedding
 
-    def __init__(self, emb_size: int, *, key: PRNGKeyArray):
+    def __init__(self, num_datasets: int, emb_size: int, *, key: PRNGKeyArray):
         super().__init__()
 
         self.emb_size = emb_size
 
-        self.embedding = jr.normal(key, (emb_size,))
+        self.embedding = nn.Embedding(num_datasets, emb_size, key=key)
 
-    def __call__(self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]) -> Array:
-        return self.embedding
+    def __call__(
+        self,
+        _image: Float[Array, "3 h w"],
+        _label: Integer[Array, "h w"],
+        dataset_idx: Integer[Array, ""],
+    ) -> Array:
+        return self.embedding(dataset_idx)
 
 
 class ResNetEmbedder(eqx.Module):
@@ -47,7 +52,10 @@ class ResNetEmbedder(eqx.Module):
         self.resnet = ResNet(emb_size, in_channels=3, depths=depths, block_kind=block_kind, key=key)
 
     def __call__(
-        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
+        self,
+        image: Float[Array, "3 h w"],
+        label: Integer[Array, "h w"],
+        _dataset_idx: Integer[Array, ""],
     ) -> Float[Array, " emb_size"]:
         c, h, w = image.shape
 
@@ -77,7 +85,10 @@ class ConvNextEmbedder(eqx.Module):
         self.convnext = ConvNeXt(emb_size, 96, in_channels=3, depths=[3, 3, 9, 3], key=key)
 
     def __call__(
-        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
+        self,
+        image: Float[Array, "3 h w"],
+        label: Integer[Array, "h w"],
+        _dataset_idx: Integer[Array, ""],
     ) -> Float[Array, " emb_size"]:
         c, h, w = image.shape
 
@@ -107,7 +118,10 @@ class ViTEmbedder(eqx.Module):
         self.vit = ViT(512, 3, 16, 6, 8, 64, emb_size, key=key)
 
     def __call__(
-        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
+        self,
+        image: Float[Array, "3 h w"],
+        label: Integer[Array, "h w"],
+        _dataset_idx: Integer[Array, ""],
     ) -> Float[Array, " emb_size"]:
         c, h, w = image.shape
 
@@ -197,7 +211,10 @@ class ClipEmbedder(eqx.Module):
         # self.projection = nn.Identity(key=key)
 
     def __call__(
-        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
+        self,
+        image: Float[Array, "3 h w"],
+        label: Integer[Array, "h w"],
+        _dataset_idx: Integer[Array, ""],
     ) -> Float[Array, " emb_size"]:
         c, h, w = image.shape
 

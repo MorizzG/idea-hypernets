@@ -33,10 +33,8 @@ class ResHyperNet(eqx.Module):
     input_emb_size: int = eqx.field(static=True)
     pos_emb_size: int = eqx.field(static=True)
 
-    input_embedder: InputEmbedder
-
     kernel_generator: Conv2dGeneratorABC
-    up_down_generator: Conv2dGeneratorABC
+    resample_generator: Conv2dGeneratorABC
 
     unet_pos_embs: list[Array]
     recomb_pos_embs: list[Array]
@@ -87,13 +85,12 @@ class ResHyperNet(eqx.Module):
     def __init__(
         self,
         unet: Unet,
-        *,
         block_size: int,
         input_emb_size: int,
         pos_emb_size: int,
-        kernel_size: int,
+        *,
+        kernel_size: int = 3,
         filter_spec: PyTree | None = None,
-        embedder_kind: Literal["vit", "convnext", "resnet", "clip", "learned"] = "clip",
         generator_kind: Literal["basic", "lora", "new"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
         key: PRNGKeyArray,
@@ -120,9 +117,7 @@ class ResHyperNet(eqx.Module):
 
         base_channels = unet.base_channels
 
-        key, kernel_key, up_down_key, emb_key, init_key, final_key = jr.split(key, 6)
-
-        self.input_embedder = InputEmbedder(input_emb_size, kind=embedder_kind, key=emb_key)
+        key, kernel_key, resample_key, emb_key, init_key, final_key = jr.split(key, 6)
 
         match generator_kind:
             case "basic":
@@ -143,12 +138,12 @@ class ResHyperNet(eqx.Module):
             **(generator_kw_args or {}),
         )
 
-        self.up_down_generator = Gen(
+        self.resample_generator = Gen(
             block_size,
             block_size,
             1,
             pos_emb_size,
-            key=up_down_key,
+            key=resample_key,
             **(generator_kw_args or {}),
         )
 
@@ -254,9 +249,9 @@ class ResHyperNet(eqx.Module):
         kernel_generator = jax.vmap(kernel_generator)
         kernel_generator = jax.vmap(kernel_generator)
 
-        up_down_generator = self.up_down_generator
-        up_down_generator = jax.vmap(up_down_generator)
-        up_down_generator = jax.vmap(up_down_generator)
+        resample_generator = self.resample_generator
+        resample_generator = jax.vmap(resample_generator)
+        resample_generator = jax.vmap(resample_generator)
 
         reg = jnp.array(0.0)
 
@@ -276,7 +271,7 @@ class ResHyperNet(eqx.Module):
             if k1 == self.kernel_size:
                 weight = kernel_generator(pos_emb)
             elif k1 == 1:
-                weight = up_down_generator(pos_emb)
+                weight = resample_generator(pos_emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
@@ -300,8 +295,7 @@ class ResHyperNet(eqx.Module):
     @overload
     def __call__(
         self,
-        image: Float[Array, "3 h w"],
-        label: Integer[Array, "h w"],
+        input_emb: Array,
         *,
         with_aux: Literal[True],
     ) -> tuple[Unet, dict[str, Any]]: ...
@@ -309,18 +303,18 @@ class ResHyperNet(eqx.Module):
     @overload
     def __call__(
         self,
-        image: Float[Array, "3 h w"],
-        label: Integer[Array, "h w"],
+        input_emb: Array,
         *,
         with_aux: Literal[False] = False,
     ) -> Unet: ...
 
     def __call__(
-        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"], *, with_aux: bool = False
+        self,
+        input_emb: Array,
+        *,
+        with_aux: bool = False,
     ) -> tuple[Unet, dict[str, Any]] | Unet:
         aux = {}
-
-        input_emb = self.input_embedder(image, label)
 
         dyn_unet, static_unet = eqx.partition(self.unet, eqx.is_array)
 

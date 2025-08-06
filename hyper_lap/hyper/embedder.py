@@ -22,6 +22,7 @@ class InputEmbedder(eqx.Module):
     def __init__(
         self,
         emb_size: int,
+        num_datasets: int,
         *,
         kind: EmbedderKind = "resnet",
         key: PRNGKeyArray,
@@ -39,15 +40,18 @@ class InputEmbedder(eqx.Module):
         elif kind == "clip":
             self.embedder = ClipEmbedder(emb_size, key=key)
         elif kind == "learned":
-            self.embedder = LearnedEmbedding(emb_size, key=key)
+            self.embedder = LearnedEmbedding(num_datasets, emb_size, key=key)
         else:
             raise ValueError(f"Unknown embedder: {kind}")
 
     def __call__(
-        self, image: Float[Array, "3 h w"], label: Integer[Array, "h w"]
+        self,
+        image: Float[Array, "3 h w"],
+        label: Integer[Array, "h w"],
+        dataset_idx: Integer[Array, ""],
     ) -> Float[Array, " self.emb_size"]:
         assert image.shape[0] == 3
 
-        emb = self.embedder(image, label)
+        emb = self.embedder(image, label, dataset_idx)
 
         return emb

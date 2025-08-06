@@ -138,9 +138,9 @@ def save_pytree(path: str | Path, tree: PyTree):
     save_file(state_dict, path)
 
 
-def load_pytree(
-    path: str | Path, tree: PyTree, *, strip_prefix: Optional[str] = None, match_exact: bool = True
-) -> PyTree:
+def load_pytree[T: PyTree](
+    path: str | Path, tree: T, *, strip_prefix: Optional[str] = None, match_exact: bool = True
+) -> T:
     path = as_path(path)
 
     state_dict = load_file(path, strip_prefix=strip_prefix)

@@ -14,6 +14,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
+from hyper_lap.hyper import InputEmbedder
 from hyper_lap.models import FilmUnet
 from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn
@@ -30,31 +31,37 @@ from hyper_lap.training.utils import (
 @eqx.filter_jit
 def training_step(
     film_unet: FilmUnet,
+    embedder: InputEmbedder | None,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[FilmUnet, OptState, dict[str, Any]]:
+) -> tuple[FilmUnet, InputEmbedder, OptState, dict[str, Any]]:
+    assert embedder is not None
+
     images = batch["image"]
     labels = batch["label"]
+    dataset_idx = batch["dataset_idx"]
 
-    def grad_fn(film_unet: FilmUnet) -> Array:
-        cond_emb = film_unet.embedder(images[0], labels[0])
+    def grad_fn(film_unet_embedder: tuple[FilmUnet, InputEmbedder]) -> Array:
+        film_unet, embedder = film_unet_embedder
 
-        logits = jax.vmap(film_unet, in_axes=(0, None, None))(images, images[0], labels[0])
+        cond_emb = embedder(images[0], labels[0], dataset_idx)
+
+        logits = jax.vmap(film_unet, in_axes=(0, None))(images, cond_emb)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
 
         return loss
 
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(film_unet)
+    loss, grads = eqx.filter_value_and_grad(grad_fn)((film_unet, embedder))
 
     aux = {"loss": loss}
 
-    updates, opt_state = opt.update(grads, opt_state, film_unet)  # type: ignore
+    updates, opt_state = opt.update(grads, opt_state, (film_unet, embedder))  # type: ignore
 
-    film_unet = eqx.apply_updates(film_unet, updates)
+    (film_unet, embedder) = eqx.apply_updates((film_unet, embedder), updates)
 
-    return film_unet, opt_state, aux
+    return film_unet, embedder, opt_state, aux  # type: ignore
 
 
 def main():
@@ -75,9 +82,13 @@ def main():
                 "channel_mults": [1, 2, 4],
                 "in_channels": 3,
                 "out_channels": 2,
-                "emb_size": 3 * 1024,
+                "emb_size": "${embedder.emb_size}",
                 "embedder_kind": "clip",
                 "use_weight_standardized_conv": False,
+            },
+            "embedder": {
+                "kind": "clip",
+                "emb_size": 3 * 1024,
             },
         }
     )
@@ -102,7 +113,11 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            film_unet = FilmUnet(**config.film_unet, key=jr.PRNGKey(config.seed))
+            key = jr.PRNGKey(config.seed)
+
+            unet_key, embedder_key = jr.split(key)
+
+            film_unet = FilmUnet(**config.film_unet, key=unet_key)
 
         case "resume":
             assert args.artifact is not None
@@ -116,7 +131,11 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            film_unet = FilmUnet(**config.film_unet, key=jr.PRNGKey(config.seed))
+            key = jr.PRNGKey(config.seed)
+
+            unet_key, embedder_key = jr.split(key)
+
+            film_unet = FilmUnet(**config.film_unet, key=unet_key)
 
             film_unet = load_pytree(weights_path, film_unet)
 
@@ -125,12 +144,12 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
-    model_name = f"filmunet-{config.dataset}-{config.film_unet.embedder_kind}"
+    model_name = f"filmunet-{config.dataset}-{config.embedder.kind}"
 
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.film_unet.embedder_kind, "film"]
+        wandb.run.tags = [config.dataset, config.embedder.kind, "film"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,
@@ -142,8 +161,18 @@ def main():
 
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
+    embedder = InputEmbedder(
+        num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
+    )
+
     trainer: Trainer[FilmUnet] = Trainer(
-        film_unet, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
+        film_unet,
+        embedder,
+        training_step,
+        train_loader,
+        val_loader,
+        lr=lr_schedule,
+        epoch=first_epoch,
     )
 
     for _ in trange(config.epochs):
@@ -157,7 +186,7 @@ def main():
                 }
             )
 
-        film_unet, aux = trainer.train(film_unet)
+        film_unet, embedder, aux = trainer.train(film_unet, embedder)
 
         if wandb.run is not None:
             wandb.run.log(
@@ -170,7 +199,7 @@ def main():
         else:
             tqdm.write(f"Loss: {np.mean(aux['loss']):.3}")
 
-        trainer.validate(film_unet)
+        trainer.validate(film_unet, embedder)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
@@ -189,7 +218,9 @@ def main():
     print()
     print()
 
-    trainer.make_plots(film_unet, test_loader, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(
+        film_unet, embedder, test_loader, image_folder=Path(f"./images/{model_name}")
+    )
 
     if not args.no_umap:
         umap_datasets = [dataset for dataset in train_loader.datasets]
@@ -199,9 +230,7 @@ def main():
 
             umap_datasets.append(test_loader.dataset)
 
-        trainer.make_umap(
-            film_unet.embedder, umap_datasets, image_folder=Path(f"./images/{model_name}")
-        )
+        trainer.make_umap(embedder, umap_datasets, image_folder=Path(f"./images/{model_name}"))
 
 
 if __name__ == "__main__":
