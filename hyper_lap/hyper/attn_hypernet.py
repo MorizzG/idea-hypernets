@@ -17,10 +17,11 @@ from hyper_lap.hyper.generator import (
     Conv2dLoraGenerator,
 )
 from hyper_lap.models import Unet
+from hyper_lap.modules.attention import Encoder
 from hyper_lap.modules.unet import ConvNormAct, UnetModule
 
 
-class HyperNet(eqx.Module):
+class AttnHyperNet(eqx.Module):
     unet: Unet  #  = eqx.field(static=True)
 
     kernel_size: int = eqx.field(static=True)
@@ -28,11 +29,12 @@ class HyperNet(eqx.Module):
 
     block_size: int = eqx.field(static=True)
 
-    input_emb_size: int = eqx.field(static=True)
-    pos_emb_size: int = eqx.field(static=True)
+    emb_size: int = eqx.field(static=True)
 
     kernel_generator: Conv2dGeneratorABC
     resample_generator: Conv2dGeneratorABC
+
+    transformer: Encoder
 
     unet_pos_embs: list[Array]
     recomb_pos_embs: list[Array]
@@ -40,12 +42,54 @@ class HyperNet(eqx.Module):
     init_kernel: Array
     final_kernel: Array
 
+    @staticmethod
+    def flatten_with_def(pos_embs: list[Array]) -> tuple[list[Array], list[tuple[int, int]]]:
+        out = []
+        out_shapes = []
+
+        for pos_emb in pos_embs:
+            n, m, _ = pos_emb.shape
+
+            out_shapes.append((n, m))
+
+            pos_emb = pos_emb.reshape(n * m, -1)
+
+            out += list(pos_emb)
+
+        assert_equal_shape(out)
+
+        return out, out_shapes
+
+    @staticmethod
+    def unflatten_from_def(
+        flat_pos_embs: list[Array], shapes: list[tuple[int, int]]
+    ) -> list[Array]:
+        out = []
+
+        assert len(flat_pos_embs) == sum(
+            n * m for (n, m) in shapes
+        ), f"{len(flat_pos_embs)=}, but {sum(n * m for (n, m) in shapes)=}"
+
+        for n, m in shapes:
+            assert len(flat_pos_embs) >= n * m
+
+            flat_pos_emb = flat_pos_embs[: n * m]
+
+            flat_pos_embs = flat_pos_embs[n * m :]
+
+            pos_emb = jnp.stack(flat_pos_emb)
+
+            pos_emb = pos_emb.reshape(n, m, -1)
+
+            out.append(pos_emb)
+
+        return out
+
     def __init__(
         self,
         unet: Unet,
         block_size: int,
-        input_emb_size: int,
-        pos_emb_size: int,
+        emb_size: int,
         *,
         kernel_size: int = 3,
         generator_kind: Literal["basic", "lora"] = "basic",
@@ -60,14 +104,9 @@ class HyperNet(eqx.Module):
         self.base_channels = unet.base_channels
 
         self.block_size = block_size
-        self.input_emb_size = input_emb_size
-        self.pos_emb_size = pos_emb_size
+        self.emb_size = emb_size
 
-        total_emb_size = input_emb_size + pos_emb_size
-
-        base_channels = unet.base_channels
-
-        key, kernel_key, resample_key, emb_key, init_key, final_key = jr.split(key, 6)
+        key, kernel_key, resample_key, init_key, final_key = jr.split(key, 5)
 
         match generator_kind:
             case "basic":
@@ -83,7 +122,7 @@ class HyperNet(eqx.Module):
             block_size,
             block_size,
             kernel_size,
-            total_emb_size,
+            emb_size,
             key=kernel_key,
             **(generator_kw_args or {}),
         )
@@ -92,7 +131,7 @@ class HyperNet(eqx.Module):
             block_size,
             block_size,
             1,
-            pos_emb_size,
+            emb_size,
             key=resample_key,
             **(generator_kw_args or {}),
         )
@@ -102,7 +141,11 @@ class HyperNet(eqx.Module):
 
         # generate positional embeddings for unet module
 
-        unet_pos_embs_key, recomb_pos_embs_key = jr.split(key)
+        transformer_key, unet_pos_embs_key, recomb_pos_embs_key = jr.split(key, 3)
+
+        self.transformer = Encoder(
+            depth=6, d_model=emb_size, num_heads=emb_size // 64, d_head=64, key=transformer_key
+        )
 
         self.unet_pos_embs = self.generate_pos_embs(unet.unet, key=unet_pos_embs_key)
 
@@ -133,7 +176,7 @@ class HyperNet(eqx.Module):
 
             key, consume = jr.split(key)
 
-            emb = jr.normal(consume, [b_out, b_in, self.pos_emb_size])
+            emb = jr.normal(consume, [b_out, b_in, self.emb_size])
 
             embs.append(emb)
 
@@ -155,19 +198,14 @@ class HyperNet(eqx.Module):
 
         return final_conv
 
-    def gen_weights(self, unet: UnetModule, input_emb: Array, pos_embs: list[Array]) -> UnetModule:
+    def gen_weights(self, unet: UnetModule, embs: list[Array]) -> UnetModule:
         model_weights, static_model = eqx.partition(unet, eqx.is_array)
 
         weights, treedef = jt.flatten(model_weights)
 
         # vmap over block in positional embeddings
 
-        # input_emb is same for all weights, so we can capture it
-        def kernel_generator(pos_emb):
-            emb = jnp.concat([input_emb, pos_emb])
-
-            return self.kernel_generator(emb)
-
+        kernel_generator = self.kernel_generator
         kernel_generator = jax.vmap(kernel_generator)
         kernel_generator = jax.vmap(kernel_generator)
 
@@ -176,11 +214,11 @@ class HyperNet(eqx.Module):
         resample_generator = jax.vmap(resample_generator)
 
         assert len(weights) == len(
-            pos_embs
-        ), f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+            embs
+        ), f"expected {len(embs)} weights, found {len(weights)} instead"
 
-        for i, pos_emb in enumerate(pos_embs):
-            b_out, b_in, _ = pos_emb.shape
+        for i, emb in enumerate(embs):
+            b_out, b_in, _ = emb.shape
 
             c_out, c_in, k1, k2 = weights[i].shape
 
@@ -189,9 +227,9 @@ class HyperNet(eqx.Module):
             assert b_in == c_in // self.block_size
 
             if k1 == self.kernel_size:
-                weight = kernel_generator(pos_emb)
+                weight = kernel_generator(emb)
             elif k1 == 1:
-                weight = resample_generator(pos_emb)
+                weight = resample_generator(emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
@@ -223,8 +261,38 @@ class HyperNet(eqx.Module):
         init_conv = self.gen_init_conv(init_conv)
         final_conv = self.gen_final_conv(final_conv)
 
-        unet = self.gen_weights(unet, input_emb, self.unet_pos_embs)
-        recomb = self.gen_weights(recomb, input_emb, self.recomb_pos_embs)
+        unet_pos_embs = self.unet_pos_embs
+        recomb_pos_embs = self.recomb_pos_embs
+
+        unet_pos_embs_flat, unet_pos_embs_shapes = AttnHyperNet.flatten_with_def(unet_pos_embs)
+        recomb_pos_embs_flat, recomb_pos_embs_shapes = AttnHyperNet.flatten_with_def(
+            recomb_pos_embs
+        )
+
+        all_embs_list = [input_emb] + unet_pos_embs_flat + recomb_pos_embs_flat
+        assert_shape(all_embs_list, (self.emb_size,))
+
+        all_embs = jnp.stack(all_embs_list, axis=0)
+
+        all_embs = self.transformer(all_embs)
+
+        unet_embs_flat = list(all_embs[1 : len(unet_pos_embs_flat) + 1])
+        recomb_embs_flat = list(all_embs[len(unet_pos_embs_flat) + 1 :])
+
+        unet_embs = AttnHyperNet.unflatten_from_def(unet_embs_flat, unet_pos_embs_shapes)
+        recomb_embs = AttnHyperNet.unflatten_from_def(recomb_embs_flat, recomb_pos_embs_shapes)
+
+        assert len(unet_embs) == len(self.unet_pos_embs) and all(
+            unet_emb.shape == unet_pos_emb.shape
+            for unet_emb, unet_pos_emb in zip(unet_embs, self.unet_pos_embs)
+        )
+        assert len(recomb_embs) == len(self.recomb_pos_embs) and all(
+            recomb_emb.shape == recomb_pos_emb.shape
+            for recomb_emb, recomb_pos_emb in zip(recomb_embs, self.recomb_pos_embs)
+        )
+
+        unet = self.gen_weights(unet, unet_embs)
+        recomb = self.gen_weights(recomb, recomb_embs)
 
         dyn_unet = eqx.tree_at(
             lambda _model: (_model.init_conv, _model.unet, _model.recomb, _model.final_conv),

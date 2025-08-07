@@ -4,8 +4,43 @@ from typing import Optional
 import equinox as eqx
 import equinox.nn as nn
 import jax
+import jax.numpy as jnp
 import jax.random as jr
 from chex import assert_axis_dimension, assert_equal_shape, assert_rank, assert_shape
+
+
+class SinusoidalPositionEmbeddings(eqx.Module):
+    d_model: int = eqx.field(static=True)
+
+    freqs: Array
+
+    def __init__(self, d_model: int):
+        super().__init__()
+
+        assert d_model % 2 == 0, "dim must be divisible by 2"
+
+        self.d_model = d_model
+
+        half_dim = d_model // 2
+
+        freqs = jnp.log(10_000) / (half_dim - 1)
+        freqs = jnp.exp(-jnp.arange(half_dim) * freqs)
+
+        self.freqs = freqs
+
+    def __call__(self, n: int) -> Float[Array, "n d_model"]:
+        t = jnp.arange(n)
+
+        # embeddings = t[:, None] * self.freqs[None, :]
+        embeddings = jnp.outer(t, self.freqs)
+
+        embeddings = jnp.concat([jnp.sin(embeddings), jnp.cos(embeddings)], axis=-1)
+
+        assert_shape(embeddings, (n, self.d_model))
+
+        embeddings = jax.lax.stop_gradient(embeddings)
+
+        return embeddings
 
 
 class FeedForward(eqx.Module):
@@ -32,7 +67,7 @@ class FeedForward(eqx.Module):
 
 
 class Attention(eqx.Module):
-    dim_model: int = eqx.field(static=True)
+    d_model: int = eqx.field(static=True)
 
     num_heads: int = eqx.field(static=True)
     dim_head: int = eqx.field(static=True)
@@ -45,25 +80,25 @@ class Attention(eqx.Module):
 
     # scale_factor: float
 
-    def __init__(self, dim_model: int, num_heads: int, dim_head: int, *, key: PRNGKeyArray):
+    def __init__(self, d_model: int, num_heads: int, d_head: int, *, key: PRNGKeyArray):
         super().__init__()
 
-        self.dim_model = dim_model
+        self.d_model = d_model
 
         self.num_heads = num_heads
-        self.dim_head = dim_head
+        self.dim_head = d_head
 
         # self.scale_factor = dim_head**-0.5
 
-        hidden_dim = num_heads * dim_head
+        hidden_dim = num_heads * d_head
 
         q_key, k_key, v_key, out_key = jr.split(key, 4)
 
-        self.query = nn.Linear(dim_model, hidden_dim, key=q_key)
-        self.key = nn.Linear(dim_model, hidden_dim, key=k_key)
-        self.value = nn.Linear(dim_model, hidden_dim, key=v_key)
+        self.query = nn.Linear(d_model, hidden_dim, key=q_key)
+        self.key = nn.Linear(d_model, hidden_dim, key=k_key)
+        self.value = nn.Linear(d_model, hidden_dim, key=v_key)
 
-        self.out_proj = nn.Linear(hidden_dim, dim_model, key=out_key)
+        self.out_proj = nn.Linear(hidden_dim, d_model, key=out_key)
 
     def transpose_for_scores(self, x: Float[Array, "n h"]) -> Float[Array, "n_h n d_h"]:
         n_seq, hidden_dim = x.shape
@@ -76,13 +111,13 @@ class Attention(eqx.Module):
         self, x: Float[Array, "n d"], context: Optional[Float[Array, "m d"]] = None
     ) -> Float[Array, "n d"]:
         assert_rank(x, 2)
-        assert_axis_dimension(x, 1, self.dim_model)
+        assert_axis_dimension(x, 1, self.d_model)
 
         if context is None:
             context = x
 
         assert_rank(context, 2)
-        assert_axis_dimension(context, 1, self.dim_model)
+        assert_axis_dimension(context, 1, self.d_model)
 
         n_seq = x.shape[0]
         m_seq = context.shape[0]
@@ -123,7 +158,7 @@ class Attention(eqx.Module):
 
         out = jax.vmap(self.out_proj)(out)
 
-        assert_shape(out, [n_seq, self.dim_model])
+        assert_shape(out, [n_seq, self.d_model])
 
         return out
 
@@ -135,16 +170,16 @@ class ResAttentionBlock(eqx.Module):
     norm2: nn.LayerNorm
     ff: FeedForward
 
-    def __init__(self, dim_model: int, num_heads: int, dim_head: int, *, key: PRNGKeyArray):
+    def __init__(self, d_model: int, num_heads: int, d_head: int, *, key: PRNGKeyArray):
         super().__init__()
 
         attn_key, ff_key = jr.split(key)
 
-        self.norm1 = nn.LayerNorm(dim_model)
-        self.attention = Attention(dim_model, num_heads, dim_head, key=attn_key)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.attention = Attention(d_model, num_heads, d_head, key=attn_key)
 
-        self.norm2 = nn.LayerNorm(dim_model)
-        self.ff = FeedForward(dim_model, 4 * dim_model, key=ff_key)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.ff = FeedForward(d_model, 4 * d_model, key=ff_key)
 
     def __call__(self, x: Float[Array, "n d"]) -> Float[Array, "n d"]:
         res = x
@@ -168,15 +203,13 @@ class ResAttentionBlock(eqx.Module):
 class Encoder(eqx.Module):
     res_attn_blocks: list[ResAttentionBlock]
 
-    def __init__(
-        self, depth: int, dim_model: int, num_heads: int, dim_head: int, *, key: PRNGKeyArray
-    ):
+    def __init__(self, depth: int, d_model: int, num_heads: int, d_head: int, *, key: PRNGKeyArray):
         super().__init__()
 
         keys = jr.split(key, depth)
 
         self.res_attn_blocks = [
-            ResAttentionBlock(dim_model, num_heads, dim_head, key=key) for key in keys
+            ResAttentionBlock(d_model, num_heads, d_head, key=key) for key in keys
         ]
 
     def __call__(self, x: Float[Array, "n d"]) -> Float[Array, "n d"]:
@@ -212,11 +245,11 @@ class SpatialSelfAttention(eqx.Module):
         c, h, w = x.shape
 
         # shape: [3, num_heads, hw, dim_head]
-        qkv = self.qkv(x).reshape(3, self.num_heads, self.dim_head, h * w).transpose(0, 3, 1, 2)
+        q, k, v = self.qkv(x).reshape(3, self.num_heads, self.dim_head, h * w).transpose(0, 3, 1, 2)
 
-        assert_shape(qkv, [3, h * w, self.num_heads, self.dim_head])
+        # assert_shape(qkv, [3, h * w, self.num_heads, self.dim_head])
 
-        q, k, v = qkv[:]
+        # q, k, v = qkv[:]
 
         # # all of shape [num_heads, hw, dim_head]
         # q, k, v = qkv[:]

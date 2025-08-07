@@ -7,9 +7,8 @@ import jax.numpy as jnp
 import jax.random as jr
 from chex import assert_axis_dimension, assert_equal_shape, assert_rank, assert_shape
 
+from hyper_lap.modules import SinusoidalPositionEmbeddings
 from hyper_lap.modules.attention import Encoder
-from hyper_lap.modules.auto_encoder import AutoEncoder
-from hyper_lap.modules.vit import SinusoidalPositionEmbeddings
 
 
 class PatchEncoder(eqx.Module):

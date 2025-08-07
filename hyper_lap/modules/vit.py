@@ -10,37 +10,6 @@ from equinox import nn
 from hyper_lap.modules.attention import Encoder
 
 
-class SinusoidalPositionEmbeddings(eqx.Module):
-    d_model: int = eqx.field(static=True)
-
-    freqs: Array
-
-    def __init__(self, d_model: int):
-        super().__init__()
-
-        assert d_model % 2 == 0, "dim must be divisible by 2"
-
-        self.d_model = d_model
-
-        half_dim = d_model // 2
-
-        freqs = jnp.log(10_000) / (half_dim - 1)
-        freqs = jnp.exp(-jnp.arange(half_dim) * freqs)
-
-        self.freqs = freqs
-
-    def __call__(self, n: int) -> Float[Array, "n d_model"]:
-        t = jnp.arange(n)
-
-        embeddings = t[:, None] * self.freqs[None, :]
-
-        embeddings = jnp.concat([jnp.sin(embeddings), jnp.cos(embeddings)], axis=-1)
-
-        embeddings = jax.lax.stop_gradient(embeddings)
-
-        return embeddings
-
-
 def sinudoidal_positional_encoding2d(n: int, m: int, dim_model: int) -> Float[Array, ""]:
     """
     2-dimensional sinusoidal positional encoding, constructed by applying 1d sinusoidal positional

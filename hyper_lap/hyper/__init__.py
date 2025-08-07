@@ -1,3 +1,4 @@
+from .attn_hypernet import AttnHyperNet as AttnHyperNet
 from .embedder import InputEmbedder as InputEmbedder, LearnedEmbedding as LearnedEmbedding
 from .generator import (
     Conv2dGenerator as Conv2dGenerator,

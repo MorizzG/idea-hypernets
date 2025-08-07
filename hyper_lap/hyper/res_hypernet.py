@@ -43,12 +43,6 @@ class ResHyperNet(eqx.Module):
     final_kernel: Array
 
     @staticmethod
-    def kernel_shape(
-        in_channels: int, out_channels: int, kernel_size: int
-    ) -> tuple[int, int, int, int]:
-        return out_channels, in_channels, kernel_size, kernel_size
-
-    @staticmethod
     def init_conv_generator(
         gen: Conv2dGeneratorABC, eps: float, *, key: PRNGKeyArray
     ) -> Conv2dGeneratorABC:
@@ -180,12 +174,12 @@ class ResHyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
-                f"Array has unexpected shape: {leaf.shape}"
-            )
-            assert c_out % block_size == 0 and c_in % block_size == 0, (
-                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
-            )
+            assert (
+                k1 == k2 == kernel_size or k1 == k2 == 1
+            ), f"Array has unexpected shape: {leaf.shape}"
+            assert (
+                c_out % block_size == 0 and c_in % block_size == 0
+            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -255,9 +249,9 @@ class ResHyperNet(eqx.Module):
 
         reg = jnp.array(0.0)
 
-        assert len(weights) == len(pos_embs), (
-            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
-        )
+        assert len(weights) == len(
+            pos_embs
+        ), f"expected {len(pos_embs)} weights, found {len(weights)} instead"
 
         for i, pos_emb in enumerate(pos_embs):
             b_out, b_in, _ = pos_emb.shape
