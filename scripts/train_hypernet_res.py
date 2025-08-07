@@ -53,7 +53,7 @@ def training_step(
 
         input_embedding = input_embedder(images[0], labels[0], dataset_idx)
 
-        model, aux = hypernet(input_embedding, with_aux=True)
+        model, aux = hypernet.generate(input_embedding, with_aux=True)
 
         logits = jax.vmap(model)(images)
 
@@ -95,7 +95,7 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "unet_artifact": MISSING,
+            "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v73",
             "lamda": 0.0,
             "hypernet": {
                 "block_size": 8,

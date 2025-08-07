@@ -174,12 +174,12 @@ class ResHyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert (
-                k1 == k2 == kernel_size or k1 == k2 == 1
-            ), f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
+                f"Array has unexpected shape: {leaf.shape}"
+            )
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -249,9 +249,9 @@ class ResHyperNet(eqx.Module):
 
         reg = jnp.array(0.0)
 
-        assert len(weights) == len(
-            pos_embs
-        ), f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        assert len(weights) == len(pos_embs), (
+            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        )
 
         for i, pos_emb in enumerate(pos_embs):
             b_out, b_in, _ = pos_emb.shape
@@ -287,7 +287,7 @@ class ResHyperNet(eqx.Module):
         return model, reg
 
     @overload
-    def __call__(
+    def generate(
         self,
         input_emb: Array,
         *,
@@ -295,14 +295,14 @@ class ResHyperNet(eqx.Module):
     ) -> tuple[Unet, dict[str, Any]]: ...
 
     @overload
-    def __call__(
+    def generate(
         self,
         input_emb: Array,
         *,
         with_aux: Literal[False] = False,
     ) -> Unet: ...
 
-    def __call__(
+    def generate(
         self,
         input_emb: Array,
         *,
@@ -343,3 +343,13 @@ class ResHyperNet(eqx.Module):
             return model, aux
 
         return model
+
+    def forward(self, x: Array, input_emb: Array) -> Array:
+        unet = self.generate(input_emb)
+
+        logits = unet(x)
+
+        return logits
+
+    def __call__(self, x: Array, input_emb: Array) -> Array:
+        return self.forward(x, input_emb)

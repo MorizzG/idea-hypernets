@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.tree as jt
 import numpy as np
@@ -19,14 +20,16 @@ from umap import UMAP
 
 from hyper_lap.datasets import MultiDataLoader
 from hyper_lap.datasets.base import Dataset
-from hyper_lap.hyper import HyperNet, InputEmbedder, ResHyperNet
+from hyper_lap.hyper import AttnHyperNet, HyperNet, InputEmbedder, ResHyperNet
 from hyper_lap.models import AttentionUnet, FilmUnet, Unet, VitSegmentator
 from hyper_lap.training.utils import to_PIL
 
 from .metrics import calc_metrics
 
 
-class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | VitSegmentator]:
+class Trainer[
+    Net: Unet | HyperNet | ResHyperNet | AttnHyperNet | FilmUnet | AttentionUnet | VitSegmentator
+]:
     type TrainingStep = Callable[
         [Net, InputEmbedder | None, dict[str, Array], GradientTransformation, OptState],
         tuple[Net, InputEmbedder | None, OptState, dict[str, Any]],
@@ -73,14 +76,16 @@ class Trainer[Net: Unet | HyperNet | ResHyperNet | FilmUnet | AttentionUnet | Vi
 
         if isinstance(net, (Unet, VitSegmentator)):
             return eqx.filter_jit(eqx.filter_vmap(net))(images)
-        elif isinstance(net, (HyperNet, ResHyperNet)):
+        elif isinstance(net, (HyperNet, ResHyperNet, AttnHyperNet)):
             assert input_embedder is not None
 
             input_emb = input_embedder(images[0], labels[0], dataset_idx)
 
-            unet = eqx.filter_jit(net)(input_emb)
+            # unet = eqx.filter_jit(net)(input_emb)
 
-            return eqx.filter_jit(eqx.filter_vmap(unet))(images)
+            # return eqx.filter_jit(eqx.filter_vmap(unet))(images)
+
+            return jax.jit(jax.vmap(net, in_axes=(0, None)))(images, input_emb)
         elif isinstance(net, FilmUnet):
             assert input_embedder is not None
 

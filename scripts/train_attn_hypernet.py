@@ -14,7 +14,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.hyper import HyperNet
+from hyper_lap.hyper import AttnHyperNet
 from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
@@ -32,19 +32,19 @@ from hyper_lap.training.utils import (
 
 @eqx.filter_jit
 def training_step(
-    hypernet: HyperNet,
+    hypernet: AttnHyperNet,
     input_embedder: InputEmbedder | None,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[HyperNet, InputEmbedder, OptState, dict[str, Any]]:
+) -> tuple[AttnHyperNet, InputEmbedder, OptState, dict[str, Any]]:
     assert input_embedder is not None
 
     images = batch["image"]
     labels = batch["label"]
     dataset_idx = batch["dataset_idx"]
 
-    def grad_fn(hypernet_input_embedder: tuple[HyperNet, InputEmbedder]) -> Array:
+    def grad_fn(hypernet_input_embedder: tuple[AttnHyperNet, InputEmbedder]) -> Array:
         hypernet, input_embedder = hypernet_input_embedder
 
         input_emb = input_embedder(images[0], labels[0], dataset_idx)
@@ -92,13 +92,13 @@ def main():
             },
             "hypernet": {
                 "block_size": 8,
-                "input_emb_size": "${embedder.emb_size}",
-                "pos_emb_size": 3 * 1024,
+                "emb_size": "${embedder.emb_size}",
+                "transformer_depth": 6,
                 "kernel_size": 3,
             },
             "embedder": {
                 "kind": "clip",
-                "emb_size": 3 * 1024,
+                "emb_size": 1024,
             },
         }
     )
@@ -127,7 +127,7 @@ def main():
             unet_key, hypernet_key, embedder_key = jr.split(key, 3)
 
             unet = Unet(**config.unet, key=unet_key)
-            hypernet = HyperNet(unet, **config.hypernet, key=hypernet_key)
+            hypernet = AttnHyperNet(unet, **config.hypernet, key=hypernet_key)
 
         case "resume":
             assert args.artifact is not None
@@ -184,7 +184,7 @@ def main():
         key=embedder_key,
     )
 
-    trainer: Trainer[HyperNet] = Trainer(
+    trainer: Trainer[AttnHyperNet] = Trainer(
         hypernet,
         input_embedder,
         training_step,
