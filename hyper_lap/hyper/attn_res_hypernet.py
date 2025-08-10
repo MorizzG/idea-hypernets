@@ -147,8 +147,8 @@ class AttnResHyperNet(eqx.Module):
         self.transformer = Encoder(
             depth=transformer_depth,
             d_model=emb_size,
-            num_heads=emb_size // 64,
-            d_head=64,
+            num_heads=8,
+            d_head=emb_size // 8,
             key=transformer_key,
         )
 

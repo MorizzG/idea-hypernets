@@ -20,7 +20,7 @@ from umap import UMAP
 
 from hyper_lap.datasets import MultiDataLoader
 from hyper_lap.datasets.base import Dataset
-from hyper_lap.hyper import AttnHyperNet, HyperNet, InputEmbedder, ResHyperNet
+from hyper_lap.hyper import AttnHyperNet, AttnResHyperNet, HyperNet, InputEmbedder, ResHyperNet
 from hyper_lap.models import AttentionUnet, FilmUnet, Unet, VitSegmentator
 from hyper_lap.training.utils import to_PIL
 
@@ -28,7 +28,14 @@ from .metrics import calc_metrics
 
 
 class Trainer[
-    Net: Unet | HyperNet | ResHyperNet | AttnHyperNet | FilmUnet | AttentionUnet | VitSegmentator
+    Net: Unet
+    | HyperNet
+    | ResHyperNet
+    | AttnHyperNet
+    | AttnResHyperNet
+    | FilmUnet
+    | AttentionUnet
+    | VitSegmentator
 ]:
     type TrainingStep = Callable[
         [Net, InputEmbedder | None, dict[str, Array], GradientTransformation, OptState],
@@ -76,7 +83,7 @@ class Trainer[
 
         if isinstance(net, (Unet, VitSegmentator)):
             return eqx.filter_jit(eqx.filter_vmap(net))(images)
-        elif isinstance(net, (HyperNet, ResHyperNet, AttnHyperNet)):
+        elif isinstance(net, (HyperNet, ResHyperNet, AttnHyperNet, AttnResHyperNet)):
             assert input_embedder is not None
 
             input_emb = input_embedder(images[0], labels[0], dataset_idx)

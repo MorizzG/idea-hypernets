@@ -15,7 +15,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.hyper import InputEmbedder, ResHyperNet
+from hyper_lap.hyper import AttnResHyperNet, InputEmbedder
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
@@ -32,14 +32,14 @@ from hyper_lap.training.utils import (
 
 @eqx.filter_jit
 def training_step(
-    hypernet: ResHyperNet,
+    hypernet: AttnResHyperNet,
     input_embedder: InputEmbedder | None,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
     *,
     lamda: float,
-) -> tuple[ResHyperNet, InputEmbedder, OptState, dict[str, Any]]:
+) -> tuple[AttnResHyperNet, InputEmbedder, OptState, dict[str, Any]]:
     assert input_embedder is not None
 
     images = batch["image"]
@@ -47,7 +47,7 @@ def training_step(
     dataset_idx = batch["dataset_idx"]
 
     def grad_fn(
-        hypernet_embedder: tuple[ResHyperNet, InputEmbedder],
+        hypernet_embedder: tuple[AttnResHyperNet, InputEmbedder],
     ) -> tuple[Array, dict[str, Any]]:
         hypernet, input_embedder = hypernet_embedder
 
@@ -99,10 +99,9 @@ def main():
             "lamda": 0.0,
             "hypernet": {
                 "block_size": 8,
-                "input_emb_size": 1024,
-                "input_emb_size": "${embedder.emb_size}",
-                "pos_emb_size": 1024,
+                "emb_size": "${embedder.emb_size}",
                 "kernel_size": 3,
+                "transformer_depth": MISSING,
                 "generator_kind": "basic",
                 "generator_kw_args": {
                     "h_size": 1024,
@@ -141,7 +140,7 @@ def main():
 
             unet = load_pytree(unet_weights_path, unet)
 
-            hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
+            hypernet = AttnResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
             first_epoch = unet_config["epochs"]
 
@@ -168,7 +167,7 @@ def main():
 
             unet = load_pytree(unet_weights_path, unet)
 
-            hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
+            hypernet = AttnResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
 
             hypernet = load_pytree(weights_path, hypernet)
 
@@ -202,7 +201,7 @@ def main():
         key=jr.PRNGKey(config.seed),
     )
 
-    trainer: Trainer[ResHyperNet] = Trainer(
+    trainer: Trainer[AttnResHyperNet] = Trainer(
         hypernet,
         input_embedder,
         partial(training_step, lamda=config.lamda),
