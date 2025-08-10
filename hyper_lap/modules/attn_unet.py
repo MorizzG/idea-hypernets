@@ -1,4 +1,4 @@
-from jaxtyping import Array, Float, PRNGKeyArray
+from jaxtyping import Array, PRNGKeyArray
 from typing import Any, Optional, Sequence
 
 import equinox as eqx
@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from .attention import SpatialCrossAttention
-from .conv import ConvNormAct
 from .unet import ResBlock
 from .upsample import BilinearUpsample2d
 

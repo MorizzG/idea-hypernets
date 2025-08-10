@@ -5,7 +5,6 @@ import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import transformers
 from chex import assert_shape
 from transformers.models.clip import FlaxCLIPVisionModel

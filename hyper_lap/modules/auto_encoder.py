@@ -40,7 +40,7 @@ class AutoEncoder(eqx.Module):
         self.up2 = nn.Linear(middle2, middle1, key=keys[4])
         self.up3 = nn.Linear(middle1, in_size, key=keys[5])
 
-    def encode(self, x: Float[Array, "in_size"]) -> Float[Array, "out_size"]:
+    def encode(self, x: Float[Array, " in_size"]) -> Float[Array, " out_size"]:
         x = self.down1(x)
         x = jax.nn.silu(x)
         x = self.down2(x)
@@ -49,7 +49,7 @@ class AutoEncoder(eqx.Module):
 
         return x
 
-    def decode(self, x: Float[Array, "out_size"]) -> Float[Array, "in_size"]:
+    def decode(self, x: Float[Array, " out_size"]) -> Float[Array, " in_size"]:
         x = self.up1(x)
         x = jax.nn.silu(x)
         x = self.up2(x)
@@ -58,5 +58,5 @@ class AutoEncoder(eqx.Module):
 
         return x
 
-    def __call__(self, x: Float[Array, "in_size"]) -> Float[Array, "in_size"]:
+    def __call__(self, x: Float[Array, " in_size"]) -> Float[Array, " in_size"]:
         return self.decode(self.encode(x))

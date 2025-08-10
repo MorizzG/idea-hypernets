@@ -4,7 +4,6 @@ from typing import Any, Literal
 import json
 from argparse import ArgumentParser
 from dataclasses import dataclass
-from multiprocessing import cpu_count
 from pathlib import Path
 from time import time
 

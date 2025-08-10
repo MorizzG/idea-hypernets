@@ -9,7 +9,6 @@ import jax.random as jr
 
 from ._util import ReLU, SiLU
 from .conv import ConvNormAct, WeightStandardizedConv2d
-from .upsample import BilinearUpsample2d
 
 
 class FilmProjection(eqx.Module):
@@ -25,7 +24,7 @@ class FilmProjection(eqx.Module):
 
         self.second = nn.Linear(2 * channels, 2 * channels, key=second_key)
 
-    def __call__(self, emb: Float[Array, "emb_size"]) -> Float[Array, "2 channels 1 1"]:
+    def __call__(self, emb: Float[Array, " emb_size"]) -> Float[Array, "2 channels 1 1"]:
         x = self.first(emb)
         x = jax.nn.silu(x)
         x = self.second(x)

@@ -1,4 +1,4 @@
-from jaxtyping import Array, Float, Integer, PRNGKeyArray, Scalar
+from jaxtyping import Array, PRNGKeyArray, Scalar
 from typing import Any, Literal, overload
 
 import equinox as eqx
@@ -9,7 +9,6 @@ import jax.tree as jt
 from chex import assert_equal_shape, assert_shape
 from equinox import nn
 
-from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.hyper.generator import (
     Conv2dGenerator,
     Conv2dGeneratorABC,

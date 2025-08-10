@@ -3,7 +3,6 @@ from jaxtyping import Array, Float, PRNGKeyArray
 import equinox as eqx
 import equinox.nn as nn
 import jax
-import jax.numpy as jnp
 import jax.random as jr
 from chex import assert_axis_dimension, assert_equal_shape, assert_rank, assert_shape
 

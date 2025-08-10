@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from .conv import ConvNormAct
-from .upsample import BilinearUpsample2d, ConvDownsample2d, ConvUpsample2d
+from .upsample import BilinearUpsample2d
 
 
 class ResBlock(eqx.Module):

@@ -152,7 +152,7 @@ def main():
             unet_key, hypernet_key, embedder_key = jr.split(key, 3)
 
             unet = Unet(**config["unet"], key=unet_key)  # type: ignore
-            hypernet = HyperNet(unet, **config["hypernet"], key=hypernet_key)  # type: ignore
+            hypernet = AttnHyperNet(unet, **config["hypernet"], key=hypernet_key)  # type: ignore
 
             hypernet = load_pytree(weights_path, hypernet)
 

@@ -1,4 +1,4 @@
-from jaxtyping import Array, Float, Integer, PRNGKeyArray, PyTree, Scalar
+from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
 from typing import Any, Literal, overload
 
 import equinox as eqx
@@ -9,7 +9,6 @@ import jax.tree as jt
 from chex import assert_equal_shape, assert_shape
 from equinox import nn
 
-from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.hyper.generator import (
     Conv2dGenerator,
     Conv2dGeneratorABC,
@@ -17,7 +16,7 @@ from hyper_lap.hyper.generator import (
     Conv2dLoraGenerator,
 )
 from hyper_lap.models import Unet
-from hyper_lap.modules.unet import ConvNormAct, ResBlock, UnetModule
+from hyper_lap.modules.unet import ConvNormAct, UnetModule
 
 
 class ResHyperNet(eqx.Module):
@@ -109,8 +108,6 @@ class ResHyperNet(eqx.Module):
 
         total_emb_size = input_emb_size + pos_emb_size
 
-        base_channels = unet.base_channels
-
         key, kernel_key, resample_key, emb_key, init_key, final_key = jr.split(key, 6)
 
         match generator_kind:
@@ -200,8 +197,6 @@ class ResHyperNet(eqx.Module):
             init_conv,
             init_conv.conv.weight + self.init_kernel,
         )
-
-        reg = (self.init_kernel**2).sum()
 
         return init_conv
 
