@@ -91,21 +91,18 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v73",
             "lamda": 0.0,
+            "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v73",
             "hypernet": {
                 "block_size": 8,
                 "input_emb_size": "${embedder.emb_size}",
                 "pos_emb_size": 1024,
                 "kernel_size": 3,
                 "generator_kind": "basic",
-                "generator_kw_args": {
-                    "h_size": 1024,
-                },
             },
             "embedder": {
                 "kind": "clip",
-                "emb_size": 3 * 1024,
+                "emb_size": 1024,
             },
         }
     )
@@ -140,12 +137,7 @@ def main():
 
             model_key, embedder_key = jr.split(key)
 
-            hypernet = HyperNet(
-                unet,
-                res=True,
-                **config.hypernet,
-                key=model_key,
-            )
+            hypernet = HyperNet(unet, **config.hypernet, res=True, key=model_key)
 
             first_epoch = unet_config["epochs"]
 
@@ -169,7 +161,7 @@ def main():
 
             model_key, embedder_key = jr.split(key)
 
-            hypernet = HyperNet(unet, res=True, **config.hypernet, key=model_key)
+            hypernet = HyperNet(unet, **config.hypernet, res=True, key=model_key)
 
             hypernet = load_pytree(weights_path, hypernet)
 
@@ -198,9 +190,7 @@ def main():
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     embedder = InputEmbedder(
-        num_datasets=len(train_loader.datasets),
-        **config.embedder,
-        key=embedder_key,
+        num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
     )
 
     trainer: Trainer[HyperNet] = Trainer(
@@ -219,16 +209,13 @@ def main():
     trainer.validate(hypernet, embedder)
 
     for _ in trange(config.epochs):
-        if "lr_schedule" in vars():
-            tqdm.write(f"learning rate: {trainer.learning_rate:.1e}")
-
-            if wandb.run is not None:
-                wandb.run.log(
-                    {
-                        "epoch": trainer.epoch,
-                        "learning_rate": trainer.learning_rate,
-                    }
-                )
+        if wandb.run is not None:
+            wandb.run.log(
+                {
+                    "epoch": trainer.epoch,
+                    "learning_rate": trainer.learning_rate,
+                }
+            )
 
         hypernet, embedder, aux = trainer.train(hypernet, embedder)
 

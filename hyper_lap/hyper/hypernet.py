@@ -85,7 +85,7 @@ class HyperNet(eqx.Module):
         pos_emb_size: int,
         *,
         kernel_size: int = 3,
-        res: bool = False,
+        res: bool,
         filter_spec: PyTree | None = None,
         generator_kind: Literal["basic", "lora", "new"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
@@ -113,7 +113,7 @@ class HyperNet(eqx.Module):
 
         total_emb_size = input_emb_size + pos_emb_size
 
-        key, kernel_key, resample_key, emb_key, init_key, final_key = jr.split(key, 6)
+        key, kernel_key, resample_key, init_key, final_key = jr.split(key, 5)
 
         match generator_kind:
             case "basic":
@@ -143,8 +143,11 @@ class HyperNet(eqx.Module):
             **(generator_kw_args or {}),
         )
 
-        # we can reuse kernel_key here since we re-initialize the weights
+        # we can reuse keys here since we re-initialize the weights
         self.kernel_generator = self.init_conv_generator(self.kernel_generator, eps, key=kernel_key)
+        self.resample_generator = self.init_conv_generator(
+            self.resample_generator, eps, key=resample_key
+        )
 
         self.init_kernel = jr.normal(init_key, unet.init_conv.conv.weight.shape)
         self.final_kernel = jr.normal(final_key, unet.final_conv.weight.shape)
@@ -176,12 +179,12 @@ class HyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
-                f"Array has unexpected shape: {leaf.shape}"
-            )
-            assert c_out % block_size == 0 and c_in % block_size == 0, (
-                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
-            )
+            assert (
+                k1 == k2 == kernel_size or k1 == k2 == 1
+            ), f"Array has unexpected shape: {leaf.shape}"
+            assert (
+                c_out % block_size == 0 and c_in % block_size == 0
+            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -237,9 +240,9 @@ class HyperNet(eqx.Module):
 
         weights, treedef = jt.flatten(model_weights)
 
-        assert len(weights) == len(pos_embs), (
-            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
-        )
+        assert len(weights) == len(
+            pos_embs
+        ), f"expected {len(pos_embs)} weights, found {len(weights)} instead"
 
         # vmap over block in positional embeddings
 
