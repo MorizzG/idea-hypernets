@@ -1,5 +1,5 @@
-from jaxtyping import Array, PRNGKeyArray
-from typing import Any, Literal
+from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
+from typing import Any, Literal, overload
 
 import equinox as eqx
 import jax
@@ -20,7 +20,9 @@ from hyper_lap.modules.unet import ConvNormAct, UnetModule
 
 
 class HyperNet(eqx.Module):
-    unet: Unet  #  = eqx.field(static=True)
+    unet: Unet
+
+    filter_spec: PyTree = eqx.field(static=True)
 
     kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
@@ -29,6 +31,8 @@ class HyperNet(eqx.Module):
 
     input_emb_size: int = eqx.field(static=True)
     pos_emb_size: int = eqx.field(static=True)
+
+    res: bool = eqx.field(static=True)
 
     kernel_generator: Conv2dGeneratorABC
     resample_generator: Conv2dGeneratorABC
@@ -39,6 +43,40 @@ class HyperNet(eqx.Module):
     init_kernel: Array
     final_kernel: Array
 
+    @staticmethod
+    def init_conv_generator(
+        gen: Conv2dGeneratorABC, eps: float, *, key: PRNGKeyArray
+    ) -> Conv2dGeneratorABC:
+        def init_linear(linear: nn.Linear, *, key: PRNGKeyArray) -> nn.Linear:
+            weight_key, bias_key = jr.split(key)
+
+            linear = eqx.tree_at(
+                lambda linear: linear.weight,
+                linear,
+                eps * jr.normal(weight_key, linear.weight.shape),
+            )
+
+            if linear.use_bias:
+                assert linear.bias is not None
+
+                linear = eqx.tree_at(
+                    lambda linear: linear.bias,
+                    linear,
+                    eps * jr.normal(bias_key, linear.bias.shape),
+                )
+
+            return linear
+
+        linears, treedef = jt.flatten(gen, is_leaf=lambda x: isinstance(x, eqx.nn.Linear))
+
+        keys = jr.split(key, len(linears))
+
+        linears = [init_linear(linear, key=key) for linear, key in zip(linears, keys)]
+
+        gen = jt.unflatten(treedef, linears)
+
+        return gen
+
     def __init__(
         self,
         unet: Unet,
@@ -47,13 +85,22 @@ class HyperNet(eqx.Module):
         pos_emb_size: int,
         *,
         kernel_size: int = 3,
-        generator_kind: Literal["basic", "lora"] = "basic",
+        res: bool = False,
+        filter_spec: PyTree | None = None,
+        generator_kind: Literal["basic", "lora", "new"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
         key: PRNGKeyArray,
     ):
         super().__init__()
 
+        if filter_spec is None:
+            filter_spec = jt.map(lambda x: eqx.is_array(x), unet)
+
+        eps = 1e-5
+
         self.unet = unet
+
+        self.filter_spec = filter_spec
 
         self.kernel_size = kernel_size
         self.base_channels = unet.base_channels
@@ -61,6 +108,8 @@ class HyperNet(eqx.Module):
         self.block_size = block_size
         self.input_emb_size = input_emb_size
         self.pos_emb_size = pos_emb_size
+
+        self.res = res
 
         total_emb_size = input_emb_size + pos_emb_size
 
@@ -94,6 +143,9 @@ class HyperNet(eqx.Module):
             **(generator_kw_args or {}),
         )
 
+        # we can reuse kernel_key here since we re-initialize the weights
+        self.kernel_generator = self.init_conv_generator(self.kernel_generator, eps, key=kernel_key)
+
         self.init_kernel = jr.normal(init_key, unet.init_conv.conv.weight.shape)
         self.final_kernel = jr.normal(final_key, unet.final_conv.weight.shape)
 
@@ -101,12 +153,18 @@ class HyperNet(eqx.Module):
 
         unet_pos_embs_key, recomb_pos_embs_key = jr.split(key)
 
-        self.unet_pos_embs = self.generate_pos_embs(unet.unet, key=unet_pos_embs_key)
+        self.unet_pos_embs = self.generate_pos_embs(
+            unet.unet, self.filter_spec.unet, key=unet_pos_embs_key
+        )
 
-        self.recomb_pos_embs = self.generate_pos_embs(unet.recomb, key=recomb_pos_embs_key)
+        self.recomb_pos_embs = self.generate_pos_embs(
+            unet.recomb, self.filter_spec.recomb, key=recomb_pos_embs_key
+        )
 
-    def generate_pos_embs(self, module: eqx.Module, *, key: PRNGKeyArray) -> list[Array]:
-        leaves, _ = jt.flatten(eqx.filter(module, eqx.is_array))
+    def generate_pos_embs(
+        self, module: eqx.Module, filter_spec: PyTree, *, key: PRNGKeyArray
+    ) -> list[Array]:
+        leaves, _ = jt.flatten(eqx.filter(module, filter_spec))
 
         block_size = self.block_size
         kernel_size = self.kernel_size
@@ -138,24 +196,50 @@ class HyperNet(eqx.Module):
 
     def gen_init_conv(self, init_conv: ConvNormAct) -> ConvNormAct:
         assert_equal_shape([init_conv.conv.weight, self.init_kernel])
-        init_conv = eqx.tree_at(
-            lambda _init_conv: _init_conv.conv.weight, init_conv, self.init_kernel
-        )
+
+        if self.res:
+            init_conv = eqx.tree_at(
+                lambda _init_conv: _init_conv.conv.weight,
+                init_conv,
+                init_conv.conv.weight + self.init_kernel,
+            )
+        else:
+            init_conv = eqx.tree_at(
+                lambda _init_conv: _init_conv.conv.weight, init_conv, self.init_kernel
+            )
 
         return init_conv
 
     def gen_final_conv(self, final_conv: nn.Conv2d) -> nn.Conv2d:
         assert_equal_shape([final_conv.weight, self.final_kernel])
-        final_conv = eqx.tree_at(
-            lambda _final_conv: _final_conv.weight, final_conv, self.final_kernel
-        )
+
+        if self.res:
+            final_conv = eqx.tree_at(
+                lambda _final_conv: _final_conv.weight,
+                final_conv,
+                final_conv.weight + self.final_kernel,
+            )
+        else:
+            final_conv = eqx.tree_at(
+                lambda _final_conv: _final_conv.weight, final_conv, self.final_kernel
+            )
 
         return final_conv
 
-    def gen_weights(self, unet: UnetModule, input_emb: Array, pos_embs: list[Array]) -> UnetModule:
-        model_weights, static_model = eqx.partition(unet, eqx.is_array)
+    def gen_weights(
+        self,
+        unet: UnetModule,
+        input_emb: Array,
+        pos_embs: list[Array],
+        filter_spec: PyTree,
+    ) -> tuple[UnetModule, Scalar]:
+        model_weights, static_model = eqx.partition(unet, filter_spec)
 
         weights, treedef = jt.flatten(model_weights)
+
+        assert len(weights) == len(pos_embs), (
+            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        )
 
         # vmap over block in positional embeddings
 
@@ -172,9 +256,7 @@ class HyperNet(eqx.Module):
         resample_generator = jax.vmap(resample_generator)
         resample_generator = jax.vmap(resample_generator)
 
-        assert len(weights) == len(pos_embs), (
-            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
-        )
+        reg = jnp.array(0.0)
 
         for i, pos_emb in enumerate(pos_embs):
             b_out, b_in, _ = pos_emb.shape
@@ -199,15 +281,41 @@ class HyperNet(eqx.Module):
 
             assert_equal_shape([weight, weights[i]])
 
-            weights[i] = weight
+            if self.res:
+                weights[i] += weight
+            else:
+                weights[i] = weight
+
+            reg += (weight**2).sum()
 
         model_weights = jt.unflatten(treedef, weights)
 
         model = eqx.combine(model_weights, static_model)
 
-        return model
+        return model, reg
 
-    def generate(self, input_emb: Array) -> Unet:
+    @overload
+    def generate(
+        self,
+        input_emb: Array,
+        *,
+        with_aux: Literal[True],
+    ) -> tuple[Unet, dict[str, Any]]: ...
+
+    @overload
+    def generate(
+        self,
+        input_emb: Array,
+        *,
+        with_aux: Literal[False] = False,
+    ) -> Unet: ...
+
+    def generate(
+        self,
+        input_emb: Array,
+        *,
+        with_aux: bool = False,
+    ) -> Unet | tuple[Unet, dict[str, Any]]:
         dyn_unet, static_unet = eqx.partition(self.unet, eqx.is_array)
 
         dyn_unet = jax.lax.stop_gradient(dyn_unet)
@@ -220,8 +328,12 @@ class HyperNet(eqx.Module):
         init_conv = self.gen_init_conv(init_conv)
         final_conv = self.gen_final_conv(final_conv)
 
-        unet = self.gen_weights(unet, input_emb, self.unet_pos_embs)
-        recomb = self.gen_weights(recomb, input_emb, self.recomb_pos_embs)
+        unet, unet_reg = self.gen_weights(
+            unet, input_emb, self.unet_pos_embs, self.filter_spec.unet
+        )
+        recomb, recomb_reg = self.gen_weights(
+            recomb, input_emb, self.recomb_pos_embs, self.filter_spec.recomb
+        )
 
         dyn_unet = eqx.tree_at(
             lambda _model: (_model.init_conv, _model.unet, _model.recomb, _model.final_conv),
@@ -230,6 +342,11 @@ class HyperNet(eqx.Module):
         )
 
         model = eqx.combine(dyn_unet, static_unet)
+
+        if with_aux:
+            aux = {"reg_loss": unet_reg + recomb_reg}
+
+            return model, aux
 
         return model
 

@@ -49,10 +49,6 @@ def training_step(
 
         input_emb = input_embedder(images[0], labels[0], dataset_idx)
 
-        # model = hypernet(input_emb)
-
-        # logits = jax.vmap(model)(images)
-
         logits = jax.vmap(hypernet, in_axes=(0, None))(images, input_emb)
 
         loss = jax.vmap(loss_fn)(logits, labels).mean()
@@ -127,19 +123,12 @@ def main():
             unet_key, hypernet_key, embedder_key = jr.split(key, 3)
 
             unet = Unet(**config.unet, key=unet_key)
-            hypernet = HyperNet(unet, **config.hypernet, key=hypernet_key)
+            hypernet = HyperNet(unet, res=False, **config.hypernet, key=hypernet_key)
 
         case "resume":
             assert args.artifact is not None
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
-
-            # TODO: remove this once runs are redone again
-            if "emb_size" in loaded_config["hypernet"]:
-                emb_size = loaded_config["hypernet"].pop("emb_size", None)
-
-                loaded_config["hypernet"]["input_emb_size"] = emb_size
-                loaded_config["hypernet"]["pos_emb_size"] = emb_size
 
             first_epoch = loaded_config["epochs"]
 
@@ -148,11 +137,11 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            key = jr.PRNGKey(config["seed"])  # type: ignore
+            key = jr.PRNGKey(config.seed)
             unet_key, hypernet_key, embedder_key = jr.split(key, 3)
 
-            unet = Unet(**config["unet"], key=unet_key)  # type: ignore
-            hypernet = HyperNet(unet, **config["hypernet"], key=hypernet_key)  # type: ignore
+            unet = Unet(**config.unet, key=unet_key)
+            hypernet = HyperNet(unet, res=False, **config.hypernet, key=hypernet_key)
 
             hypernet = load_pytree(weights_path, hypernet)
 

@@ -6,4 +6,3 @@ from .generator import (
     Conv2dLoraGenerator as Conv2dLoraGenerator,
 )
 from .hypernet import HyperNet as HyperNet
-from .res_hypernet import ResHyperNet as ResHyperNet

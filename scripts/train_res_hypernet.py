@@ -15,7 +15,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.hyper import InputEmbedder, ResHyperNet
+from hyper_lap.hyper import HyperNet, InputEmbedder
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
@@ -32,14 +32,14 @@ from hyper_lap.training.utils import (
 
 @eqx.filter_jit
 def training_step(
-    hypernet: ResHyperNet,
+    hypernet: HyperNet,
     input_embedder: InputEmbedder | None,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
     *,
     lamda: float,
-) -> tuple[ResHyperNet, InputEmbedder, OptState, dict[str, Any]]:
+) -> tuple[HyperNet, InputEmbedder, OptState, dict[str, Any]]:
     assert input_embedder is not None
 
     images = batch["image"]
@@ -47,7 +47,7 @@ def training_step(
     dataset_idx = batch["dataset_idx"]
 
     def grad_fn(
-        hypernet_embedder: tuple[ResHyperNet, InputEmbedder],
+        hypernet_embedder: tuple[HyperNet, InputEmbedder],
     ) -> tuple[Array, dict[str, Any]]:
         hypernet, input_embedder = hypernet_embedder
 
@@ -140,7 +140,12 @@ def main():
 
             unet = load_pytree(unet_weights_path, unet)
 
-            hypernet = ResHyperNet(unet, **config["hypernet"], key=jr.PRNGKey(config["seed"]))  # type: ignore
+            hypernet = HyperNet(
+                unet,
+                res=True,
+                **config.hypernet,
+                key=jr.PRNGKey(config.seed),
+            )
 
             first_epoch = unet_config["epochs"]
 
@@ -148,13 +153,6 @@ def main():
             assert args.artifact is not None
 
             loaded_config, weights_path = load_model_artifact(args.artifact)
-
-            # TODO: remove this once runs are redone again
-            if "emb_size" in loaded_config["hypernet"]:
-                emb_size = loaded_config["hypernet"].pop("emb_size", None)
-
-                loaded_config["hypernet"]["input_emb_size"] = emb_size
-                loaded_config["hypernet"]["pos_emb_size"] = emb_size
 
             config = OmegaConf.merge(loaded_config, arg_config)
 
@@ -201,7 +199,7 @@ def main():
         key=jr.PRNGKey(config.seed),
     )
 
-    trainer: Trainer[ResHyperNet] = Trainer(
+    trainer: Trainer[HyperNet] = Trainer(
         hypernet,
         input_embedder,
         partial(training_step, lamda=config.lamda),
