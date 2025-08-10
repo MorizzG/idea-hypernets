@@ -14,6 +14,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
+from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.models import VitSegmentator
 from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn
@@ -31,12 +32,14 @@ from hyper_lap.training.utils import (
 @eqx.debug.assert_max_traces(max_traces=3)
 def training_step(
     vit_seg: VitSegmentator,
+    _embedder: InputEmbedder | None,
     batch: dict[str, Array],
     opt: optax.GradientTransformation,
     opt_state: OptState,
-) -> tuple[VitSegmentator, OptState, dict[str, Any]]:
+) -> tuple[VitSegmentator, InputEmbedder | None, OptState, dict[str, Any]]:
     images = batch["image"]
     labels = batch["label"]
+    dataset_idx = batch["dataset_idx"]
 
     def grad_fn(vit_seg: VitSegmentator) -> Array:
         logits = jax.vmap(vit_seg)(images)
@@ -53,11 +56,11 @@ def training_step(
 
     vit_seg = eqx.apply_updates(vit_seg, updates)
 
-    return vit_seg, opt_state, aux
+    return vit_seg, _embedder, opt_state, aux
 
 
 def main():
-    global model_name
+    global vit_seg
 
     base_config = OmegaConf.create(
         {
@@ -102,7 +105,11 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            vit_seg = VitSegmentator(**config.vit_seg, key=jr.PRNGKey(config.seed))
+            key = jr.PRNGKey(config.seed)
+
+            model_key, embedder_key = jr.split(key)
+
+            vit_seg = VitSegmentator(**config.vit_seg, key=model_key)
 
         case "resume":
             assert args.artifact is not None
@@ -116,7 +123,11 @@ def main():
             if missing_keys := OmegaConf.missing_keys(config):
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            vit_seg = VitSegmentator(**config.vit_seg, key=jr.PRNGKey(config.seed))
+            key = jr.PRNGKey(config.seed)
+
+            model_key, embedder_key = jr.split(key)
+
+            vit_seg = VitSegmentator(**config.vit_seg, key=model_key)
 
             vit_seg = load_pytree(weights_path, vit_seg)
 
@@ -143,7 +154,13 @@ def main():
     lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
 
     trainer: Trainer = Trainer(
-        vit_seg, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch
+        vit_seg,
+        None,
+        training_step,
+        train_loader,
+        val_loader,
+        lr=lr_schedule,
+        epoch=first_epoch,
     )
 
     for _ in trange(config.epochs):
@@ -157,7 +174,7 @@ def main():
                 }
             )
 
-        vit_seg, aux = trainer.train(vit_seg)
+        vit_seg, _, aux = trainer.train(vit_seg, None)
 
         if wandb.run is not None:
             wandb.run.log(
@@ -170,7 +187,7 @@ def main():
         else:
             tqdm.write(f"Loss: {np.mean(aux['loss']):.3}")
 
-        trainer.validate(vit_seg)
+        trainer.validate(vit_seg, None)
 
     model_path = Path(f"./models/{model_name}.safetensors")
 
@@ -189,7 +206,7 @@ def main():
     print()
     print()
 
-    trainer.make_plots(vit_seg, test_loader, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(vit_seg, None, test_loader, image_folder=Path(f"./images/{model_name}"))
 
 
 if __name__ == "__main__":

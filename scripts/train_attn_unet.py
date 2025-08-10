@@ -121,7 +121,7 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
-    model_name = f"attnunet-{config.dataset}"
+    model_name = f"attn_unet-{config.dataset}"
 
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
