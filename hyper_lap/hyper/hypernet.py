@@ -179,12 +179,12 @@ class HyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert (
-                k1 == k2 == kernel_size or k1 == k2 == 1
-            ), f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
+                f"Array has unexpected shape: {leaf.shape}"
+            )
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -229,20 +229,20 @@ class HyperNet(eqx.Module):
 
         return final_conv
 
-    def gen_weights(
+    def gen_weights[T: PyTree](
         self,
-        unet: UnetModule,
+        unet: T,
         input_emb: Array,
         pos_embs: list[Array],
         filter_spec: PyTree,
-    ) -> tuple[UnetModule, Scalar]:
+    ) -> tuple[T, Scalar]:
         model_weights, static_model = eqx.partition(unet, filter_spec)
 
         weights, treedef = jt.flatten(model_weights)
 
-        assert len(weights) == len(
-            pos_embs
-        ), f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        assert len(weights) == len(pos_embs), (
+            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        )
 
         # vmap over block in positional embeddings
 
@@ -273,7 +273,8 @@ class HyperNet(eqx.Module):
             if k1 == self.kernel_size:
                 weight = kernel_generator(pos_emb)
             elif k1 == 1:
-                weight = resample_generator(pos_emb)
+                continue
+                # weight = resample_generator(pos_emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
@@ -285,7 +286,7 @@ class HyperNet(eqx.Module):
             assert_equal_shape([weight, weights[i]])
 
             if self.res:
-                weights[i] += weight
+                weights[i] = jax.lax.stop_gradient(weights[i]) + weight
             else:
                 weights[i] = weight
 
@@ -319,9 +320,7 @@ class HyperNet(eqx.Module):
         *,
         with_aux: bool = False,
     ) -> Unet | tuple[Unet, dict[str, Any]]:
-        dyn_unet, static_unet = eqx.partition(self.unet, eqx.is_array)
-
-        dyn_unet = jax.lax.stop_gradient(dyn_unet)
+        dyn_unet = self.unet
 
         init_conv = dyn_unet.init_conv
         unet = dyn_unet.unet
@@ -344,7 +343,9 @@ class HyperNet(eqx.Module):
             (init_conv, unet, recomb, final_conv),
         )
 
-        model = eqx.combine(dyn_unet, static_unet)
+        # model = eqx.combine(dyn_unet, static_unet)
+
+        model = dyn_unet
 
         if with_aux:
             aux = {"reg_loss": unet_reg + recomb_reg}

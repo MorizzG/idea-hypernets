@@ -58,14 +58,13 @@ class Unet(eqx.Module):
         )
 
         self.recomb = ResBlock(
-            2 * base_channels,
+            base_channels,
+            base_channels,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,
         )
 
-        self.final_conv = nn.Conv2d(
-            2 * base_channels, out_channels, 1, use_bias=False, key=final_key
-        )
+        self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
 
     def __call__(
         self, x: Float[Array, "c_in h w"], *, key: Optional[PRNGKeyArray] = None

@@ -1,4 +1,4 @@
-from jaxtyping import Array, PRNGKeyArray, Scalar
+from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
 from typing import Any, Literal, overload
 
 import equinox as eqx
@@ -101,9 +101,9 @@ class AttnHyperNet(eqx.Module):
     ) -> list[Array]:
         out = []
 
-        assert len(flat_pos_embs) == sum(
-            n * m for (n, m) in shapes
-        ), f"{len(flat_pos_embs)=}, but {sum(n * m for (n, m) in shapes)=}"
+        assert len(flat_pos_embs) == sum(n * m for (n, m) in shapes), (
+            f"{len(flat_pos_embs)=}, but {sum(n * m for (n, m) in shapes)=}"
+        )
 
         for n, m in shapes:
             assert len(flat_pos_embs) >= n * m
@@ -215,12 +215,12 @@ class AttnHyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert (
-                k1 == k2 == kernel_size or k1 == k2 == 1
-            ), f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
+                f"Array has unexpected shape: {leaf.shape}"
+            )
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -265,14 +265,14 @@ class AttnHyperNet(eqx.Module):
 
         return final_conv
 
-    def gen_weights(self, unet: UnetModule, embs: list[Array]) -> tuple[UnetModule, Scalar]:
+    def gen_weights[T: PyTree](self, unet: T, embs: list[Array]) -> tuple[T, Scalar]:
         model_weights, static_model = eqx.partition(unet, eqx.is_array)
 
         weights, treedef = jt.flatten(model_weights)
 
-        assert len(weights) == len(
-            embs
-        ), f"expected {len(embs)} weights, found {len(weights)} instead"
+        assert len(weights) == len(embs), (
+            f"expected {len(embs)} weights, found {len(weights)} instead"
+        )
 
         # vmap over block in positional embeddings
 
@@ -298,7 +298,8 @@ class AttnHyperNet(eqx.Module):
             if k1 == self.kernel_size:
                 weight = kernel_generator(emb)
             elif k1 == 1:
-                weight = resample_generator(emb)
+                continue
+                # weight = resample_generator(emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
@@ -310,7 +311,7 @@ class AttnHyperNet(eqx.Module):
             assert_equal_shape([weight, weights[i]])
 
             if self.res:
-                weights[i] += weight
+                weights[i] = jax.lax.stop_gradient(weights[i]) + weight
             else:
                 weights[i] = weight
 
@@ -344,9 +345,7 @@ class AttnHyperNet(eqx.Module):
         *,
         with_aux: bool = False,
     ) -> Unet | tuple[Unet, dict[str, Any]]:
-        dyn_unet, static_unet = eqx.partition(self.unet, eqx.is_array)
-
-        dyn_unet = jax.lax.stop_gradient(dyn_unet)
+        dyn_unet = self.unet
 
         init_conv = dyn_unet.init_conv
         unet = dyn_unet.unet
@@ -395,7 +394,8 @@ class AttnHyperNet(eqx.Module):
             (init_conv, unet, recomb, final_conv),
         )
 
-        model = eqx.combine(dyn_unet, static_unet)
+        # model = eqx.combine(dyn_unet, static_unet)
+        model = dyn_unet
 
         if with_aux:
             aux = {"reg_loss": unet_reg + recomb_reg}

@@ -17,17 +17,24 @@ class ResBlock(eqx.Module):
     Groups n_convs convolutions, with same in_channels as out_channels.
     """
 
-    channels: int = eqx.field(static=True)
+    in_channels: int = eqx.field(static=True)
+    out_channels: int = eqx.field(static=True)
+
     kernel_size: int = eqx.field(static=True)
+
     groups: int = eqx.field(static=True)
     n_convs: int = eqx.field(static=True)
+
     use_weight_standardized_conv: bool = eqx.field(static=True)
 
     layers: nn.Sequential
 
+    res_conv: nn.Conv2d | nn.Identity
+
     def __init__(
         self,
-        channels: int,
+        in_channels: int,
+        out_channels: int,
         *,
         kernel_size: int = 3,
         groups: int = 8,
@@ -40,27 +47,47 @@ class ResBlock(eqx.Module):
         if n_convs < 1:
             raise ValueError("Must have at least one conv")
 
-        self.channels = channels
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
         self.kernel_size = kernel_size
         self.groups = groups
         self.n_convs = n_convs
         self.use_weight_standardized_conv = use_weight_standardized_conv
 
-        keys = jr.split(key, n_convs)
+        res_conv_key, *keys = jr.split(key, n_convs + 1)
 
         layers = [
             ConvNormAct(
-                channels,
-                channels,
+                in_channels,
+                out_channels,
+                kernel_size,
+                groups=groups,
+                use_weight_standardized_conv=use_weight_standardized_conv,
+                key=keys[0],
+            )
+        ]
+
+        layers += [
+            ConvNormAct(
+                out_channels,
+                out_channels,
                 kernel_size,
                 groups=groups,
                 use_weight_standardized_conv=use_weight_standardized_conv,
                 key=key,
             )
-            for key in keys
+            for key in keys[1:]
         ]
 
         self.layers = nn.Sequential(layers)
+
+        if in_channels != out_channels:
+            self.res_conv = nn.Conv2d(
+                in_channels, out_channels, 1, use_bias=False, key=res_conv_key
+            )
+        else:
+            self.res_conv = nn.Identity()
 
     def __call__(
         self, x: Float[Array, "c h w d"], *, key: Optional[PRNGKeyArray] = None
@@ -70,7 +97,7 @@ class ResBlock(eqx.Module):
         for layer in self.layers:
             x = layer(x)
 
-        x += res
+        x += self.res_conv(res)
 
         return x
 
@@ -80,8 +107,6 @@ class UnetDown(eqx.Module):
     channel_mults: list[int] = eqx.field(static=True)
 
     blocks: list[ResBlock]
-    # downs: list[nn.Conv2d]
-    resamples: list[nn.Conv2d]
     downs: list[nn.MaxPool2d]
 
     def __init__(
@@ -100,29 +125,20 @@ class UnetDown(eqx.Module):
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
 
-        channels = base_channels
-
         self.blocks = []
         self.downs = []
-        self.resamples = []
+
+        channels = base_channels
 
         for channel_mult in channel_mults[1:]:
             new_channels = channel_mult * base_channels
 
-            key, resample_key, block_key = jr.split(key, 3)
+            key, block_key = jr.split(key, 2)
 
-            self.blocks.append(ResBlock(channels, key=block_key, **block_args))
-
-            self.resamples.append(
-                nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
-            )
+            self.blocks.append(ResBlock(channels, new_channels, key=block_key, **block_args))
 
             channels = new_channels
 
-            # self.downs.append(
-            #     nn.Conv2d(channels, new_channels, 2, stride=2, use_bias=False, key=down_key)
-            # )
-            # self.downs.append(ConvDownsample2d(channels, new_channels, key=down_key))
             self.downs.append(nn.MaxPool2d(2, 2))
 
     def __call__(
@@ -130,7 +146,7 @@ class UnetDown(eqx.Module):
     ) -> tuple[Array, list[Array]]:
         skips: list[Array] = []
 
-        for block, resample, down in zip(self.blocks, self.resamples, self.downs):
+        for block, down in zip(self.blocks, self.downs):
             x = block(x)
 
             skips.append(x)
@@ -141,8 +157,6 @@ class UnetDown(eqx.Module):
                 f"spatial dims of shape {x.shape} are not divisible by 2"
             )
 
-            x = resample(x)
-
             x = down(x)
 
         return x, skips
@@ -152,10 +166,7 @@ class UnetUp(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
-    # ups: list[nn.ConvTranspose2d]
-    # ups: list[ConvUpsample2d]
     ups: list[BilinearUpsample2d]
-    resamples: list[nn.Conv2d]
     blocks: list[ResBlock]
 
     def __init__(
@@ -176,38 +187,27 @@ class UnetUp(eqx.Module):
 
         self.ups = []
         self.blocks = []
-        self.resamples = []
 
         channels = base_channels * channel_mults[-1]
 
         for channel_mult in list(reversed(channel_mults))[1:]:
             new_channels = channel_mult * base_channels
 
-            key, resample_key, block_key = jr.split(key, 3)
+            key, block_key = jr.split(key)
 
-            # self.ups.append(
-            #     nn.ConvTranspose2d(channels, new_channels, 2, stride=2, use_bias=False, key=up_key)
-            # )
-            # self.ups.append(ConvUpsample2d(channels, new_channels, key=up_key))
             self.ups.append(BilinearUpsample2d())
 
-            self.resamples.append(
-                nn.Conv2d(channels, new_channels, 1, use_bias=False, key=resample_key)
-            )
+            self.blocks.append(ResBlock(2 * channels, new_channels, key=block_key, **block_args))
 
-            channels = 2 * new_channels
-
-            self.blocks.append(ResBlock(channels, key=block_key, **block_args))
+            channels = new_channels
 
     def __call__(
         self, x: Array, skips: list[Array], *, key: Optional[PRNGKeyArray] = None
     ) -> Array:
         skips = skips.copy()
 
-        for up, resample, block in zip(self.ups, self.resamples, self.blocks):
+        for up, block in zip(self.ups, self.blocks):
             x = up(x)
-
-            x = resample(x)
 
             skip = skips.pop()
 
@@ -245,7 +245,9 @@ class UnetModule(eqx.Module):
 
         middle_channels = base_channels * channel_mults[-1]
 
-        self.middle = ResBlock(middle_channels, key=middle_key, **(block_args or {}))
+        self.middle = ResBlock(
+            middle_channels, middle_channels, key=middle_key, **(block_args or {})
+        )
 
         self.up = UnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 
