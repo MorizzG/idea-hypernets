@@ -287,11 +287,11 @@ def make_lr_schedule(lr: float, epochs: int, len_train_loader: int) -> optax.Sch
     #     end_value=lr / 1e3,
     # )
 
-    return optax.schedules.warmup_constant_schedule(lr / 1e3, lr, warmup_steps)
+    # return optax.schedules.warmup_constant_schedule(lr / 1e3, lr, warmup_steps)
 
-    # return optax.schedules.warmup_exponential_decay_schedule(
-    #     lr / 1e3, lr, warmup_steps, transition_steps, 1e-3
-    # )
+    return optax.schedules.warmup_exponential_decay_schedule(
+        lr / 1e3, lr, warmup_steps, transition_steps, 1e-3
+    )
 
 
 def make_hypernet(config: dict[str, Any]) -> HyperNet:
