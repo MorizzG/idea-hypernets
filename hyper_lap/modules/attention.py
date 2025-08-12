@@ -94,11 +94,11 @@ class Attention(eqx.Module):
 
         q_key, k_key, v_key, out_key = jr.split(key, 4)
 
-        self.query = nn.Linear(d_model, hidden_dim, key=q_key)
-        self.key = nn.Linear(d_model, hidden_dim, key=k_key)
-        self.value = nn.Linear(d_model, hidden_dim, key=v_key)
+        self.query = nn.Linear(d_model, hidden_dim, use_bias=False, key=q_key)
+        self.key = nn.Linear(d_model, hidden_dim, use_bias=False, key=k_key)
+        self.value = nn.Linear(d_model, hidden_dim, use_bias=False, key=v_key)
 
-        self.out_proj = nn.Linear(hidden_dim, d_model, key=out_key)
+        self.out_proj = nn.Linear(hidden_dim, d_model, use_bias=False, key=out_key)
 
     def transpose_for_scores(self, x: Float[Array, "n h"]) -> Float[Array, "n_h n d_h"]:
         n_seq, hidden_dim = x.shape
