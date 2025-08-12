@@ -67,8 +67,12 @@ def main():
             "testset": MISSING,
             "degenerate": False,
             "epochs": MISSING,
-            "lr": MISSING,
             "batch_size": MISSING,
+            "optimizer": {
+                "lr": MISSING,
+                "scheduler": MISSING,
+                "epochs": "${epochs}",
+            },
             "unet": {
                 "base_channels": 8,
                 "channel_mults": [1, 2, 4],
@@ -137,7 +141,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
+    lr_schedule = make_lr_schedule(len(train_loader), **config.optimizer)
 
     trainer: Trainer[Unet] = Trainer(
         unet, None, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch

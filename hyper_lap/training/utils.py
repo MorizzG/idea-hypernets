@@ -272,26 +272,35 @@ def make_dataloaders(
     return train_loader, val_loader, test_loader
 
 
-def make_lr_schedule(lr: float, epochs: int, len_train_loader: int) -> optax.Schedule:
+def make_lr_schedule(
+    len_train_loader: int,
+    *,
+    lr: float,
+    epochs: int,
+    scheduler: Literal["constant", "cosine", "exponential"],
+) -> optax.Schedule:
     total_steps = epochs * len_train_loader
 
     warmup_steps = total_steps // 5
     transition_steps = total_steps - warmup_steps
 
-    # 20% warmup, then 80% cosine decay
-    # return optax.schedules.warmup_cosine_decay_schedule(
-    #     lr / 1e3,
-    #     lr,
-    #     warmup_steps,
-    #     transition_steps,
-    #     end_value=lr / 1e3,
-    # )
-
-    # return optax.schedules.warmup_constant_schedule(lr / 1e3, lr, warmup_steps)
-
-    return optax.schedules.warmup_exponential_decay_schedule(
-        lr / 1e3, lr, warmup_steps, transition_steps, 1e-3
-    )
+    match scheduler:
+        case "constant":
+            return optax.schedules.warmup_constant_schedule(lr / 1e3, lr, warmup_steps)
+        case "cosine":
+            return optax.schedules.warmup_cosine_decay_schedule(
+                lr / 1e3,
+                lr,
+                warmup_steps,
+                transition_steps,
+                end_value=lr / 1e3,
+            )
+        case "exponential":
+            return optax.schedules.warmup_exponential_decay_schedule(
+                lr / 1e3, lr, warmup_steps, transition_steps, 1e-3
+            )
+        case scheduler:
+            raise ValueError(f"invalid scheduler: {scheduler}")
 
 
 def make_hypernet(config: dict[str, Any]) -> HyperNet:

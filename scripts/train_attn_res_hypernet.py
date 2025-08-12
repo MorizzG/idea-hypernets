@@ -95,6 +95,11 @@ def main():
             "batch_size": MISSING,
             "lamda": 0.0,
             "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v73",
+            "optimizer": {
+                "lr": MISSING,
+                "scheduler": MISSING,
+                "epochs": "${epochs}",
+            },
             "hypernet": {
                 "block_size": 8,
                 "emb_size": "${embedder.emb_size}",
@@ -189,7 +194,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
+    lr_schedule = make_lr_schedule(len(train_loader), **config.optimizer)
 
     embedder = InputEmbedder(
         num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key

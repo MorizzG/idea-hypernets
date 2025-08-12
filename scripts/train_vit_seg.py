@@ -72,6 +72,11 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
+            "optimizer": {
+                "lr": MISSING,
+                "scheduler": MISSING,
+                "epochs": "${epochs}",
+            },
             "vit_seg": {
                 "image_size": 336,
                 "patch_size": 16,
@@ -151,7 +156,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
+    lr_schedule = make_lr_schedule(len(train_loader), **config.optimizer)
 
     trainer: Trainer = Trainer(
         vit_seg,

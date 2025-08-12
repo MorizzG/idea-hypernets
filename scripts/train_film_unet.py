@@ -77,6 +77,11 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
+            "optimizer": {
+                "lr": MISSING,
+                "scheduler": MISSING,
+                "epochs": "${epochs}",
+            },
             "film_unet": {
                 "base_channels": 8,
                 "channel_mults": [1, 2, 4],
@@ -159,7 +164,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(config.lr, config.epochs, len(train_loader))
+    lr_schedule = make_lr_schedule(len(train_loader), **config.optimizer)
 
     embedder = InputEmbedder(
         num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
