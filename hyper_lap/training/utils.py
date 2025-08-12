@@ -273,18 +273,25 @@ def make_dataloaders(
 
 
 def make_lr_schedule(lr: float, epochs: int, len_train_loader: int) -> optax.Schedule:
-    total_updates = epochs * len_train_loader
+    total_steps = epochs * len_train_loader
 
-    warmup = total_updates // 5
+    warmup_steps = total_steps // 5
+    transition_steps = total_steps - warmup_steps
 
     # 20% warmup, then 80% cosine decay
-    return optax.schedules.warmup_cosine_decay_schedule(
-        lr / 1e3,
-        lr,
-        warmup,
-        total_updates - warmup,
-        end_value=lr / 1e3,
-    )
+    # return optax.schedules.warmup_cosine_decay_schedule(
+    #     lr / 1e3,
+    #     lr,
+    #     warmup_steps,
+    #     transition_steps,
+    #     end_value=lr / 1e3,
+    # )
+
+    return optax.schedules.warmup_constant_schedule(lr / 1e3, lr, warmup_steps)
+
+    # return optax.schedules.warmup_exponential_decay_schedule(
+    #     lr / 1e3, lr, warmup_steps, transition_steps, 1e-3
+    # )
 
 
 def make_hypernet(config: dict[str, Any]) -> HyperNet:
