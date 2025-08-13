@@ -94,7 +94,7 @@ def main():
             "batch_size": MISSING,
             "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v73",
             "lamda": 0.0,
-            "optimizer": {
+            "optim": {
                 "lr": MISSING,
                 "scheduler": MISSING,
                 "epochs": "${epochs}",

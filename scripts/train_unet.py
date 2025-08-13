@@ -68,7 +68,7 @@ def main():
             "degenerate": False,
             "epochs": MISSING,
             "batch_size": MISSING,
-            "optimizer": {
+            "optim": {
                 "lr": MISSING,
                 "scheduler": MISSING,
                 "epochs": "${epochs}",

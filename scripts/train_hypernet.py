@@ -78,7 +78,7 @@ def main():
             "epochs": MISSING,
             "lr": MISSING,
             "batch_size": MISSING,
-            "optimizer": {
+            "optim": {
                 "lr": MISSING,
                 "scheduler": MISSING,
                 "epochs": "${epochs}",
