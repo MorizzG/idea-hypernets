@@ -75,7 +75,6 @@ def main():
             "testset": MISSING,
             "degenerate": False,
             "epochs": MISSING,
-            "lr": MISSING,
             "batch_size": MISSING,
             "optim": {
                 "lr": MISSING,
@@ -164,7 +163,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(len(train_loader), **config.optimizer)
+    lr_schedule = make_lr_schedule(len(train_loader), **config.optim)
 
     embedder = InputEmbedder(
         num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key

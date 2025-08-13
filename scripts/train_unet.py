@@ -141,7 +141,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(len(train_loader), **config.optimizer)
+    lr_schedule = make_lr_schedule(len(train_loader), **config.optim)
 
     trainer: Trainer[Unet] = Trainer(
         unet, None, training_step, train_loader, val_loader, lr=lr_schedule, epoch=first_epoch

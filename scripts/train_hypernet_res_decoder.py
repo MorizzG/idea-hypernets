@@ -90,7 +90,6 @@ def main():
             "testset": MISSING,
             "degenerate": False,
             "epochs": MISSING,
-            "lr": MISSING,
             "batch_size": MISSING,
             "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v73",
             "lamda": 0.0,
@@ -232,7 +231,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(len(train_loader), **config.optimizer)
+    lr_schedule = make_lr_schedule(len(train_loader), **config.optim)
 
     embedder = InputEmbedder(
         num_datasets=len(train_loader.datasets),
