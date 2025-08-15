@@ -92,7 +92,7 @@ def main():
             },
             "embedder": {
                 "kind": "clip",
-                "emb_size": 3 * 1024,
+                "emb_size": 1024,
             },
         }
     )
