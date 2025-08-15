@@ -87,7 +87,6 @@ def main():
                 "in_channels": 3,
                 "out_channels": 2,
                 "emb_size": "${embedder.emb_size}",
-                "embedder_kind": "clip",
                 "use_weight_standardized_conv": False,
             },
             "embedder": {

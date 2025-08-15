@@ -32,7 +32,6 @@ class FilmUnet(eqx.Module):
         out_channels: int,
         *,
         emb_size: int,
-        embedder_kind: InputEmbedder.EmbedderKind = "clip",
         use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
@@ -45,8 +44,6 @@ class FilmUnet(eqx.Module):
         self.channel_mults = list(channel_mults)
 
         self.emb_size = emb_size
-
-        key, emb_key = jr.split(key)
 
         init_key, unet_key, recomb_key, final_key = jr.split(key, 4)
 
@@ -69,14 +66,13 @@ class FilmUnet(eqx.Module):
         )
 
         self.recomb = ResBlock(
-            2 * base_channels,
+            base_channels,
+            base_channels,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,
         )
 
-        self.final_conv = nn.Conv2d(
-            2 * base_channels, out_channels, 1, use_bias=False, key=final_key
-        )
+        self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
 
     def __call__(
         self,
