@@ -77,7 +77,7 @@ class ConvNormFilmAct(eqx.Module):
         self,
         x: Float[Array, "c h w d"],
         # scale_shift: Float[Array, "2 c"],
-        emb: Float[Array, "emb_size"],
+        emb: Float[Array, " emb_size"],
         *,
         key: Optional[PRNGKeyArray] = None,
     ) -> Float[Array, "c h w d"]:
@@ -231,9 +231,9 @@ class FilmUnetDown(eqx.Module):
 
             c, h, w = x.shape
 
-            assert h % 2 == 0 and w % 2 == 0, (
-                f"spatial dims of shape {x.shape} are not divisible by 2"
-            )
+            assert (
+                h % 2 == 0 and w % 2 == 0
+            ), f"spatial dims of shape {x.shape} are not divisible by 2"
 
             x = down(x)
 
@@ -342,12 +342,12 @@ class FilmUnetModule(eqx.Module):
 
         down_factor = 2 ** len(self.channel_mults)
 
-        assert h % down_factor == 0, (
-            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
-        )
-        assert w % down_factor == 0, (
-            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
-        )
+        assert (
+            h % down_factor == 0
+        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        assert (
+            w % down_factor == 0
+        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
 
         x, skips = self.down(x, cond)
 

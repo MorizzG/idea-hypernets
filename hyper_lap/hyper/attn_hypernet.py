@@ -17,7 +17,7 @@ from hyper_lap.hyper.generator import (
 )
 from hyper_lap.models import Unet
 from hyper_lap.modules.attention import Encoder
-from hyper_lap.modules.unet import ConvNormAct, UnetModule
+from hyper_lap.modules.unet import ConvNormAct
 
 
 class AttnHyperNet(eqx.Module):

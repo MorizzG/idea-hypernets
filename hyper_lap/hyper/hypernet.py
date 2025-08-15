@@ -16,7 +16,7 @@ from hyper_lap.hyper.generator import (
     Conv2dLoraGenerator,
 )
 from hyper_lap.models import Unet
-from hyper_lap.modules.unet import ConvNormAct, UnetModule
+from hyper_lap.modules.unet import ConvNormAct
 
 
 class HyperNet(eqx.Module):

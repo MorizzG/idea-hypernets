@@ -9,9 +9,6 @@ import transformers
 from chex import assert_shape
 from transformers.models.clip import FlaxCLIPVisionModel
 
-from hyper_lap.modules.convnext import ConvNeXt
-from hyper_lap.modules.resnet import BlockKind, ResNet
-from hyper_lap.modules.vit import ViT
 
 
 class ClipEmbedder(eqx.Module):

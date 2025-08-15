@@ -3,7 +3,6 @@ from os import cpu_count
 
 import numpy as np
 from tqdm import tqdm
-from tqdm.contrib.concurrent import thread_map
 
 from .base import Dataset
 from .metadata import Metadata
