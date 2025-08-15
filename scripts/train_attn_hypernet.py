@@ -14,7 +14,8 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.hyper import AttnHyperNet, InputEmbedder
+from hyper_lap.embedder import InputEmbedder
+from hyper_lap.hyper import AttnHyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree

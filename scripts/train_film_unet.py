@@ -14,7 +14,7 @@ from optax import OptState
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.hyper import InputEmbedder
+from hyper_lap.embedder import InputEmbedder
 from hyper_lap.models import FilmUnet
 from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn

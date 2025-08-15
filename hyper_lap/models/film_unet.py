@@ -5,7 +5,6 @@ import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
-from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.modules.film_unet import FilmUnetModule
 from hyper_lap.modules.unet import ConvNormAct, ResBlock
 

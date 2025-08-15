@@ -3,13 +3,11 @@ from typing import Literal
 
 import equinox as eqx
 
-from hyper_lap.modules.embedder import (
-    ClipEmbedder,
-    ConvNextEmbedder,
-    LearnedEmbedding,
-    ResNetEmbedder,
-    ViTEmbedder,
-)
+from .clip import ClipEmbedder
+from .conv_next import ConvNextEmbedder
+from .learned import LearnedEmbedding
+from .resnet import ResNetEmbedder
+from .vit import ViTEmbedder
 
 
 class InputEmbedder(eqx.Module):

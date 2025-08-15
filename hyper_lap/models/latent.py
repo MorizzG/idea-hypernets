@@ -4,7 +4,6 @@ import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
-from hyper_lap.hyper.embedder import InputEmbedder
 from hyper_lap.modules.conv import ConvNormAct
 from hyper_lap.modules.film_unet import FilmUnetModule
 from hyper_lap.modules.unet import ResBlock
@@ -16,8 +15,6 @@ class LatentModel(eqx.Module):
     # vae: FlaxAutoencoderKL = eqx.field(static=True)
     vae: VAE = eqx.field(static=True)
 
-    embedder: InputEmbedder
-
     in_conv: ConvNormAct
 
     model: FilmUnetModule
@@ -28,9 +25,7 @@ class LatentModel(eqx.Module):
 
     final_conv: nn.Conv2d
 
-    def __init__(
-        self, model: FilmUnetModule, *, embedder_kind: InputEmbedder.EmbedderKind, key: PRNGKeyArray
-    ):
+    def __init__(self, model: FilmUnetModule, *, key: PRNGKeyArray):
         super().__init__()
 
         # self.vae = FlaxAutoencoderKL.from_pretrained("stabilityai/sdxl-vae")
@@ -40,8 +35,6 @@ class LatentModel(eqx.Module):
         vae = VAE(key=vae_key)
 
         self.vae = load_pytree("models/vae.safetensors", vae)
-
-        self.embedder = InputEmbedder(3072, kind=embedder_kind, key=embedder_key)
 
         self.model = model
 

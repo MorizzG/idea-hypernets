@@ -20,7 +20,8 @@ from umap import UMAP
 
 from hyper_lap.datasets import MultiDataLoader
 from hyper_lap.datasets.base import Dataset
-from hyper_lap.hyper import AttnHyperNet, HyperNet, InputEmbedder
+from hyper_lap.embedder import InputEmbedder
+from hyper_lap.hyper import AttnHyperNet, HyperNet
 from hyper_lap.models import AttentionUnet, FilmUnet, Unet, VitSegmentator
 from hyper_lap.training.utils import to_PIL
 
