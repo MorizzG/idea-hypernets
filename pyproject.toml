@@ -5,17 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "jax[cuda12]==0.6.0",
-    "nvidia-cublas-cu12~=12.6.0",
-    "nvidia-cuda-cupti-cu12~=12.6.0",
-    "nvidia-cuda-nvcc-cu12~=12.6.0",
-    "nvidia-cuda-runtime-cu12~=12.6.0",
-    "nvidia-cudnn-cu12~=9.8.0",
-    "nvidia-nvjitlink-cu12~=12.6.0",
-    # "nvidia-cufft-cu12~=12.6.0",
-    # "nvidia-cusolver-cu12~=12.6.0",
-    # "nvidia-cusparse-cu12~=12.6.0",
-    # "nvidia-nccl-cu12~=12.6.0",
+    "jax[cuda12]==0.7.0",
+    # "nvidia-cublas-cu12~=12.6.0",
+    # "nvidia-cuda-cupti-cu12~=12.6.0",
+    # "nvidia-cuda-nvcc-cu12~=12.6.0",
+    # "nvidia-cuda-runtime-cu12~=12.6.0",
+    # "nvidia-cudnn-cu12~=9.8.0",
+    # "nvidia-nvjitlink-cu12~=12.6.0",
     "jaxtyping>=0.2.34",
     "beartype>=0.19.0",
     "equinox>=0.11.8",
@@ -33,6 +29,7 @@ dependencies = [
     "wandb>=0.19.6",
     "umap-learn>=0.5.9",
     "pydantic>=2.11.4",
+    "dinov3-equinox",
 ]
 
 
@@ -64,6 +61,7 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+dinov3-equinox = { git = "https://github.com/MorizzG/dinov3-equinox" }
 # umap-learn = { git = "https://github.com/lmcinnes/umap" }
 
 [build-system]
