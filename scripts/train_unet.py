@@ -70,7 +70,7 @@ def main():
             "batch_size": MISSING,
             "optim": {
                 "lr": MISSING,
-                "scheduler": MISSING,
+                "scheduler": "cosine",
                 "epochs": "${epochs}",
             },
             "unet": {

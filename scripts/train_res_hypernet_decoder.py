@@ -95,7 +95,7 @@ def main():
             "lamda": 0.0,
             "optim": {
                 "lr": MISSING,
-                "scheduler": MISSING,
+                "scheduler": "cosine",
                 "epochs": "${epochs}",
             },
             "hypernet": {

@@ -95,7 +95,7 @@ def main():
             "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v98",
             "optim": {
                 "lr": MISSING,
-                "scheduler": MISSING,
+                "scheduler": "cosine",
                 "epochs": "${epochs}",
             },
             "hypernet": {
