@@ -10,11 +10,10 @@ from chex import assert_shape
 from transformers.models.clip import FlaxCLIPVisionModel
 
 
-
 class ClipEmbedder(eqx.Module):
     num_layers: int = eqx.field(static=True)
     select_layer: int = eqx.field(static=True)
-    pool: Literal["cls", "mean"] = eqx.field(static=True)
+    pool: Literal["cls", "mean", "both"] = eqx.field(static=True)
 
     clip_vision: FlaxCLIPVisionModel
 
@@ -27,14 +26,14 @@ class ClipEmbedder(eqx.Module):
         self,
         emb_size: int,
         select_layer: int = -2,
-        pool: Literal["cls", "mean"] = "cls",
+        pool: Literal["cls", "mean", "both"] = "cls",
         clip: Literal["openai"] = "openai",
         *,
         key: PRNGKeyArray,
     ):
         super().__init__()
 
-        if pool not in ["cls", "mean"]:
+        if pool not in ["cls", "mean", "both"]:
             raise ValueError(f"Invalid pool {pool}")
 
         self.select_layer = select_layer
@@ -79,7 +78,12 @@ class ClipEmbedder(eqx.Module):
                 f"select_layer {select_layer} is out of range for {self.num_layers} layers"
             )
 
-        self.projection = nn.Linear(3 * 1024, emb_size, key=key)
+        match self.pool:
+            case "cls" | "mean":
+                self.projection = nn.Linear(3 * 1024, emb_size, key=key)
+            case "both":
+                self.projection = nn.Linear(6 * 1024, emb_size, key=key)
+
         # self.projection = nn.Identity(key=key)
 
     def __call__(
@@ -115,14 +119,31 @@ class ClipEmbedder(eqx.Module):
 
         assert_shape([hidden_state], (3, 577, 1024))
 
-        if self.pool == "cls":
-            vision_emb = hidden_state[:, 0, :].ravel()
-        elif self.pool == "mean":
-            vision_emb = hidden_state.mean(axis=1).ravel()
-        else:
-            assert False
+        # if self.pool == "cls":
+        #     vision_emb = hidden_state[:, 0, :].ravel()
+        # elif self.pool == "mean":
+        #     vision_emb = hidden_state.mean(axis=1).ravel()
+        # else:
+        #     assert False
 
-        assert_shape(vision_emb, (3 * 1024,))
+        match self.pool:
+            case "cls":
+                vision_emb = hidden_state[:, 0, :].ravel()
+
+                assert_shape(vision_emb, (3 * 1024,))
+            case "mean":
+                vision_emb = hidden_state.mean(axis=1).ravel()
+
+                assert_shape(vision_emb, (3 * 1024,))
+            case "both":
+                cls_tokens = hidden_state[:, 0, :]
+                patch_tokens = hidden_state[:, 1:, :].mean(axis=1)
+
+                vision_emb = jnp.stack([cls_tokens, patch_tokens], axis=1)
+
+                assert_shape(vision_emb, (3, 2, 1024))
+
+                vision_emb = vision_emb.ravel()
 
         vision_emb = jax.lax.stop_gradient(vision_emb)
 

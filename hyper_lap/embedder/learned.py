@@ -9,7 +9,7 @@ class LearnedEmbedding(eqx.Module):
 
     embedding: nn.Embedding
 
-    def __init__(self, num_datasets: int, emb_size: int, *, key: PRNGKeyArray):
+    def __init__(self, emb_size: int, num_datasets: int, *, key: PRNGKeyArray):
         super().__init__()
 
         self.emb_size = emb_size
