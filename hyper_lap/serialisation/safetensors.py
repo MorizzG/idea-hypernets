@@ -16,7 +16,16 @@ import jax.tree as jt
 from safetensors import safe_open
 from safetensors.flax import save_file
 
-from .utils import as_path
+
+def as_path(path: str | Path):
+    if isinstance(path, Path):
+        pass
+    elif isinstance(path, str):
+        path = Path(path)
+    else:
+        raise ValueError(f"invalid path {path}")
+
+    return path
 
 
 def load_file(filename: str | Path, strip_prefix: Optional[str] = None):
