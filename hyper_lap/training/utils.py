@@ -1,4 +1,4 @@
-from jaxtyping import Array
+from jaxtyping import Array, PyTree
 from typing import Any, Literal
 
 import json
@@ -8,7 +8,9 @@ from pathlib import Path
 from time import time
 
 import equinox as eqx
+import jax.numpy as jnp
 import jax.random as jr
+import jax.tree as jt
 import numpy as np
 import optax
 import PIL.Image as Image
@@ -218,7 +220,8 @@ def make_dataloaders(
             raise ValueError(f"Invalid dataset {dataset}")
 
     assert trainsets.keys() == valsets.keys(), (
-        f"trainsets and valsets have different keys: {', '.join(trainsets.keys())} vs {', '.join(valsets.keys())}"
+        "trainsets and valsets have different keys: "
+        f"{', '.join(trainsets.keys())} vs {', '.join(valsets.keys())}"
     )
 
     if not set(trainset_names) <= trainsets.keys():
@@ -389,3 +392,10 @@ def load_model_artifact(name: str) -> tuple[dict, Path]:
         config = json.load(f)
 
     return config, weights_path
+
+
+def global_norm(updates: PyTree) -> Array:
+    """Compute the global norm across a nested structure of tensors."""
+    # return jnp.sqrt(sum(jnp.sum(x**2) for x in jt.leaves(updates)))
+
+    return jnp.sqrt(jt.reduce(lambda c, x: c + jnp.sum(x**2), updates, jnp.array(0.0)))

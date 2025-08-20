@@ -22,7 +22,6 @@ from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
     make_dataloaders,
-    make_lr_schedule,
     parse_args,
     print_config,
 )
@@ -83,6 +82,7 @@ def main():
                 "lr": MISSING,
                 "scheduler": "cosine",
                 "epochs": "${epochs}",
+                "grad_clip": None,
             },
             "film_unet": {
                 "base_channels": 8,
@@ -165,8 +165,6 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(len(train_loader), **config.optim)
-
     embedder = InputEmbedder(
         num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
     )
@@ -177,8 +175,8 @@ def main():
         training_step,
         train_loader,
         val_loader,
-        lr=lr_schedule,
-        epoch=first_epoch,
+        optim_config=config.optim,
+        first_epoch=first_epoch,
     )
 
     for _ in trange(config.epochs):

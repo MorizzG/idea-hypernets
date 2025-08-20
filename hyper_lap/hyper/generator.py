@@ -1,6 +1,6 @@
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from abc import ABC
+from abc import ABC, abstractmethod
 
 import equinox as eqx
 import equinox.nn as nn
@@ -11,6 +11,7 @@ from chex import assert_shape
 
 
 class Conv2dGeneratorABC(ABC):
+    @abstractmethod
     def __call__(self, emb: Float[Array, " emb_size"]) -> Float[Array, "c_out c_in k k"]: ...
 
 

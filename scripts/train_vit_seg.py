@@ -13,7 +13,6 @@ from omegaconf import MISSING, OmegaConf
 from optax import OptState, global_norm
 from tqdm import tqdm, trange
 
-from hyper_lap.datasets import Dataset
 from hyper_lap.embedder import InputEmbedder
 from hyper_lap.models import VitSegmentator
 from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
@@ -22,7 +21,6 @@ from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
     make_dataloaders,
-    make_lr_schedule,
     parse_args,
     print_config,
 )
@@ -39,7 +37,6 @@ def training_step(
 ) -> tuple[VitSegmentator, InputEmbedder | None, OptState, dict[str, Any]]:
     images = batch["image"]
     labels = batch["label"]
-    dataset_idx = batch["dataset_idx"]
 
     def grad_fn(vit_seg: VitSegmentator) -> Array:
         logits = jax.vmap(vit_seg)(images)
@@ -78,6 +75,7 @@ def main():
                 "lr": MISSING,
                 "scheduler": "cosine",
                 "epochs": "${epochs}",
+                "grad_clip": None,
             },
             "vit_seg": {
                 "image_size": 336,
@@ -158,16 +156,14 @@ def main():
         num_workers=args.num_workers,
     )
 
-    lr_schedule = make_lr_schedule(len(train_loader), **config.optim)
-
     trainer: Trainer = Trainer(
         vit_seg,
         None,
         training_step,
         train_loader,
         val_loader,
-        lr=lr_schedule,
-        epoch=first_epoch,
+        optim_config=config.optim,
+        first_epoch=first_epoch,
     )
 
     for _ in trange(config.epochs):

@@ -47,6 +47,8 @@ dev-dependencies = [
     "jupyter>=1.1.1",
     "ipywidgets>=8.1.5",
     "polars>=1.30.0",
+    "pyrefly>=0.29.0",
+    "ty>=0.0.1a19",
 ]
 
 [[tool.uv.index]]

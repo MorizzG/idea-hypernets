@@ -24,7 +24,7 @@ from hyper_lap.embedder import InputEmbedder
 from hyper_lap.hyper import AttnHyperNet, HyperNet
 from hyper_lap.models import AttentionUnet, FilmUnet, Unet, VitSegmentator
 from hyper_lap.training.loss import loss_fn
-from hyper_lap.training.utils import to_PIL
+from hyper_lap.training.utils import make_lr_schedule, to_PIL
 
 from .metrics import calc_metrics
 
@@ -37,7 +37,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
     epoch: int
 
-    lr: float | optax.Schedule
+    lr_schedule: optax.Schedule
 
     opt: GradientTransformation
     opt_state: OptState
@@ -46,6 +46,8 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
     val_loader: MultiDataLoader
 
     training_step: TrainingStep
+
+    _get_step: Callable[[], int]
 
     @staticmethod
     def net_forward(
@@ -103,17 +105,33 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
         train_loader: MultiDataLoader,
         val_loader: MultiDataLoader,
         *,
-        epoch: int = 0,
-        lr: float | optax.Schedule,
+        first_epoch: int = 0,
+        optim_config: dict[str, Any],
     ):
         super().__init__()
 
         # epoch gets incremented at start of train, so set to one less of start value
-        self.epoch = epoch - 1
+        self.epoch = first_epoch - 1
 
-        self.lr = lr
+        lr_schedule = make_lr_schedule(
+            len(train_loader),
+            lr=optim_config["lr"],
+            epochs=optim_config["epochs"],
+            scheduler=optim_config["scheduler"],
+        )
 
-        self.opt = optax.adamw(self.lr)
+        self.lr_schedule = lr_schedule
+
+        if optim_config["grad_clip"] is not None:
+            self.opt = optax.chain(
+                optax.clip_by_global_norm(optim_config["grad_clip"]), optax.adamw(self.lr_schedule)
+            )
+
+            self._get_step = lambda: self.opt_state[1][2].count  # type: ignore
+        else:
+            self.opt = optax.adamw(self.lr_schedule)
+
+            self._get_step = lambda: self.opt_state[2].count  # type: ignore
 
         if input_embedder is not None:
             self.opt_state = self.opt.init(eqx.filter((net, input_embedder), eqx.is_array_like))
@@ -127,10 +145,14 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
     @property
     def learning_rate(self) -> float:
-        if isinstance(self.lr, float):
-            return self.lr
+        if isinstance(self.lr_schedule, float):
+            return self.lr_schedule
 
-        return float(self.lr(self.opt_state[2].count))  # type: ignore
+        # return float(self.lr(self.opt_state[2].count))  # type: ignore
+
+        # return float(self.lr(self._cur_step))  # type: ignore
+
+        return float(self.lr_schedule(self._get_step()))  # type: ignore
 
     @overload
     def train(
