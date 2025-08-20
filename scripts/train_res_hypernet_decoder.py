@@ -12,11 +12,12 @@ import numpy as np
 import optax
 import wandb
 from omegaconf import MISSING, OmegaConf
-from optax import OptState
+from optax import OptState, global_norm
 from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
-from hyper_lap.hyper import HyperNet, InputEmbedder
+from hyper_lap.embedder import InputEmbedder
+from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
@@ -71,6 +72,8 @@ def training_step(
         return loss, aux
 
     (loss, aux), grads = eqx.filter_value_and_grad(grad_fn, has_aux=True)((hypernet, embedder))
+
+    aux["grad_norm"] = global_norm(grads)  # type: ignore
 
     updates, opt_state = opt.update(grads, opt_state, (hypernet, embedder))  # type: ignore
 
@@ -276,11 +279,13 @@ def main():
                     "loss/train/std": np.std(aux["loss"]),
                     "reg_loss/train/mean": np.mean(aux["reg_loss"]),
                     "reg_loss/train/std": np.std(aux["reg_loss"]),
+                    "grad_norm": np.mean(aux["grad_norm"]),
                 }
             )
         else:
             tqdm.write(f"Loss:      {np.mean(aux['loss']):.3}")
             tqdm.write(f"Reg. Loss: {np.mean(aux['reg_loss']):.3}")
+            tqdm.write(f"Grad Norm: {np.mean(aux['grad_norm']):.3}")
             tqdm.write("")
 
         trainer.validate(hypernet, embedder)

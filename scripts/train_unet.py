@@ -10,7 +10,7 @@ import numpy as np
 import optax
 import wandb
 from omegaconf import MISSING, OmegaConf
-from optax import OptState
+from optax import OptState, global_norm
 from tqdm import tqdm, trange
 
 from hyper_lap.models import Unet
@@ -47,7 +47,10 @@ def training_step(
 
     loss, grads = eqx.filter_value_and_grad(grad_fn)(unet)
 
-    aux = {"loss": loss}
+    aux = {
+        "loss": loss,
+        "grad_norm": global_norm(grads),  # type: ignore,
+    }
 
     updates, opt_state = opt.update(grads, opt_state, unet)  # type: ignore
 
@@ -166,10 +169,13 @@ def main():
                     "epoch": trainer.epoch,
                     "loss/train/mean": np.mean(aux["loss"]),
                     "loss/train/std": np.std(aux["loss"]),
+                    "grad_norm": np.mean(aux["grad_norm"]),
                 }
             )
         else:
-            tqdm.write(f"Loss: {np.mean(aux['loss']):.3}")
+            tqdm.write(f"Loss:      {np.mean(aux['loss']):.3}")
+            tqdm.write(f"Grad Norm: {np.mean(aux['grad_norm']):.3}")
+            tqdm.write("")
 
         trainer.validate(unet, None)
 
