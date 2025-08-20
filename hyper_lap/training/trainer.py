@@ -23,6 +23,7 @@ from hyper_lap.datasets.base import Dataset
 from hyper_lap.embedder import InputEmbedder
 from hyper_lap.hyper import AttnHyperNet, HyperNet
 from hyper_lap.models import AttentionUnet, FilmUnet, Unet, VitSegmentator
+from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.utils import to_PIL
 
 from .metrics import calc_metrics
@@ -178,6 +179,8 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
         all_metrics: dict[str, dict[str, Array]] = {}
 
+        losses = []
+
         for i, dataloader in enumerate(self.val_loader.dataloaders):
             dataset_name: str = dataloader.dataset.name  # type: ignore
             dataset_idx = jnp.array(i)
@@ -199,17 +202,24 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
             all_metrics[dataset_name] = metrics
 
+            loss = jax.jit(jax.vmap(loss_fn))(logits, labels).mean()
+
+            losses.append(loss.item())
+
         if wandb.run is not None:
             wandb.run.log(
                 {
                     "epoch": self.epoch,
+                    "loss/validation/mean": np.mean(losses),
                 }
                 | {
-                    f"{metric}/{dataset_name}": val.item()
+                    f"{metric}/{dataset_name}": metrics[metric]
                     for dataset_name, metrics in all_metrics.items()
-                    for metric, val in metrics.items()
+                    for metric in ["dice", "iou", "hausdorff"]
                 }
             )
+        else:
+            tqdm.write(f"Validation loss: {np.mean(losses):.3}")
 
         tqdm.write("")
 
