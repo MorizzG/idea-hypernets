@@ -376,7 +376,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
         multi_dataloader = MultiDataLoader(
             *datasets,
             num_samples=100,
-            dataloader_args=dict(batch_size=100, num_workers=8),
+            dataloader_args=dict(batch_size=100),
         )
 
         samples = {
@@ -385,7 +385,8 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
         }
 
         embs = {
-            name: embedder_jit(X["image"], X["label"], jnp.array(-1)) for name, X in samples.items()
+            name: embedder_jit(X["image"], X["label"], jnp.array(i))
+            for i, (name, X) in enumerate(samples.items())
         }
 
         umap = UMAP()

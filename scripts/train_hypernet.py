@@ -199,7 +199,7 @@ def main():
                 }
             )
         else:
-            tqdm.write(f"lr: {trainer.learning_rate:.3}")
+            tqdm.write(f"lr: {trainer.learning_rate:e.2}")
 
         hypernet, embedder, aux = trainer.train(hypernet, embedder)
 
