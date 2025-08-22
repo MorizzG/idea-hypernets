@@ -70,7 +70,7 @@ class Args:
     wandb: bool
     no_umap: bool
 
-    num_workers: int
+    num_workers: int | None
 
     run_name: str | None
 
@@ -101,10 +101,7 @@ def parse_args() -> tuple[Args, DictConfig]:
     parser.add_argument("--no-umap", action="store_true", help="Disable Umap generation")
 
     parser.add_argument(
-        "--num-workers",
-        type=int,
-        default=DEFAULT_NUM_WORKERS,
-        help="Number of dataloader worker threads",
+        "--num-workers", type=int, default=None, help="Number of dataloader worker threads"
     )
 
     parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
@@ -215,9 +212,14 @@ def make_dataloaders(
     testset_name: str | None,
     *,
     batch_size: int,
-    num_workers: int,
+    num_workers: int | None,
     degenerate: bool = False,
 ) -> tuple[MultiDataLoader, MultiDataLoader, DataLoader | None]:
+    if num_workers is None:
+        # maximum of 16 total workers, but at least 2 per dataset
+        # caps out a 6 datasets, at which point the sampling should be well-distributed enough
+        num_workers = max(2, 16 // len(trainset_names))
+
     match dataset:
         case "amos":
             trainsets = load_amos_datasets("train")
