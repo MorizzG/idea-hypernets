@@ -1,6 +1,7 @@
 from jaxtyping import Array, Float, Integer
 from typing import Any, Callable, overload
 
+import itertools
 import shutil
 from pathlib import Path
 
@@ -36,6 +37,8 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
     opt: GradientTransformation
     opt_state: OptState
 
+    grad_accu: int
+
     train_loader: MultiDataLoader
     val_loader: MultiDataLoader
 
@@ -62,17 +65,19 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
     def training_step(
         net: Net,
         embedder: InputEmbedder | None,
-        batch: dict[str, Array],
+        batches: list[dict[str, Array]],
         opt: optax.GradientTransformation,
         opt_state: OptState,
     ) -> tuple[Net, InputEmbedder | None, OptState, dict[str, Any]]:
-        images = batch["image"]
-        labels = batch["label"]
-        dataset_idx = batch["dataset_idx"]
-
         net_embedder = (net, embedder)
 
-        def grad_fn(net_embedder: tuple[Net, InputEmbedder | None]) -> Array:
+        @eqx.filter_value_and_grad
+        def grad_fn(
+            net_embedder: tuple[Net, InputEmbedder | None],
+            images: Array,
+            labels: Array,
+            dataset_idx: Array,
+        ) -> Array:
             (net, embedder) = net_embedder
 
             logits = Trainer.net_forward(net, embedder, images, labels, dataset_idx)
@@ -81,7 +86,26 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
             return loss
 
-        loss, grads = eqx.filter_value_and_grad(grad_fn)(net_embedder)
+        images = batches[0]["image"]
+        labels = batches[0]["label"]
+        dataset_idx = batches[0]["dataset_idx"]
+
+        loss, grads = grad_fn(net_embedder, images, labels, dataset_idx)
+
+        for batch in batches[1:]:
+            images = batch["image"]
+            labels = batch["label"]
+            dataset_idx = batch["dataset_idx"]
+
+            next_loss, next_grads = grad_fn(net_embedder, images, labels, dataset_idx)
+
+            loss += next_loss
+            grads = jt.map(jnp.add, grads, next_grads)
+
+        n_batches = len(batches)
+
+        loss /= n_batches
+        grads = jt.map(lambda x: x / n_batches, grads)
 
         updates, opt_state = opt.update(grads, opt_state, net_embedder)  # type: ignore
 
@@ -104,11 +128,17 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
         *,
         first_epoch: int = 0,
         optim_config: dict[str, Any],
+        grad_accu: int,
     ):
         super().__init__()
 
+        if grad_accu < 1:
+            raise ValueError(f"grad_accu must be at least 1, but is {grad_accu}")
+
         # epoch gets incremented at start of train, so set to one less of start value
         self.epoch = first_epoch - 1
+
+        self.grad_accu = grad_accu
 
         lr_schedule = make_lr_schedule(
             len(train_loader),
@@ -155,11 +185,11 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
         auxs: list[dict[str, Any]] = []
 
-        for batch_tensor in tqdm(self.train_loader, leave=False):
-            batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
+        for batch_tensor in itertools.batched(tqdm(self.train_loader, leave=False), self.grad_accu):
+            batches: list[dict[str, Array]] = jt.map(jnp.asarray, list(batch_tensor))
 
             net, embedder, self.opt_state, aux = eqx.filter_jit(self.training_step)(
-                net, embedder, batch, self.opt, self.opt_state
+                net, embedder, batches, self.opt, self.opt_state
             )
 
             auxs.append(aux)

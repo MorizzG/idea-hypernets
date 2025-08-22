@@ -106,6 +106,7 @@ def main():
         val_loader,
         optim_config=config.optim,
         first_epoch=first_epoch,
+        grad_accu=config.grad_accu,
     )
 
     for _ in trange(config.epochs):
