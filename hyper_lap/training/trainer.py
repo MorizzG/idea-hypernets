@@ -199,7 +199,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
             images = batch["image"]
             labels = batch["label"]
-            dataset_idx = batch["dataset_idx"]
+            dataset_idx = jnp.array(i)
 
             logits = Trainer.net_forward(net, embedder, images, labels, dataset_idx)
 
