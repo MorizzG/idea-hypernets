@@ -158,4 +158,6 @@ def main():
 
 
 if __name__ == "__main__":
+    vit_seg: VitSegmentator
+
     main()

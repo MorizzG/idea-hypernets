@@ -19,7 +19,7 @@ from hyper_lap.training.utils import (
 
 
 def main():
-    global model_name
+    global film_unet
 
     base_config = OmegaConf.create(
         {
@@ -178,4 +178,6 @@ def main():
 
 
 if __name__ == "__main__":
+    film_unet: FilmUnet
+
     main()

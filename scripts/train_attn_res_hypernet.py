@@ -196,4 +196,6 @@ def main():
 
 
 if __name__ == "__main__":
+    hypernet: AttnHyperNet
+
     main()
