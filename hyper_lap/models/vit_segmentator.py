@@ -178,10 +178,12 @@ class VitSegmentator(eqx.Module):
 
         self.transformer = Encoder(depth, d_model, num_heads, dim_head, key=transformer_key)
 
-    def __call__(self, img: Float[Array, "c h w"]) -> Float[Array, "c h w"]:
-        assert_shape(img, (self.in_channels, self.h, self.w))
+    def __call__(
+        self, x: Float[Array, "c_in h w"], input_emb: Array | None = None
+    ) -> Float[Array, "c h w"]:
+        assert_shape(x, (self.in_channels, self.h, self.w))
 
-        x = self.patch_encoder(img)
+        x = self.patch_encoder(x)
 
         x = self.transformer(x)
 

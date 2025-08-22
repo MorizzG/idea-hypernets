@@ -26,38 +26,6 @@ from hyper_lap.training.utils import (
 )
 
 
-@eqx.filter_jit
-def training_step(
-    unet: Unet,
-    _input_embedder: Any,
-    batch: dict[str, Array],
-    opt: optax.GradientTransformation,
-    opt_state: OptState,
-) -> tuple[Unet, None, OptState, dict[str, Any]]:
-    images = batch["image"]
-    labels = batch["label"]
-
-    def grad_fn(unet: Unet) -> Array:
-        logits = jax.vmap(unet)(images)
-
-        loss = jax.vmap(loss_fn)(logits, labels).mean()
-
-        return loss
-
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(unet)
-
-    aux = {
-        "loss": loss,
-        "grad_norm": global_norm(grads),  # type: ignore,
-    }
-
-    updates, opt_state = opt.update(grads, opt_state, unet)  # type: ignore
-
-    unet = eqx.apply_updates(unet, updates)
-
-    return unet, None, opt_state, aux
-
-
 def main():
     global model_name
 
@@ -147,7 +115,6 @@ def main():
     trainer: Trainer[Unet] = Trainer(
         unet,
         None,
-        training_step,
         train_loader,
         val_loader,
         optim_config=config.optim,

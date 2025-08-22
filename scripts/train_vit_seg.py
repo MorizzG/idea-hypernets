@@ -26,39 +26,6 @@ from hyper_lap.training.utils import (
 )
 
 
-@eqx.filter_jit
-@eqx.debug.assert_max_traces(max_traces=3)
-def training_step(
-    vit_seg: VitSegmentator,
-    _embedder: InputEmbedder | None,
-    batch: dict[str, Array],
-    opt: optax.GradientTransformation,
-    opt_state: OptState,
-) -> tuple[VitSegmentator, InputEmbedder | None, OptState, dict[str, Any]]:
-    images = batch["image"]
-    labels = batch["label"]
-
-    def grad_fn(vit_seg: VitSegmentator) -> Array:
-        logits = jax.vmap(vit_seg)(images)
-
-        loss = jax.vmap(loss_fn)(logits, labels).mean()
-
-        return loss
-
-    loss, grads = eqx.filter_value_and_grad(grad_fn)(vit_seg)
-
-    aux = {
-        "loss": loss,
-        "grad_norm": global_norm(grads),  # type: ignore,
-    }
-
-    updates, opt_state = opt.update(grads, opt_state, vit_seg)  # type: ignore
-
-    vit_seg = eqx.apply_updates(vit_seg, updates)
-
-    return vit_seg, _embedder, opt_state, aux
-
-
 def main():
     global vit_seg
 
@@ -159,7 +126,6 @@ def main():
     trainer: Trainer = Trainer(
         vit_seg,
         None,
-        training_step,
         train_loader,
         val_loader,
         optim_config=config.optim,

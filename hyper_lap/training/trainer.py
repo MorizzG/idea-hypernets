@@ -13,7 +13,7 @@ import optax
 import wandb
 from chex import assert_axis_dimension, assert_equal_shape_suffix, assert_rank
 from matplotlib import pyplot as plt
-from optax import GradientTransformation, OptState
+from optax import GradientTransformation, OptState, global_norm
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
@@ -30,11 +30,6 @@ from .metrics import calc_metrics
 
 
 class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | VitSegmentator]:
-    type TrainingStep = Callable[
-        [Net, InputEmbedder | None, dict[str, Array], GradientTransformation, OptState],
-        tuple[Net, InputEmbedder | None, OptState, dict[str, Any]],
-    ]
-
     epoch: int
 
     lr_schedule: optax.Schedule
@@ -45,63 +40,66 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
     train_loader: MultiDataLoader
     val_loader: MultiDataLoader
 
-    training_step: TrainingStep
-
     _get_step: Callable[[], int]
 
     @staticmethod
+    @eqx.filter_jit
     def net_forward(
         net: Net,
-        input_embedder: InputEmbedder | None,
-        images: Float[Array, "*b c h w"],
-        labels: Integer[Array, "*b h w"],
+        embedder: InputEmbedder | None,
+        images: Float[Array, "b c h w"],
+        labels: Integer[Array, "b h w"],
         dataset_idx: Integer[Array, ""],
     ) -> Array:
-        if images.ndim == 3 and labels.ndim == 2:
-            # unbatched
-
-            images = jnp.expand_dims(images, 0)
-            labels = jnp.expand_dims(labels, 0)
-
-            logits = Trainer.net_forward(net, input_embedder, images, labels, dataset_idx)
-
-            assert_axis_dimension(logits, 0, 1)
-
-            return logits[0, ...]
-
-        assert images.ndim == 4 and labels.ndim == 3
-
-        assert_rank(images, 4)
-        assert_rank(labels, 3)
-
-        assert_equal_shape_suffix([images, labels], 2)
-
-        if isinstance(net, (Unet, VitSegmentator)):
-            return eqx.filter_jit(eqx.filter_vmap(net))(images)
-        elif isinstance(net, (HyperNet, AttnHyperNet)):
-            assert input_embedder is not None
-
-            input_emb = input_embedder(images[0], labels[0], dataset_idx)
-
-            # unet = eqx.filter_jit(net)(input_emb)
-
-            # return eqx.filter_jit(eqx.filter_vmap(unet))(images)
-
-            return jax.jit(jax.vmap(net, in_axes=(0, None)))(images, input_emb)
-        elif isinstance(net, FilmUnet):
-            assert input_embedder is not None
-
-            cond_emb = input_embedder(images[0], labels[0], dataset_idx)
-
-            return eqx.filter_jit(eqx.filter_vmap(net, in_axes=(0, None)))(images, cond_emb)
+        if embedder is not None:
+            input_emb = embedder(images[0], labels[0], dataset_idx)
         else:
-            raise ValueError(f"net has unexpected type {type(net)}")
+            input_emb = None
+
+        return jax.vmap(net, in_axes=(0, None))(images, input_emb)
+
+    @staticmethod
+    @eqx.filter_jit
+    def training_step(
+        net: Net,
+        embedder: InputEmbedder | None,
+        batch: dict[str, Array],
+        opt: optax.GradientTransformation,
+        opt_state: OptState,
+    ) -> tuple[Net, InputEmbedder | None, OptState, dict[str, Any]]:
+        images = batch["image"]
+        labels = batch["label"]
+        dataset_idx = batch["dataset_idx"]
+
+        net_embedder = (net, embedder)
+
+        def grad_fn(net_embedder: tuple[Net, InputEmbedder | None]) -> Array:
+            (net, embedder) = net_embedder
+
+            logits = Trainer.net_forward(net, embedder, images, labels, dataset_idx)
+
+            loss = jax.vmap(loss_fn)(logits, labels).mean()
+
+            return loss
+
+        loss, grads = eqx.filter_value_and_grad(grad_fn)(net_embedder)
+
+        updates, opt_state = opt.update(grads, opt_state, net_embedder)  # type: ignore
+
+        (net, embedder) = eqx.apply_updates(net_embedder, updates)
+
+        aux = {
+            "loss": loss,
+            "grad_norm": global_norm(grads),  # type: ignore,
+            "update_norm": global_norm(updates),  # type: ignore
+        }
+
+        return net, embedder, opt_state, aux
 
     def __init__(
         self,
         net: Net,
-        input_embedder: InputEmbedder | None,
-        training_step: TrainingStep,
+        embedder: InputEmbedder | None,
         train_loader: MultiDataLoader,
         val_loader: MultiDataLoader,
         *,
@@ -133,24 +131,15 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
             self._get_step = lambda: self.opt_state[2].count  # type: ignore
 
-        if input_embedder is not None:
-            self.opt_state = self.opt.init(eqx.filter((net, input_embedder), eqx.is_array_like))
-        else:
-            self.opt_state = self.opt.init(eqx.filter(net, eqx.is_array_like))
+        self.opt_state = self.opt.init(eqx.filter((net, embedder), eqx.is_array_like))
 
         self.train_loader = train_loader
         self.val_loader = val_loader
-
-        self.training_step = training_step
 
     @property
     def learning_rate(self) -> float:
         if isinstance(self.lr_schedule, float):
             return self.lr_schedule
-
-        # return float(self.lr(self.opt_state[2].count))  # type: ignore
-
-        # return float(self.lr(self._cur_step))  # type: ignore
 
         return float(self.lr_schedule(self._get_step()))  # type: ignore
 
@@ -174,7 +163,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
         for batch_tensor in tqdm(self.train_loader, leave=False):
             batch: dict[str, Array] = jt.map(jnp.asarray, batch_tensor)
 
-            net, embedder, self.opt_state, aux = self.training_step(
+            net, embedder, self.opt_state, aux = eqx.filter_jit(self.training_step)(
                 net, embedder, batch, self.opt, self.opt_state
             )
 
@@ -196,7 +185,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
         return net, embedder, aux
 
-    def validate(self, net: Net, input_embedder: InputEmbedder | None):
+    def validate(self, net: Net, embedder: InputEmbedder | None):
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
         all_metrics: dict[str, dict[str, Array]] = {}
@@ -205,14 +194,14 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
         for i, dataloader in enumerate(self.val_loader.dataloaders):
             dataset_name: str = dataloader.dataset.name  # type: ignore
-            dataset_idx = jnp.array(i)
 
             batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
             images = batch["image"]
             labels = batch["label"]
+            dataset_idx = batch["dataset_idx"]
 
-            logits = self.net_forward(net, input_embedder, images, labels, dataset_idx)
+            logits = Trainer.net_forward(net, embedder, images, labels, dataset_idx)
 
             metrics = calc_metrics(logits, labels)
 
@@ -248,7 +237,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
     def make_plots(
         self,
         net: Net,
-        input_embedder: InputEmbedder | None,
+        embedder: InputEmbedder | None,
         test_loader: DataLoader | None,
         *,
         image_folder: Path,
@@ -258,23 +247,19 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
         image_folder.mkdir(parents=True)
 
-        for i, (dataset, dataloader) in enumerate(
-            zip(self.val_loader.datasets, self.val_loader.dataloaders)
-        ):
-            print(f"Dataset {dataset.name}")
-            print()
-
-            batch = jt.map(jnp.asarray, next(iter(dataloader)))
-
+        def make_images(batch: dict[str, Array], *, dataset_name: str, test: bool = False):
             images = batch["image"]
             labels = batch["label"]
             dataset_idx = jnp.array(i)
 
+            logits = self.net_forward(net, embedder, images, labels, dataset_idx)
+
+            metrics = calc_metrics(logits, labels)
+
             image = images[1]
             label = labels[1]
 
-            logits = self.net_forward(net, input_embedder, image, label, dataset_idx)
-            pred = jnp.argmax(logits, axis=0)
+            pred = jnp.argmax(logits[1], axis=0)
 
             fig, axs = plt.subplots(ncols=3)
 
@@ -282,7 +267,18 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
             axs[1].imshow(label, cmap="gray")
             axs[2].imshow(pred, cmap="gray")
 
-            fig.savefig(image_folder / f"{dataset.name}.pdf")
+            fig.savefig(image_folder / f"{dataset_name}{'_test' if test else ''}.pdf")
+            if not test:
+                print(f"Dataset {dataset_name}:")
+            else:
+                print(f"Test Dataset {dataset_name}:")
+
+            print(f"    Dice score: {metrics['dice']:.3f}")
+            print(f"    IoU score : {metrics['iou']:.3f}")
+            print(f"    Hausdorff : {metrics['hausdorff']:.3f}")
+
+            print()
+            print()
 
             if wandb.run is not None:
                 class_labels = {0: "background", 1: "foreground"}
@@ -295,80 +291,44 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
                             "mask_data": np.asarray(label),
                             "class_labels": class_labels,
                         },
-                        "prediction": {"mask_data": np.asarray(pred), "class_labels": class_labels},
+                        "prediction": {
+                            "mask_data": np.asarray(pred),
+                            "class_labels": class_labels,
+                        },
                     },
                 )
 
-                wandb.run.log({f"images/train/{dataset.name}": image})
+                if not test:
+                    wandb.run.log({f"images/train/{dataset_name}": image})
+                else:
+                    wandb.run.log({f"images/test/{dataset_name}": image})
 
-            logits = self.net_forward(net, input_embedder, images, labels, dataset_idx)
+        for i, (dataset, dataloader) in enumerate(
+            zip(self.val_loader.datasets, self.val_loader.dataloaders)
+        ):
+            batch = jt.map(jnp.asarray, next(iter(dataloader)))
 
-            metrics = calc_metrics(logits, labels)
-
-            print(f"Dataset {dataset.name}:")
-            print(f"    Dice score: {metrics['dice']:.3f}")
-            print(f"    IoU score : {metrics['iou']:.3f}")
-            print(f"    Hausdorff : {metrics['hausdorff']:.3f}")
-
-            print()
-            print()
+            make_images(batch, dataset_name=dataset.name)
 
         if test_loader is None:
+            print("no test loader")
+
             return
 
         assert isinstance(test_loader.dataset, Dataset)
 
-        print()
-        print()
-        print(f"Test: {test_loader.dataset.name}")
-        print()
+        print(f"{test_loader.dataset.name=}")
 
         batch = jt.map(jnp.asarray, next(iter(test_loader)))
 
-        logits = self.net_forward(
-            net, input_embedder, batch["image"], batch["label"], jnp.array(-1)
-        )
-
-        metrics = calc_metrics(logits, batch["label"])
-
-        print(f"Dice score: {metrics['dice']:.3f}")
-        print(f"IoU score : {metrics['iou']:.3f}")
-        print(f"Hausdorff : {metrics['hausdorff']:.3f}")
-
-        image = jnp.asarray(batch["image"][1])
-        label = jnp.asarray(batch["label"][1])
-
-        logits = self.net_forward(net, input_embedder, image, label, jnp.array(-1))
-        pred = jnp.argmax(logits, axis=0)
-
-        fig, axs = plt.subplots(ncols=3)
-
-        axs[0].imshow(image.mean(axis=0), cmap="gray")
-        axs[1].imshow(label, cmap="gray")
-        axs[2].imshow(pred, cmap="gray")
-
-        fig.savefig(image_folder / f"{test_loader.dataset.name}_test.pdf")
-
-        if wandb.run is not None:
-            class_labels = {0: "background", 1: "foreground"}
-
-            image = wandb.Image(
-                to_PIL(image),
-                caption="Input image",
-                masks={
-                    "ground_truth": {"mask_data": np.asarray(label), "class_labels": class_labels},
-                    "prediction": {"mask_data": np.asarray(pred), "class_labels": class_labels},
-                },
-            )
-
-            wandb.run.log({f"images/test/{test_loader.dataset.name}": image})
+        make_images(batch, dataset_name=f"{test_loader.dataset.name}", test=True)
 
     @staticmethod
     def make_umap(embedder: InputEmbedder, datasets: list[Dataset], image_folder: Path):
         if not image_folder.exists():
             image_folder.mkdir(parents=True)
 
-        embedder_jit = eqx.filter_jit(eqx.filter_vmap(embedder, in_axes=(0, 0, None)))
+        embedder_jit = jax.jit(jax.vmap(embedder, in_axes=(0, 0, None)))
 
         for dataset in datasets:
             assert isinstance(dataset, Dataset)

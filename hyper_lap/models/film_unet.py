@@ -74,14 +74,13 @@ class FilmUnet(eqx.Module):
         self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
 
     def __call__(
-        self,
-        x: Float[Array, "c_in h w"],
-        cond: Array,
-        *,
-        key: Optional[PRNGKeyArray] = None,
+        self, x: Float[Array, "c_in h w"], input_emb: Array | None = None
     ) -> Float[Array, "c_out h w"]:
+        if input_emb is None:
+            raise ValueError("input_emb can't be None in FilmUnet")
+
         x = self.init_conv(x)
-        x = self.unet(x, cond)
+        x = self.unet(x, input_emb)
         x = self.recomb(x)
         x = self.final_conv(x)
 

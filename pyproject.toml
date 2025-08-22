@@ -101,10 +101,12 @@ line-length = 100
 select = ["E", "F"]
 ignore = ["F722"]
 
-[tool.pyrefly]
-project-includes = ["**/*"]
-project-excludes = ["**/*venv/**/*"]
-
-
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+
+
+[tool.pyrefly]
+project-includes = ["hyper_lap", "scripts"]
+project-excludes = ["**/*venv/**/*"]
+
+replace-imports-with-any = ["wandb"]

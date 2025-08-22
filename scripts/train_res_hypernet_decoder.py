@@ -31,56 +31,6 @@ from hyper_lap.training.utils import (
 )
 
 
-@eqx.filter_jit
-def training_step(
-    hypernet: HyperNet,
-    embedder: InputEmbedder | None,
-    batch: dict[str, Array],
-    opt: optax.GradientTransformation,
-    opt_state: OptState,
-    *,
-    lamda: float,
-) -> tuple[HyperNet, InputEmbedder, OptState, dict[str, Any]]:
-    assert embedder is not None
-
-    images = batch["image"]
-    labels = batch["label"]
-    dataset_idx = batch["dataset_idx"]
-
-    def grad_fn(hypernet_embedder: tuple[HyperNet, InputEmbedder]) -> tuple[Array, dict[str, Any]]:
-        hypernet, input_embedder = hypernet_embedder
-
-        input_embedding = input_embedder(images[0], labels[0], dataset_idx)
-
-        model, aux = hypernet.generate(input_embedding, with_aux=True)
-
-        logits = jax.vmap(model)(images)
-
-        ce_loss = jax.vmap(loss_fn)(logits, labels).mean()
-
-        aux["ce_loss"] = ce_loss
-
-        reg_loss = aux["reg_loss"]
-
-        # jax.debug.print("loss={loss}, reg_loss={reg_loss}", loss=loss, reg_loss=reg_loss)
-
-        loss = ce_loss + lamda * reg_loss
-
-        aux["loss"] = loss
-
-        return loss, aux
-
-    (loss, aux), grads = eqx.filter_value_and_grad(grad_fn, has_aux=True)((hypernet, embedder))
-
-    aux["grad_norm"] = global_norm(grads)  # type: ignore
-
-    updates, opt_state = opt.update(grads, opt_state, (hypernet, embedder))  # type: ignore
-
-    (hypernet, embedder) = eqx.apply_updates((hypernet, embedder), updates)
-
-    return hypernet, embedder, opt_state, aux  # type: ignore
-
-
 def main():
     global hypernet
 
@@ -243,7 +193,6 @@ def main():
     trainer: Trainer[HyperNet] = Trainer(
         hypernet,
         embedder,
-        partial(training_step, lamda=config.lamda),
         train_loader,
         val_loader,
         optim_config=config.optim,
@@ -275,14 +224,11 @@ def main():
                     "epoch": trainer.epoch,
                     "loss/train/mean": np.mean(aux["loss"]),
                     "loss/train/std": np.std(aux["loss"]),
-                    "reg_loss/train/mean": np.mean(aux["reg_loss"]),
-                    "reg_loss/train/std": np.std(aux["reg_loss"]),
                     "grad_norm": np.mean(aux["grad_norm"]),
                 }
             )
         else:
             tqdm.write(f"Loss:      {np.mean(aux['loss']):.3}")
-            tqdm.write(f"Reg. Loss: {np.mean(aux['reg_loss']):.3}")
             tqdm.write(f"Grad Norm: {np.mean(aux['grad_norm']):.3}")
             tqdm.write("")
 

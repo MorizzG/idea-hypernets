@@ -18,6 +18,7 @@ import wandb
 import yaml
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from hyper_lap.datasets import (
     AmosSliced,
@@ -36,12 +37,18 @@ DEFAULT_NUM_WORKERS = 8
 
 
 class Timer:
-    def __init__(self, msg: str, pbar=None):
+    msg: str
+    pbar: tqdm | None
+    start_time: float | None
+
+    def __init__(self, msg: str, pbar: tqdm | None = None):
         super().__init__()
 
         self.msg = msg
 
         self.pbar = pbar
+
+        self.start_time = None
 
     def __enter__(self):
         self.start_time = time()
@@ -49,6 +56,8 @@ class Timer:
     def __exit__(self, exc_type, exc_value, traceback):
         end_time = time()
         start_time = self.start_time
+
+        assert start_time is not None
 
         if self.pbar:
             self.pbar.write(f"{self.msg}: {end_time - start_time:.2}s")

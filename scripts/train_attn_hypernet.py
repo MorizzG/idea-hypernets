@@ -29,45 +29,6 @@ from hyper_lap.training.utils import (
 )
 
 
-@eqx.filter_jit
-def training_step(
-    hypernet: AttnHyperNet,
-    embedder: InputEmbedder | None,
-    batch: dict[str, Array],
-    opt: optax.GradientTransformation,
-    opt_state: OptState,
-) -> tuple[AttnHyperNet, InputEmbedder, OptState, dict[str, Any]]:
-    assert embedder is not None
-
-    images = batch["image"]
-    labels = batch["label"]
-    dataset_idx = batch["dataset_idx"]
-
-    def grad_fn(hypernet_embedder: tuple[AttnHyperNet, InputEmbedder]) -> Array:
-        hypernet, input_embedder = hypernet_embedder
-
-        input_emb = input_embedder(images[0], labels[0], dataset_idx)
-
-        logits = jax.vmap(hypernet, in_axes=(0, None))(images, input_emb)
-
-        loss = jax.vmap(loss_fn)(logits, labels).mean()
-
-        return loss
-
-    loss, grads = eqx.filter_value_and_grad(grad_fn)((hypernet, embedder))
-
-    aux = {
-        "loss": loss,
-        "grad_norm": global_norm(grads),  # type: ignore,
-    }
-
-    updates, opt_state = opt.update(grads, opt_state, (hypernet, embedder))  # type: ignore
-
-    (hypernet, embedder) = eqx.apply_updates((hypernet, embedder), updates)
-
-    return hypernet, embedder, opt_state, aux  # type: ignore
-
-
 def main():
     global hypernet
 
@@ -186,7 +147,6 @@ def main():
     trainer: Trainer[AttnHyperNet] = Trainer(
         hypernet,
         embedder,
-        training_step,
         train_loader,
         val_loader,
         optim_config=config.optim,

@@ -27,45 +27,6 @@ from hyper_lap.training.utils import (
 )
 
 
-@eqx.filter_jit
-def training_step(
-    film_unet: FilmUnet,
-    embedder: InputEmbedder | None,
-    batch: dict[str, Array],
-    opt: optax.GradientTransformation,
-    opt_state: OptState,
-) -> tuple[FilmUnet, InputEmbedder, OptState, dict[str, Any]]:
-    assert embedder is not None
-
-    images = batch["image"]
-    labels = batch["label"]
-    dataset_idx = batch["dataset_idx"]
-
-    def grad_fn(film_unet_embedder: tuple[FilmUnet, InputEmbedder]) -> Array:
-        film_unet, embedder = film_unet_embedder
-
-        cond_emb = embedder(images[0], labels[0], dataset_idx)
-
-        logits = jax.vmap(film_unet, in_axes=(0, None))(images, cond_emb)
-
-        loss = jax.vmap(loss_fn)(logits, labels).mean()
-
-        return loss
-
-    loss, grads = eqx.filter_value_and_grad(grad_fn)((film_unet, embedder))
-
-    aux = {
-        "loss": loss,
-        "grad_norm": global_norm(grads),  # type: ignore,
-    }
-
-    updates, opt_state = opt.update(grads, opt_state, (film_unet, embedder))  # type: ignore
-
-    (film_unet, embedder) = eqx.apply_updates((film_unet, embedder), updates)
-
-    return film_unet, embedder, opt_state, aux  # type: ignore
-
-
 def main():
     global model_name
 
@@ -172,7 +133,6 @@ def main():
     trainer: Trainer[FilmUnet] = Trainer(
         film_unet,
         embedder,
-        training_step,
         train_loader,
         val_loader,
         optim_config=config.optim,

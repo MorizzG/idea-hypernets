@@ -1,4 +1,4 @@
-from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
+from jaxtyping import Array, Float, PRNGKeyArray, PyTree, Scalar
 from typing import Any, Literal, overload
 
 import equinox as eqx
@@ -411,5 +411,8 @@ class AttnHyperNet(eqx.Module):
 
         return logits
 
-    def __call__(self, x: Array, input_emb: Array) -> Array:
+    def __call__(self, x: Float[Array, "c_in h w"], input_emb: Array | None = None) -> Array:
+        if input_emb is None:
+            raise ValueError("input_emb can't be None in AttnHyperNet")
+
         return self.forward(x, input_emb)

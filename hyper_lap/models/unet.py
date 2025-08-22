@@ -67,7 +67,7 @@ class Unet(eqx.Module):
         self.final_conv = nn.Conv2d(base_channels, out_channels, 1, use_bias=False, key=final_key)
 
     def __call__(
-        self, x: Float[Array, "c_in h w"], *, key: Optional[PRNGKeyArray] = None
+        self, x: Float[Array, "c_in h w"], input_emb: Array | None = None
     ) -> Float[Array, "c_out h w"]:
         x = self.init_conv(x)
         x = self.unet(x)
