@@ -1,22 +1,15 @@
-from jaxtyping import Array
-from typing import Any
 
 from pathlib import Path
 
-import equinox as eqx
-import jax
 import jax.random as jr
 import numpy as np
-import optax
 import wandb
 from omegaconf import MISSING, OmegaConf
-from optax import OptState, global_norm
 from tqdm import tqdm, trange
 
 from hyper_lap.models import Unet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
-from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,

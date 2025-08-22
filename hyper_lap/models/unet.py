@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional, Sequence
+from typing import Sequence
 
 import equinox as eqx
 import equinox.nn as nn

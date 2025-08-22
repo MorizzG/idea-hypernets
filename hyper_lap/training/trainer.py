@@ -11,7 +11,6 @@ import jax.tree as jt
 import numpy as np
 import optax
 import wandb
-from chex import assert_axis_dimension, assert_equal_shape_suffix, assert_rank
 from matplotlib import pyplot as plt
 from optax import GradientTransformation, OptState, global_norm
 from torch.utils.data import DataLoader
