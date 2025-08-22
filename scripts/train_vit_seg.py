@@ -1,8 +1,6 @@
-
 from pathlib import Path
 
 import jax.random as jr
-import numpy as np
 import wandb
 from omegaconf import MISSING, OmegaConf
 from tqdm import tqdm, trange
@@ -135,21 +133,7 @@ def main():
                 }
             )
 
-        vit_seg, _, aux = trainer.train(vit_seg, None)
-
-        if wandb.run is not None:
-            wandb.run.log(
-                {
-                    "epoch": trainer.epoch,
-                    "loss/train/mean": np.mean(aux["loss"]),
-                    "loss/train/std": np.std(aux["loss"]),
-                    "grad_norm": np.mean(aux["grad_norm"]),
-                }
-            )
-        else:
-            tqdm.write(f"Loss:      {np.mean(aux['loss']):.3}")
-            tqdm.write(f"Grad Norm: {np.mean(aux['grad_norm']):.3}")
-            tqdm.write("")
+        vit_seg, _ = trainer.train(vit_seg, None)
 
         trainer.validate(vit_seg, None)
 

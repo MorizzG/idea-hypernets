@@ -1,8 +1,6 @@
-
 from pathlib import Path
 
 import jax.random as jr
-import numpy as np
 import wandb
 from omegaconf import MISSING, OmegaConf
 from tqdm import tqdm, trange
@@ -154,21 +152,7 @@ def main():
         else:
             tqdm.write(f"lr: {trainer.learning_rate:.2e}")
 
-        hypernet, embedder, aux = trainer.train(hypernet, embedder)
-
-        if wandb.run is not None:
-            wandb.run.log(
-                {
-                    "epoch": trainer.epoch,
-                    "loss/train/mean": np.mean(aux["loss"]),
-                    "loss/train/std": np.std(aux["loss"]),
-                    "grad_norm": np.mean(aux["grad_norm"]),
-                }
-            )
-        else:
-            tqdm.write(f"Loss:      {np.mean(aux['loss']):.3}")
-            tqdm.write(f"Grad Norm: {np.mean(aux['grad_norm']):.3}")
-            tqdm.write("")
+        hypernet, embedder = trainer.train(hypernet, embedder)
 
         trainer.validate(hypernet, embedder)
 

@@ -89,7 +89,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
         aux = {
             "loss": loss,
-            "grad_norm": global_norm(grads),  # type: ignore,
+            "grad_norm": global_norm(grads),  # type: ignore
             "update_norm": global_norm(updates),  # type: ignore
         }
 
@@ -143,16 +143,12 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
         return float(self.lr_schedule(self._get_step()))  # type: ignore
 
     @overload
-    def train(
-        self, net: Net, embedder: InputEmbedder
-    ) -> tuple[Net, InputEmbedder, dict[str, list[Any]]]: ...
+    def train(self, net: Net, embedder: InputEmbedder) -> tuple[Net, InputEmbedder]: ...
 
     @overload
-    def train(self, net: Net, embedder: None) -> tuple[Net, None, dict[str, list[Any]]]: ...
+    def train(self, net: Net, embedder: None) -> tuple[Net, None]: ...
 
-    def train(
-        self, net: Net, embedder: InputEmbedder | None
-    ) -> tuple[Net, InputEmbedder | None, dict[str, list[Any]]]:
+    def train(self, net: Net, embedder: InputEmbedder | None) -> tuple[Net, InputEmbedder | None]:
         self.epoch += 1
 
         tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
@@ -182,12 +178,27 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
 
         aux = {key: [try_unbox(aux[key]) for aux in auxs] for key in auxs[0].keys()}
 
-        return net, embedder, aux
+        if wandb.run is not None:
+            data: dict[str, Any] = {"epoch": self.epoch}
+
+            for key, value in aux.items():
+                if key == "loss":
+                    data["loss/train/mean"] = np.mean(aux["loss"])
+                    data["loss/train/std"] = np.std(aux["loss"])
+                else:
+                    data[key] = np.mean(value)
+
+            wandb.run.log(data)
+        else:
+            tqdm.write(f"Loss:        {np.mean(aux['loss']):.3}")
+            tqdm.write(f"Grad Norm:   {np.mean(aux['grad_norm']):.3}")
+            tqdm.write(f"Update Norm: {np.mean(aux['update_norm']):.3}")
+            tqdm.write("")
+
+        return net, embedder
 
     def validate(self, net: Net, embedder: InputEmbedder | None):
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
-
-        all_metrics: dict[str, dict[str, Array]] = {}
 
         losses = []
 
@@ -210,22 +221,22 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
             tqdm.write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
             tqdm.write("")
 
-            all_metrics[dataset_name] = metrics
-
             loss = jax.jit(jax.vmap(loss_fn))(logits, labels).mean()
 
             losses.append(loss.item())
+
+            if wandb.run is not None:
+                wandb.run.log(
+                    {f"{metric}/{dataset_name}": value for metric, value in metrics.items()},
+                    commit=False,
+                )
 
         if wandb.run is not None:
             wandb.run.log(
                 {
                     "epoch": self.epoch,
                     "loss/validation/mean": np.mean(losses),
-                }
-                | {
-                    f"{metric}/{dataset_name}": metrics[metric]
-                    for dataset_name, metrics in all_metrics.items()
-                    for metric in ["dice", "iou", "hausdorff"]
+                    "loss/validation/std": np.std(losses),
                 }
             )
         else:
@@ -310,8 +321,6 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
             make_images(batch, dataset_name=dataset.name)
 
         if test_loader is None:
-            print("no test loader")
-
             return
 
         assert isinstance(test_loader.dataset, Dataset)
