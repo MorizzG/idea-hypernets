@@ -2,7 +2,7 @@ from pathlib import Path
 
 import jax.random as jr
 import wandb
-from omegaconf import MISSING, OmegaConf
+from omegaconf import OmegaConf
 from tqdm import tqdm, trange
 
 from hyper_lap.models import VitSegmentator
@@ -10,6 +10,7 @@ from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_sa
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
+    make_base_config,
     make_dataloaders,
     parse_args,
     print_config,
@@ -19,36 +20,7 @@ from hyper_lap.training.utils import (
 def main():
     global vit_seg
 
-    base_config = OmegaConf.create(
-        {
-            "seed": 42,
-            "dataset": MISSING,
-            "trainsets": MISSING,
-            "testset": MISSING,
-            "degenerate": False,
-            "epochs": MISSING,
-            "batch_size": MISSING,
-            "optim": {
-                "lr": MISSING,
-                "scheduler": "cosine",
-                "epochs": "${epochs}",
-                "grad_clip": None,
-            },
-            "vit_seg": {
-                "image_size": 336,
-                "patch_size": 16,
-                "d_model": 512,
-                "depth": 6,
-                "num_heads": 8,
-                "dim_head": None,
-                "in_channels": 3,
-                "out_channels": 2,
-            },
-        }
-    )
-
-    OmegaConf.set_readonly(base_config, True)
-    OmegaConf.set_struct(base_config, True)
+    base_config = make_base_config("vit_seg")
 
     args, arg_config = parse_args()
 
@@ -120,6 +92,7 @@ def main():
         val_loader,
         optim_config=config.optim,
         first_epoch=first_epoch,
+        grad_accu=config.grad_accu,
     )
 
     for _ in trange(config.epochs):

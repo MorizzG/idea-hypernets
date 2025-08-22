@@ -2,7 +2,7 @@ from pathlib import Path
 
 import jax.random as jr
 import wandb
-from omegaconf import MISSING, OmegaConf
+from omegaconf import OmegaConf
 from tqdm import trange
 
 from hyper_lap.datasets import Dataset
@@ -14,6 +14,7 @@ from hyper_lap.serialisation.safetensors import load_pytree
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
+    make_base_config,
     make_dataloaders,
     parse_args,
     print_config,
@@ -23,39 +24,7 @@ from hyper_lap.training.utils import (
 def main():
     global hypernet
 
-    base_config = OmegaConf.create(
-        {
-            "seed": 42,
-            "dataset": MISSING,
-            "trainsets": MISSING,
-            "testset": MISSING,
-            "degenerate": False,
-            "epochs": MISSING,
-            "batch_size": MISSING,
-            "lamda": 0.0,
-            "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v73",
-            "optim": {
-                "lr": MISSING,
-                "scheduler": "cosine",
-                "epochs": "${epochs}",
-                "grad_clip": None,
-            },
-            "hypernet": {
-                "block_size": 8,
-                "emb_size": "${embedder.emb_size}",
-                "kernel_size": 3,
-                "transformer_depth": MISSING,
-                "generator_kind": "basic",
-            },
-            "embedder": {
-                "kind": "clip",
-                "emb_size": 1024,
-            },
-        }
-    )
-
-    OmegaConf.set_readonly(base_config, True)
-    OmegaConf.set_struct(base_config, True)
+    base_config = make_base_config("attn_res_hypernet")
 
     args, arg_config = parse_args()
 
@@ -145,6 +114,7 @@ def main():
         val_loader,
         optim_config=config.optim,
         first_epoch=first_epoch,
+        grad_accu=config.grad_accu,
     )
 
     print("Validation before training:")

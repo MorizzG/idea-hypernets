@@ -16,7 +16,7 @@ import optax
 import PIL.Image as Image
 import wandb
 import yaml
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import MISSING, DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -32,8 +32,71 @@ from hyper_lap.hyper import HyperNet
 from hyper_lap.models import Unet
 from hyper_lap.serialisation.safetensors import load_config, load_pytree
 
-# DEFAULT_NUM_WORKERS = min((cpu_count() or -1) // 2, 64)
-DEFAULT_NUM_WORKERS = 8
+COMMON_CONFIG = {
+    "seed": 42,
+    "dataset": MISSING,
+    "trainsets": MISSING,
+    "testset": MISSING,
+    "degenerate": False,
+    "epochs": MISSING,
+    "batch_size": MISSING,
+    "grad_accu": 1,
+    "optim": {
+        "lr": MISSING,
+        "scheduler": "cosine",
+        "epochs": "${epochs}",
+        "grad_clip": 1.0,
+    },
+}
+
+EMBEDDER_CONFIG = {
+    "kind": "clip",
+    "emb_size": 1024,
+}
+
+UNET_CONFIG = {
+    "base_channels": 8,
+    "channel_mults": [1, 2, 4],
+    "in_channels": 3,
+    "out_channels": 2,
+    "use_weight_standardized_conv": False,
+}
+
+HYPERNET_CONFIG = {
+    "block_size": 8,
+    "input_emb_size": "${embedder.emb_size}",
+    "pos_emb_size": "${embedder.emb_size}",
+    "kernel_size": 3,
+    "generator_kind": "basic",
+}
+
+ATTN_HYPERNET_CONFIG = {
+    "block_size": 8,
+    "emb_size": "${embedder.emb_size}",
+    "transformer_depth": 2,
+    "kernel_size": 3,
+    "generator_kind": "basic",
+}
+
+FILMUNET_CONFIG = {
+    "base_channels": 8,
+    "channel_mults": [1, 2, 4],
+    "in_channels": 3,
+    "out_channels": 2,
+    "emb_size": "${embedder.emb_size}",
+    "use_weight_standardized_conv": False,
+}
+
+VITSEG_CONFIG = {
+    "image_size": 336,
+    "patch_size": 16,
+    "d_model": 512,
+    "depth": 6,
+    "num_heads": 8,
+    "dim_head": None,
+    "in_channels": 3,
+    "out_channels": 2,
+}
 
 
 class Timer:

@@ -101,9 +101,9 @@ class AttnHyperNet(eqx.Module):
     ) -> list[Array]:
         out = []
 
-        assert len(flat_pos_embs) == sum(n * m for (n, m) in shapes), (
-            f"{len(flat_pos_embs)=}, but {sum(n * m for (n, m) in shapes)=}"
-        )
+        assert len(flat_pos_embs) == sum(
+            n * m for (n, m) in shapes
+        ), f"{len(flat_pos_embs)=}, but {sum(n * m for (n, m) in shapes)=}"
 
         for n, m in shapes:
             assert len(flat_pos_embs) >= n * m
@@ -215,12 +215,12 @@ class AttnHyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
-                f"Array has unexpected shape: {leaf.shape}"
-            )
-            assert c_out % block_size == 0 and c_in % block_size == 0, (
-                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
-            )
+            assert (
+                k1 == k2 == kernel_size or k1 == k2 == 1
+            ), f"Array has unexpected shape: {leaf.shape}"
+            assert (
+                c_out % block_size == 0 and c_in % block_size == 0
+            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -270,9 +270,9 @@ class AttnHyperNet(eqx.Module):
 
         weights, treedef = jt.flatten(model_weights)
 
-        assert len(weights) == len(embs), (
-            f"expected {len(embs)} weights, found {len(weights)} instead"
-        )
+        assert len(weights) == len(
+            embs
+        ), f"expected {len(embs)} weights, found {len(weights)} instead"
 
         # vmap over block in positional embeddings
 
