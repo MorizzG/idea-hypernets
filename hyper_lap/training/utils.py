@@ -99,6 +99,66 @@ VITSEG_CONFIG = {
 }
 
 
+def make_base_config(
+    model: Literal[
+        "unet",
+        "hypernet",
+        "res_hypernet",
+        "film_unet",
+        "vit_seg",
+        "attn_hypernet",
+        "attn_res_hypernet",
+    ],
+) -> DictConfig:
+    config = COMMON_CONFIG
+
+    match model:
+        case "unet":
+            config |= {
+                "unet": UNET_CONFIG,
+            }
+        case "hypernet":
+            config |= {
+                "unet": UNET_CONFIG,
+                "hypernet": HYPERNET_CONFIG,
+                "embedder": EMBEDDER_CONFIG,
+            }
+        case "res_hypernet":
+            config |= {
+                "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v98",
+                "hypernet": HYPERNET_CONFIG,
+                "embedder": EMBEDDER_CONFIG,
+            }
+        case "attn_hypernet":
+            config |= {
+                "unet": UNET_CONFIG,
+                "hypernet": ATTN_HYPERNET_CONFIG,
+                "embedder": EMBEDDER_CONFIG,
+            }
+        case "attn_res_hypernet":
+            config |= {
+                "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v98",
+                "hypernet": ATTN_HYPERNET_CONFIG,
+                "embedder": EMBEDDER_CONFIG,
+            }
+        case "film_unet":
+            config |= {
+                "film_unet": FILMUNET_CONFIG,
+                "embedder": EMBEDDER_CONFIG,
+            }
+        case "vit_seg":
+            config |= {
+                "vit_seg": VITSEG_CONFIG,
+            }
+
+    base_config = OmegaConf.create(config)
+
+    OmegaConf.set_readonly(base_config, True)
+    OmegaConf.set_struct(base_config, True)
+
+    return base_config
+
+
 class Timer:
     msg: str
     pbar: tqdm | None
