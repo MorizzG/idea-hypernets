@@ -3,11 +3,11 @@ from pathlib import Path
 import jax.random as jr
 import wandb
 from omegaconf import OmegaConf
-from tqdm import trange
+from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Dataset
 from hyper_lap.embedder import InputEmbedder
-from hyper_lap.models import AttnHyperNet, Unet
+from hyper_lap.models import AdaptorHyperNet, AdaptorUnet
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.serialisation.safetensors import load_pytree
 from hyper_lap.training.trainer import Trainer
@@ -23,7 +23,7 @@ from hyper_lap.training.utils import (
 def main():
     global hypernet
 
-    base_config = make_base_config("attn_hypernet")
+    base_config = make_base_config("hypernet")
 
     args, arg_config = parse_args()
 
@@ -46,9 +46,9 @@ def main():
 
             unet_key, hypernet_key, embedder_key = jr.split(key, 3)
 
-            unet = Unet(**config.unet, key=unet_key)
+            unet = AdaptorUnet(**config.unet, key=unet_key)
 
-            hypernet = AttnHyperNet(unet, **config.hypernet, res=False, key=hypernet_key)
+            hypernet = AdaptorHyperNet(unet, **config.hypernet, res=False, key=hypernet_key)
 
         case "resume":
             assert args.artifact is not None
@@ -63,12 +63,11 @@ def main():
                 raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
             key = jr.PRNGKey(config.seed)
-
             unet_key, hypernet_key, embedder_key = jr.split(key, 3)
 
-            unet = Unet(**config["unet"], key=unet_key)  # type: ignore
+            unet = AdaptorUnet(**config.unet, key=unet_key)
 
-            hypernet = AttnHyperNet(unet, **config.hypernet, res=False, key=hypernet_key)
+            hypernet = AdaptorHyperNet(unet, **config.hypernet, res=False, key=hypernet_key)
 
             hypernet = load_pytree(weights_path, hypernet)
 
@@ -77,12 +76,12 @@ def main():
 
     print_config(OmegaConf.to_object(config))
 
-    model_name = f"attn_hypernet-{config.dataset}-{config.embedder.kind}"
+    model_name = f"hypernet-{config.dataset}-{config.embedder.kind}"
 
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder.kind, "attn_res_hypernet"]
+        wandb.run.tags = [config.dataset, config.embedder.kind, "hypernet"]
 
     train_loader, val_loader, test_loader = make_dataloaders(
         config.dataset,
@@ -93,9 +92,7 @@ def main():
     )
 
     embedder = InputEmbedder(
-        num_datasets=len(train_loader.datasets),
-        **config.embedder,
-        key=embedder_key,
+        num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
     )
 
     trainer = Trainer(
@@ -116,6 +113,8 @@ def main():
                     "learning_rate": trainer.learning_rate,
                 }
             )
+        else:
+            tqdm.write(f"lr: {trainer.learning_rate:.2e}")
 
         hypernet, embedder = trainer.train(hypernet, embedder)
 
@@ -152,6 +151,6 @@ def main():
 
 
 if __name__ == "__main__":
-    hypernet: AttnHyperNet
+    hypernet: AdaptorHyperNet
 
     main()

@@ -17,11 +17,11 @@ from hyper_lap.hyper.generator import (
 )
 from hyper_lap.layers.unet import ConvNormAct
 
-from .unet import Unet
+from .adaptor_unet import AdaptorUnet
 
 
-class HyperNet(eqx.Module):
-    unet: Unet
+class AdaptorHyperNet(eqx.Module):
+    unet: AdaptorUnet
 
     filter_spec: PyTree = eqx.field(static=True)
 
@@ -36,7 +36,6 @@ class HyperNet(eqx.Module):
     res: bool = eqx.field(static=True)
 
     kernel_generator: Conv2dGeneratorABC
-    resample_generator: Conv2dGeneratorABC
 
     unet_pos_embs: list[Array]
     recomb_pos_embs: list[Array]
@@ -80,7 +79,7 @@ class HyperNet(eqx.Module):
 
     def __init__(
         self,
-        unet: Unet,
+        unet: AdaptorUnet,
         block_size: int,
         input_emb_size: int,
         pos_emb_size: int,
@@ -129,26 +128,14 @@ class HyperNet(eqx.Module):
         self.kernel_generator = Gen(
             block_size,
             block_size,
-            kernel_size,
+            1,
             total_emb_size,
             key=kernel_key,
             **(generator_kw_args or {}),
         )
 
-        self.resample_generator = Gen(
-            block_size,
-            block_size,
-            1,
-            pos_emb_size,
-            key=resample_key,
-            **(generator_kw_args or {}),
-        )
-
         # we can reuse keys here since we re-initialize the weights
         self.kernel_generator = self.init_conv_generator(self.kernel_generator, eps, key=kernel_key)
-        self.resample_generator = self.init_conv_generator(
-            self.resample_generator, eps, key=resample_key
-        )
 
         self.init_kernel = jr.normal(init_key, unet.init_conv.conv.weight.shape)
         self.final_kernel = jr.normal(final_key, unet.final_conv.weight.shape)
@@ -267,11 +254,10 @@ class HyperNet(eqx.Module):
             assert b_out == c_out // self.block_size
             assert b_in == c_in // self.block_size
 
-            if k1 == self.kernel_size:
+            if k1 == 1:
                 weight = kernel_generator(pos_emb)
-            elif k1 == 1:
+            elif k1 == self.kernel_size:
                 continue
-                # weight = resample_generator(pos_emb)
             else:
                 raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
 
@@ -301,7 +287,7 @@ class HyperNet(eqx.Module):
         input_emb: Array,
         *,
         with_aux: Literal[True],
-    ) -> tuple[Unet, dict[str, Any]]: ...
+    ) -> tuple[AdaptorUnet, dict[str, Any]]: ...
 
     @overload
     def generate(
@@ -309,14 +295,14 @@ class HyperNet(eqx.Module):
         input_emb: Array,
         *,
         with_aux: Literal[False] = False,
-    ) -> Unet: ...
+    ) -> AdaptorUnet: ...
 
     def generate(
         self,
         input_emb: Array,
         *,
         with_aux: bool = False,
-    ) -> Unet | tuple[Unet, dict[str, Any]]:
+    ) -> AdaptorUnet | tuple[AdaptorUnet, dict[str, Any]]:
         dyn_unet = self.unet
 
         init_conv = dyn_unet.init_conv
