@@ -28,8 +28,7 @@ from hyper_lap.datasets import (
     MultiDataLoader,
     NormalisedDataset,
 )
-from hyper_lap.hyper import HyperNet
-from hyper_lap.models import Unet
+from hyper_lap.models import HyperNet, Unet
 from hyper_lap.serialisation.safetensors import load_config, load_pytree
 
 COMMON_CONFIG = {

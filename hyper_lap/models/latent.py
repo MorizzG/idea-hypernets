@@ -4,10 +4,10 @@ import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
-from hyper_lap.modules.conv import ConvNormAct
-from hyper_lap.modules.film_unet import FilmUnetModule
-from hyper_lap.modules.unet import ResBlock
-from hyper_lap.modules.vae import VAE
+from hyper_lap.layers.conv import ConvNormAct
+from hyper_lap.layers.film_unet import FilmUnetModule
+from hyper_lap.layers.unet import ResBlock
+from hyper_lap.layers.vae import VAE
 from hyper_lap.serialisation.safetensors import load_pytree
 
 

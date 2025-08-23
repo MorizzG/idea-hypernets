@@ -5,8 +5,8 @@ import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
-from hyper_lap.modules.film_unet import FilmUnetModule
-from hyper_lap.modules.unet import ConvNormAct, ResBlock
+from hyper_lap.layers.film_unet import FilmUnetModule
+from hyper_lap.layers.unet import ConvNormAct, ResBlock
 
 
 class FilmUnet(eqx.Module):

@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from chex import assert_shape
 
-from hyper_lap.modules.vit import ViT
+from hyper_lap.layers.vit import ViT
 
 
 class ViTEmbedder(eqx.Module):

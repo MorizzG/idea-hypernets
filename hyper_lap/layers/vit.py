@@ -7,7 +7,7 @@ import jax.random as jr
 from chex import assert_equal_shape, assert_rank, assert_shape
 from equinox import nn
 
-from hyper_lap.modules.attention import Encoder
+from .attention import Encoder
 
 
 def sinudoidal_positional_encoding2d(n: int, m: int, dim_model: int) -> Float[Array, ""]:

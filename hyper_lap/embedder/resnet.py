@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from chex import assert_shape
 
-from hyper_lap.modules.resnet import BlockKind, ResNet
+from hyper_lap.layers.resnet import BlockKind, ResNet
 
 
 class ResNetEmbedder(eqx.Module):

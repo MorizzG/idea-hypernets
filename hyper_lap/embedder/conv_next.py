@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from chex import assert_shape
 
-from hyper_lap.modules.convnext import ConvNeXt
+from hyper_lap.layers.convnext import ConvNeXt
 
 
 class ConvNextEmbedder(eqx.Module):

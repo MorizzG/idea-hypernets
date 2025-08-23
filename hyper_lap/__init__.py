@@ -1,7 +1,7 @@
 from . import (
     datasets as datasets,
     hyper as hyper,
+    layers as layers,
     models as models,
-    modules as modules,
     serialisation as serialisation,
 )

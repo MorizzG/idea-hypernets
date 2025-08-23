@@ -15,9 +15,10 @@ from hyper_lap.hyper.generator import (
     Conv2dGeneratorNew,
     Conv2dLoraGenerator,
 )
-from hyper_lap.models import Unet
-from hyper_lap.modules.attention import Encoder
-from hyper_lap.modules.unet import ConvNormAct
+from hyper_lap.layers.attention import Encoder
+from hyper_lap.layers.unet import ConvNormAct
+
+from .unet import Unet
 
 
 class AttnHyperNet(eqx.Module):

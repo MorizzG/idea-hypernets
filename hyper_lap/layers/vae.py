@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from chex import dataclass
 
-from hyper_lap.modules._util import SiLU
+from .activations import SiLU
 
 
 class ResnetBlock(eqx.Module):

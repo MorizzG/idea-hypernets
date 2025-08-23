@@ -5,7 +5,7 @@ import equinox as eqx
 import equinox.nn as nn
 import jax
 
-from ._util import ReLU, SiLU
+from .activations import ReLU, SiLU
 
 
 class WeightStandardizedConv2d(nn.Conv2d):

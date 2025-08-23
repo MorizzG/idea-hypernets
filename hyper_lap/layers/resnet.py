@@ -6,7 +6,7 @@ import equinox.nn as nn
 import jax.numpy as jnp
 import jax.random as jr
 
-from hyper_lap.modules._util import SiLU
+from .activations import SiLU
 
 
 class BasicBlock(eqx.Module):

@@ -7,10 +7,9 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
-from hyper_lap.modules.upsample import BilinearUpsample2d
-
-from ._util import ReLU, SiLU
+from .activations import ReLU, SiLU
 from .conv import ConvNormAct, WeightStandardizedConv2d
+from .upsample import BilinearUpsample2d
 
 
 class FilmProjection(eqx.Module):

@@ -15,8 +15,9 @@ from hyper_lap.hyper.generator import (
     Conv2dGeneratorNew,
     Conv2dLoraGenerator,
 )
-from hyper_lap.models import Unet
-from hyper_lap.modules.unet import ConvNormAct
+from hyper_lap.layers.unet import ConvNormAct
+
+from .unet import Unet
 
 
 class HyperNet(eqx.Module):
@@ -179,12 +180,12 @@ class HyperNet(eqx.Module):
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert k1 == k2 == kernel_size or k1 == k2 == 1, (
-                f"Array has unexpected shape: {leaf.shape}"
-            )
-            assert c_out % block_size == 0 and c_in % block_size == 0, (
-                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
-            )
+            assert (
+                k1 == k2 == kernel_size or k1 == k2 == 1
+            ), f"Array has unexpected shape: {leaf.shape}"
+            assert (
+                c_out % block_size == 0 and c_in % block_size == 0
+            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -240,9 +241,9 @@ class HyperNet(eqx.Module):
 
         weights, treedef = jt.flatten(model_weights)
 
-        assert len(weights) == len(pos_embs), (
-            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
-        )
+        assert len(weights) == len(
+            pos_embs
+        ), f"expected {len(pos_embs)} weights, found {len(weights)} instead"
 
         # vmap over block in positional embeddings
 
