@@ -3,6 +3,7 @@ from typing import Any, Callable, overload
 
 import itertools
 import shutil
+from functools import partial
 from pathlib import Path
 
 import equinox as eqx
@@ -138,25 +139,33 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         self.grad_accu = grad_accu
 
-        lr_schedule = make_lr_schedule(
+        self.lr_schedule = make_lr_schedule(
             len(train_loader) // grad_accu,
             lr=optim_config["lr"],
             epochs=optim_config["epochs"],
             scheduler=optim_config["scheduler"],
         )
 
-        self.lr_schedule = lr_schedule
+        match optim_config["optimizer"]:
+            case "sgd":
+                optim = partial(optax.sgd, momentum=0.9, nesterov=True)
+            case "adamw":
+                optim = optax.adamw
+            case "radam":
+                optim = optax.radam
+            case optim:
+                raise ValueError(f"invalid optimizer {optim}")
 
         if optim_config["grad_clip"] is not None:
             self.opt = optax.chain(
-                optax.clip_by_global_norm(optim_config["grad_clip"]), optax.adamw(self.lr_schedule)
+                optax.clip_by_global_norm(optim_config["grad_clip"]), optim(self.lr_schedule)
             )
 
-            self._get_step = lambda: self.opt_state[1][2].count  # type: ignore
+            self._get_step = lambda: self.opt_state[1][-1].count  # type: ignore
         else:
-            self.opt = optax.adamw(self.lr_schedule)
+            self.opt = optim(self.lr_schedule)
 
-            self._get_step = lambda: self.opt_state[2].count  # type: ignore
+            self._get_step = lambda: self.opt_state[-1].count  # type: ignore
 
         self.opt_state = self.opt.init(eqx.filter((net, embedder), eqx.is_array_like))
 
