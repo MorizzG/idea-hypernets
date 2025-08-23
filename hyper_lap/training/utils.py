@@ -42,7 +42,7 @@ COMMON_CONFIG = {
     "batch_size": MISSING,
     "grad_accu": 1,
     "optim": {
-        "lr": MISSING,
+        "lr": 5e-4,
         "scheduler": "cosine",
         "epochs": "${epochs}",
         "grad_clip": 1.0,
