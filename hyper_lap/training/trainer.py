@@ -141,7 +141,7 @@ class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | V
         self.grad_accu = grad_accu
 
         lr_schedule = make_lr_schedule(
-            len(train_loader),
+            len(train_loader) // grad_accu,
             lr=optim_config["lr"],
             epochs=optim_config["epochs"],
             scheduler=optim_config["scheduler"],
