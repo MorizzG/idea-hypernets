@@ -21,15 +21,13 @@ from umap import UMAP
 from hyper_lap.datasets import MultiDataLoader
 from hyper_lap.datasets.base import Dataset
 from hyper_lap.embedder import InputEmbedder
-from hyper_lap.hyper import AttnHyperNet, HyperNet
-from hyper_lap.models import AttentionUnet, FilmUnet, Unet, VitSegmentator
 from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.utils import make_lr_schedule, to_PIL
 
 from .metrics import calc_metrics
 
 
-class Trainer[Net: Unet | HyperNet | AttnHyperNet | FilmUnet | AttentionUnet | VitSegmentator]:
+class Trainer[Net: Callable[[Array, Array | None], Array]]:
     epoch: int
 
     lr_schedule: optax.Schedule
