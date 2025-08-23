@@ -78,7 +78,7 @@ def main():
         num_workers=args.num_workers,
     )
 
-    trainer: Trainer[Unet] = Trainer(
+    trainer = Trainer(
         unet,
         None,
         train_loader,

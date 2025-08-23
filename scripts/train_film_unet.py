@@ -91,7 +91,7 @@ def main():
         num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
     )
 
-    trainer: Trainer[FilmUnet] = Trainer(
+    trainer = Trainer(
         film_unet,
         embedder,
         train_loader,

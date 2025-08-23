@@ -146,7 +146,7 @@ def main():
         key=embedder_key,
     )
 
-    trainer: Trainer[HyperNet] = Trainer(
+    trainer = Trainer(
         hypernet,
         embedder,
         train_loader,

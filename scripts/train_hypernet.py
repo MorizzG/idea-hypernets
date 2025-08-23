@@ -95,7 +95,7 @@ def main():
         num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
     )
 
-    trainer: Trainer[HyperNet] = Trainer(
+    trainer = Trainer(
         hypernet,
         embedder,
         train_loader,
