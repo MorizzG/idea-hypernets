@@ -250,7 +250,7 @@ def parse_args() -> tuple[Args, DictConfig]:
 
 
 def print_config(config: Any):
-    print(yaml.dump(config, indent=2, width=60, default_flow_style=None, sort_keys=False))
+    print(yaml.dump(config, indent=2, width=60, sort_keys=False))
 
 
 def load_amos_datasets(
@@ -396,7 +396,7 @@ def make_dataloaders(
 
     val_loader = MultiDataLoader(
         *valsets,
-        num_samples=2 * batch_size,
+        num_samples=10 * 2 * batch_size,
         dataloader_args=dict(batch_size=2 * batch_size, num_workers=num_workers),
     )
 

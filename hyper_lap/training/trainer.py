@@ -28,6 +28,33 @@ from hyper_lap.training.utils import make_lr_schedule, to_PIL
 from .metrics import calc_metrics
 
 
+def transpose(elems: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    """
+    Transpose a list of dicts into a dict of lists.
+
+    Also unboxes scalar Arrays
+    """
+    assert isinstance(elems, list)
+    assert all(isinstance(x, dict) for x in elems)
+    assert all(x.keys() == elems[0].keys() for x in elems)
+
+    if len(elems) == 0:
+        return {}
+
+    def try_unbox(x):
+        """
+        if x is a shapeless Array (scalar), unbox it, else do nothing
+        """
+        if eqx.is_array(x) and x.shape == ():
+            return x.item()
+
+        return x
+
+    keys = elems[0].keys()
+
+    return {key: [try_unbox(elem[key]) for elem in elems] for key in keys}
+
+
 class Trainer[Net: Callable[[Array, Array | None], Array]]:
     epoch: int
 
@@ -201,19 +228,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             auxs.append(aux)
 
-        for aux in auxs:
-            assert aux.keys() == auxs[0].keys()
-
-        def try_unbox(x):
-            """
-            if x is a shapeless Array (scalar), unbox it, else do nothing
-            """
-            if eqx.is_array(x) and x.shape == ():
-                return x.item()
-
-            return x
-
-        aux = {key: [try_unbox(aux[key]) for aux in auxs] for key in auxs[0].keys()}
+        aux = transpose(auxs)
 
         if wandb.run is not None:
             data: dict[str, Any] = {"epoch": self.epoch}
@@ -237,49 +252,59 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     def validate(self, net: Net, embedder: InputEmbedder | None):
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
-        losses = []
+        all_losses = []
 
         for i, dataloader in enumerate(self.val_loader.dataloaders):
             dataset_name: str = dataloader.dataset.name  # type: ignore
 
-            batch = jt.map(jnp.asarray, next(iter(dataloader)))
+            metrices = []
 
-            images = batch["image"]
-            labels = batch["label"]
-            dataset_idx = jnp.array(i)
+            batches = [batch for batch in dataloader]
 
-            logits = Trainer.net_forward(net, embedder, images, labels, dataset_idx)
+            for batch in batches:
+                batch: dict[str, Array] = jt.map(jnp.asarray, batch)
 
-            metrics = calc_metrics(logits, labels)
+                images = batch["image"]
+                labels = batch["label"]
+                dataset_idx = jnp.array(i)
 
-            tqdm.write(f"Dataset: {dataset_name}:")
-            tqdm.write(f"    Dice score: {metrics['dice']:.3f}")
-            tqdm.write(f"    IoU score : {metrics['iou']:.3f}")
-            tqdm.write(f"    Hausdorff : {metrics['hausdorff']:.3f}")
-            tqdm.write("")
+                logits = self.net_forward(net, embedder, images, labels, dataset_idx)
 
-            loss = jax.jit(jax.vmap(loss_fn))(logits, labels).mean()
+                metrics = calc_metrics(logits, labels)
 
-            losses.append(loss.item())
+                loss = jax.jit(jax.vmap(loss_fn))(logits, labels).mean()
+
+                metrices.append(metrics)
+                all_losses.append(loss.item())
+
+            metrics = transpose(metrices)
 
             if wandb.run is not None:
                 wandb.run.log(
-                    {f"{metric}/{dataset_name}": value for metric, value in metrics.items()},
+                    {
+                        f"{metric}/{dataset_name}": np.mean(value)
+                        for metric, value in metrics.items()
+                    },
                     commit=False,
                 )
+            else:
+                tqdm.write(f"Dataset: {dataset_name}:")
+                tqdm.write(f"    Dice score: {np.mean(metrics['dice']):.3f}")
+                tqdm.write(f"    IoU score : {np.mean(metrics['iou']):.3f}")
+                tqdm.write(f"    Hausdorff : {np.mean(metrics['hausdorff']):.3f}")
+                tqdm.write("")
 
         if wandb.run is not None:
             wandb.run.log(
                 {
                     "epoch": self.epoch,
-                    "loss/validation/mean": np.mean(losses),
-                    "loss/validation/std": np.std(losses),
+                    "loss/validation/mean": np.mean(all_losses),
+                    "loss/validation/std": np.std(all_losses),
                 }
             )
         else:
-            tqdm.write(f"Validation loss: {np.mean(losses):.3}")
-
-        tqdm.write("")
+            tqdm.write(f"Validation loss: {np.mean(all_losses):.3}")
+            tqdm.write("")
 
     def make_plots(
         self,
