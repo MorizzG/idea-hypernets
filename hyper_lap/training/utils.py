@@ -391,13 +391,15 @@ def make_dataloaders(
     train_loader = MultiDataLoader(
         *trainsets,
         num_samples=100 * batch_size,
-        dataloader_args=dict(batch_size=batch_size, num_workers=num_workers),
+        batch_size=batch_size,
+        num_workers=num_workers,
     )
 
     val_loader = MultiDataLoader(
         *valsets,
         num_samples=10 * 2 * batch_size,
-        dataloader_args=dict(batch_size=2 * batch_size, num_workers=num_workers),
+        batch_size=2 * batch_size,
+        num_workers=num_workers,
     )
 
     if testset is not None:

@@ -406,7 +406,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         multi_dataloader = MultiDataLoader(
             *datasets,
             num_samples=100,
-            dataloader_args=dict(batch_size=100),
+            batch_size=100,
         )
 
         samples = {

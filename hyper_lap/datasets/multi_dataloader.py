@@ -14,7 +14,11 @@ class MultiDataLoader:
     rng: np.random.Generator
 
     def __init__(
-        self, *datasets: Dataset, num_samples: Optional[int] = None, dataloader_args: dict[str, Any]
+        self,
+        *datasets: Dataset,
+        num_samples: Optional[int] = None,
+        batch_size: int,
+        num_workers: int = 0,
     ):
         super().__init__()
 
@@ -30,7 +34,17 @@ class MultiDataLoader:
 
             sampler = RandomSampler(dataset, num_samples=num_samples, generator=generator)
 
-            self.dataloaders.append(DataLoader(dataset, sampler=sampler, **dataloader_args))
+            data_loader = DataLoader(
+                dataset,
+                sampler=sampler,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                persistent_workers=(num_workers != 0),
+            )
+
+            _ = next(iter(data_loader))
+
+            self.dataloaders.append(data_loader)
 
     def __len__(self) -> int:
         return sum(len(dataloader) for dataloader in self.dataloaders)
