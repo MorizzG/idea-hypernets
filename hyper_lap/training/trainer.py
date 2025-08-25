@@ -261,8 +261,13 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             batches = [batch for batch in dataloader]
 
+            @jax.jit
+            def loss_jit(logits, labels):
+                return jax.vmap(loss_fn)(logits, labels)
+
             for batch in batches:
-                batch: dict[str, Array] = jt.map(jnp.asarray, batch)
+                # batch: dict[str, Array] = jt.map(jnp.asarray, batch)
+                batch: dict[str, Array] = jt.map(jnp.asarray, next(iter(dataloader)))
 
                 images = batch["image"]
                 labels = batch["label"]
@@ -272,10 +277,12 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
                 metrics = calc_metrics(logits, labels)
 
-                loss = jax.jit(jax.vmap(loss_fn))(logits, labels)
+                loss = loss_jit(logits, labels)
 
                 metrices.append(metrics)
                 all_losses += list(loss)
+
+                break
 
             metrics = transpose(metrices)
 
