@@ -272,10 +272,10 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
                 metrics = calc_metrics(logits, labels)
 
-                loss = jax.jit(jax.vmap(loss_fn))(logits, labels).mean()
+                loss = jax.jit(jax.vmap(loss_fn))(logits, labels)
 
                 metrices.append(metrics)
-                all_losses.append(loss.item())
+                all_losses += list(loss)
 
             metrics = transpose(metrices)
 
