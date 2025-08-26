@@ -1,4 +1,4 @@
-from typing import Any, Generator, Optional
+from typing import Generator, Optional
 
 import numpy as np
 import torch
