@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "jax[cuda12]==0.7.0",
     # "nvidia-cublas-cu12~=12.6.0",
     # "nvidia-cuda-cupti-cu12~=12.6.0",
     # "nvidia-cuda-nvcc-cu12~=12.6.0",
@@ -20,7 +19,6 @@ dependencies = [
     "safetensors>=0.5.2",
     "transformers>=4.48.0",
     "diffusers[flax]>=0.32.2",
-    "torch>=2.5.1",
     "scikit-image>=0.25.1",
     "nibabel==5.3.2",
     "matplotlib>=3.10.0",
@@ -30,6 +28,9 @@ dependencies = [
     "umap-learn>=0.5.9",
     "pydantic>=2.11.4",
     "dinov3-equinox",
+    "grain>=0.2.12",
+    "jax[cuda]>=0.7.0",
+    "torch>=2.8.0",
 ]
 
 
@@ -61,8 +62,8 @@ url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
 dinov3-equinox = { git = "https://github.com/MorizzG/dinov3-equinox" }
+torch = { index = "pytorch-cpu" }
 # umap-learn = { git = "https://github.com/lmcinnes/umap" }
 
 [build-system]

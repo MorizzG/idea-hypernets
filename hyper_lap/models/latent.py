@@ -8,7 +8,7 @@ from hyper_lap.layers.conv import ConvNormAct
 from hyper_lap.layers.film_unet import FilmUnetModule
 from hyper_lap.layers.unet import ResBlock
 from hyper_lap.layers.vae import VAE
-from hyper_lap.serialisation.safetensors import load_pytree
+from hyper_lap.serialisation import load_pytree
 
 
 class LatentModel(eqx.Module):

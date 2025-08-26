@@ -5,7 +5,6 @@ from .degenerate import DegenerateDataset as DegenerateDataset
 from .lidc_idri import LidcIdri as LidcIdri
 from .medidec import MediDec as MediDec
 from .medidec_sliced import MediDecSliced as MediDecSliced
-from .multi_dataloader import MultiDataLoader as MultiDataLoader
 from .nifti import NiftiDataset as NiftiDataset
 from .normalised import NormalisedDataset as NormalisedDataset
 from .preloaded import PreloadedDataset as PreloadedDataset

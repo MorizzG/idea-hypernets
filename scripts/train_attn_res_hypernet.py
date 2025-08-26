@@ -5,11 +5,9 @@ import wandb
 from omegaconf import OmegaConf
 from tqdm import trange
 
-from hyper_lap.datasets import Dataset
 from hyper_lap.embedder import InputEmbedder
 from hyper_lap.models import AttnHyperNet, Unet
-from hyper_lap.serialisation import save_with_config_safetensors
-from hyper_lap.serialisation.safetensors import load_pytree
+from hyper_lap.serialisation import load_pytree, save_with_config_safetensors
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
@@ -94,26 +92,24 @@ def main():
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, config.embedder.kind, "attn_res_hypernet"]
 
-    train_loader, val_loader, test_loader = make_dataloaders(
+    trainsets, valsets, testset = make_dataloaders(
         config.dataset,
         config.trainsets.split(","),
         config.testset,
         batch_size=config.batch_size,
-        num_workers=args.num_workers,
     )
 
-    embedder = InputEmbedder(
-        num_datasets=len(train_loader.datasets), **config.embedder, key=embedder_key
-    )
+    embedder = InputEmbedder(num_datasets=len(trainsets), **config.embedder, key=embedder_key)
 
     trainer = Trainer(
         hypernet,
         embedder,
-        train_loader,
-        val_loader,
+        trainsets,
+        valsets,
         optim_config=config.optim,
         first_epoch=first_epoch,
         grad_accu=config.grad_accu,
+        num_workers=args.num_workers,
     )
 
     print("Validation before training:")
@@ -151,15 +147,13 @@ def main():
     print()
     print()
 
-    trainer.make_plots(hypernet, embedder, test_loader, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(hypernet, embedder, testset, image_folder=Path(f"./images/{model_name}"))
 
     if not args.no_umap:
-        umap_datasets = [dataset for dataset in train_loader.datasets]
+        umap_datasets = trainsets
 
-        if test_loader is not None:
-            assert isinstance(test_loader.dataset, Dataset)
-
-            umap_datasets.append(test_loader.dataset)
+        if testset is not None:
+            umap_datasets.append(testset)
 
         trainer.make_umap(embedder, umap_datasets, image_folder=Path(f"./images/{model_name}"))
 

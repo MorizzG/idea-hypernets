@@ -3,12 +3,11 @@ from typing import Generator
 from abc import ABC, abstractmethod
 
 import numpy as np
-from torch.utils.data import Dataset as TorchDataset
 
 from .metadata import Metadata
 
 
-class Dataset(TorchDataset, ABC):
+class Dataset(ABC):
     @property
     @abstractmethod
     def metadata(self) -> Metadata: ...

@@ -3,10 +3,10 @@ from pathlib import Path
 import jax.random as jr
 import wandb
 from omegaconf import OmegaConf
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from hyper_lap.models import VitSegmentator
-from hyper_lap.serialisation.safetensors import load_pytree, save_with_config_safetensors
+from hyper_lap.serialisation import load_pytree, save_with_config_safetensors
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
@@ -77,27 +77,25 @@ def main():
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, "attention"]
 
-    train_loader, val_loader, test_loader = make_dataloaders(
+    trainsets, valsets, testset = make_dataloaders(
         config.dataset,
         config.trainsets.split(","),
         config.testset,
         batch_size=config.batch_size,
-        num_workers=args.num_workers,
     )
 
     trainer: Trainer = Trainer(
         vit_seg,
         None,
-        train_loader,
-        val_loader,
+        trainsets,
+        valsets,
         optim_config=config.optim,
         first_epoch=first_epoch,
         grad_accu=config.grad_accu,
+        num_workers=args.num_workers,
     )
 
     for _ in trange(config.epochs):
-        tqdm.write(f"Learning Rate: {trainer.learning_rate:.1e}")
-
         if wandb.run is not None:
             wandb.run.log(
                 {
@@ -127,7 +125,7 @@ def main():
     print()
     print()
 
-    trainer.make_plots(vit_seg, None, test_loader, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(vit_seg, None, testset, image_folder=Path(f"./images/{model_name}"))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float, Integer
-from typing import Any, Callable, overload
+from typing import Any, Callable, ClassVar, overload
 
 import itertools
 import shutil
@@ -13,14 +13,12 @@ import jax.tree as jt
 import numpy as np
 import optax
 import wandb
+from grain import MapDataset, ReadOptions
 from matplotlib import pyplot as plt
 from optax import GradientTransformation, OptState, global_norm
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
 
-from hyper_lap.datasets import MultiDataLoader
-from hyper_lap.datasets.base import Dataset
 from hyper_lap.embedder import InputEmbedder
 from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.utils import make_lr_schedule, to_PIL
@@ -56,19 +54,7 @@ def transpose(elems: list[dict[str, Any]]) -> dict[str, list[Any]]:
 
 
 class Trainer[Net: Callable[[Array, Array | None], Array]]:
-    epoch: int
-
-    lr_schedule: optax.Schedule
-
-    opt: GradientTransformation
-    opt_state: OptState
-
-    grad_accu: int
-
-    train_loader: MultiDataLoader
-    val_loader: MultiDataLoader
-
-    _get_step: Callable[[], int]
+    NUM_VALIDATION_BATCHES: ClassVar[int] = 20
 
     @staticmethod
     @eqx.filter_jit
@@ -145,18 +131,38 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         return net, embedder, opt_state, aux
 
+    num_workers: int
+
+    epoch: int
+
+    lr_schedule: optax.Schedule
+
+    opt: GradientTransformation
+    opt_state: OptState
+
+    grad_accu: int
+
+    trainsets: list[MapDataset]
+    valsets: list[MapDataset]
+
+    _get_step: Callable[[], int]
+
     def __init__(
         self,
         net: Net,
         embedder: InputEmbedder | None,
-        train_loader: MultiDataLoader,
-        val_loader: MultiDataLoader,
+        trainsets: list[MapDataset],
+        valsets: list[MapDataset],
         *,
         first_epoch: int = 0,
         optim_config: dict[str, Any],
         grad_accu: int,
+        num_workers: int,
     ):
         super().__init__()
+
+        self.batches_per_epoch = 100 * len(trainsets)
+        self.num_workers = num_workers
 
         if grad_accu < 1:
             raise ValueError(f"grad_accu must be at least 1, but is {grad_accu}")
@@ -167,7 +173,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         self.grad_accu = grad_accu
 
         self.lr_schedule = make_lr_schedule(
-            len(train_loader) // grad_accu,
+            self.batches_per_epoch // grad_accu,
             lr=optim_config["lr"],
             epochs=optim_config["epochs"],
             scheduler=optim_config["scheduler"],
@@ -196,8 +202,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         self.opt_state = self.opt.init(eqx.filter((net, embedder), eqx.is_array_like))
 
-        self.train_loader = train_loader
-        self.val_loader = val_loader
+        self.trainsets = trainsets
+        self.valsets = valsets
 
     @property
     def learning_rate(self) -> float:
@@ -219,10 +225,26 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         auxs: list[dict[str, Any]] = []
 
-        for batch_tensor in itertools.batched(tqdm(self.train_loader, leave=False), self.grad_accu):
-            batches: list[dict[str, Array]] = jt.map(jnp.asarray, list(batch_tensor))
+        mixed_trainset = (
+            MapDataset.mix(self.trainsets)
+            .seed(self.epoch)
+            .shuffle()[: self.batches_per_epoch]
+            .to_iter_dataset(
+                read_options=ReadOptions(
+                    num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers
+                )
+            )
+        )
 
-            net, embedder, self.opt_state, aux = eqx.filter_jit(self.training_step)(
+        for batches_np in itertools.batched(
+            tqdm(mixed_trainset, total=self.batches_per_epoch, leave=False), self.grad_accu
+        ):
+            for batch in batches_np:
+                batch.pop("name")
+
+            batches: list[dict[str, Array]] = jt.map(jnp.asarray, list(batches_np))
+
+            net, embedder, self.opt_state, aux = self.training_step(
                 net, embedder, batches, self.opt, self.opt_state
             )
 
@@ -252,26 +274,29 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     def validate(self, net: Net, embedder: InputEmbedder | None):
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
+        @jax.jit
+        def loss_jit(logits, labels):
+            return jax.vmap(loss_fn)(logits, labels)
+
         all_losses = []
 
-        for i, dataloader in enumerate(self.val_loader.dataloaders):
-            dataset_name: str = dataloader.dataset.name  # type: ignore
+        for valset in self.valsets:
+            dataset_name: str = valset[0]["name"]  # type: ignore
 
             metrices = []
 
-            batches = [batch for batch in dataloader]
+            data_loader = (
+                valset.seed(self.epoch)
+                .shuffle()[: self.NUM_VALIDATION_BATCHES]
+                .to_iter_dataset(
+                    ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=self.num_workers)
+                )
+            )
 
-            @jax.jit
-            def loss_jit(logits, labels):
-                return jax.vmap(loss_fn)(logits, labels)
-
-            for batch in batches:
-                # batch: dict[str, Array] = jt.map(jnp.asarray, batch)
-                batch: dict[str, Array] = jt.map(jnp.asarray, next(iter(dataloader)))
-
-                images = batch["image"]
-                labels = batch["label"]
-                dataset_idx = jnp.array(i)
+            for batch in data_loader:
+                images = jnp.asarray(batch["image"])
+                labels = jnp.asarray(batch["label"])
+                dataset_idx = jnp.asarray(batch["dataset_idx"])
 
                 logits = self.net_forward(net, embedder, images, labels, dataset_idx)
 
@@ -281,8 +306,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
                 metrices.append(metrics)
                 all_losses += list(loss)
-
-                break
 
             metrics = transpose(metrices)
 
@@ -317,7 +340,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         self,
         net: Net,
         embedder: InputEmbedder | None,
-        test_loader: DataLoader | None,
+        testset: MapDataset | None,
         *,
         image_folder: Path,
     ):
@@ -329,7 +352,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         def make_images(batch: dict[str, Array], *, dataset_name: str, test: bool = False):
             images = batch["image"]
             labels = batch["label"]
-            dataset_idx = jnp.array(i)
+            dataset_idx = batch["dataset_idx"]
 
             logits = self.net_forward(net, embedder, images, labels, dataset_idx)
 
@@ -382,48 +405,39 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 else:
                     wandb.run.log({f"images/test/{dataset_name}": image})
 
-        for i, (dataset, dataloader) in enumerate(
-            zip(self.val_loader.datasets, self.val_loader.dataloaders)
-        ):
-            batch = jt.map(jnp.asarray, next(iter(dataloader)))
+        for valset in self.valsets:
+            batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, valset[0])
 
-            make_images(batch, dataset_name=dataset.name)
+            make_images(batch, dataset_name=batch["name"])
 
-        if test_loader is None:
+        if testset is None:
             return
 
-        assert isinstance(test_loader.dataset, Dataset)
+        assert isinstance(testset, MapDataset)
 
-        print(f"{test_loader.dataset.name=}")
+        batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, testset[0])
 
-        batch = jt.map(jnp.asarray, next(iter(test_loader)))
-
-        make_images(batch, dataset_name=f"{test_loader.dataset.name}", test=True)
+        make_images(batch, dataset_name=batch["name"], test=True)
 
     @staticmethod
-    def make_umap(embedder: InputEmbedder, datasets: list[Dataset], image_folder: Path):
+    def make_umap(embedder: InputEmbedder, datasets: list[MapDataset], image_folder: Path):
         if not image_folder.exists():
             image_folder.mkdir(parents=True)
 
         embedder_jit = jax.jit(jax.vmap(embedder, in_axes=(0, 0, None)))
 
-        for dataset in datasets:
-            assert isinstance(dataset, Dataset)
+        assert all(isinstance(dataset, MapDataset) for dataset in datasets)
 
-        multi_dataloader = MultiDataLoader(
-            *datasets,
-            num_samples=100,
-            batch_size=100,
-        )
+        batches: list[dict[str, Any]] = [dataset[0] for dataset in datasets]  # type: ignore
 
         samples = {
-            dataset.name: jt.map(jnp.asarray, next(iter(dataloader)))
-            for dataset, dataloader in zip(multi_dataloader.datasets, multi_dataloader.dataloaders)
+            batch["name"]: jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, batch)
+            for batch in batches
         }
 
         embs = {
-            name: embedder_jit(X["image"], X["label"], jnp.array(i))
-            for i, (name, X) in enumerate(samples.items())
+            name: embedder_jit(X["image"], X["label"], X["dataset_idx"])
+            for name, X in samples.items()
         }
 
         umap = UMAP()

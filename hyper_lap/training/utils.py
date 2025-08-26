@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import time
 
-import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
@@ -16,20 +15,18 @@ import optax
 import PIL.Image as Image
 import wandb
 import yaml
+from grain import MapDataset
 from omegaconf import MISSING, DictConfig, OmegaConf
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from hyper_lap.datasets import (
     AmosSliced,
     Dataset,
-    DegenerateDataset,
     MediDecSliced,
-    MultiDataLoader,
     NormalisedDataset,
 )
 from hyper_lap.models import HyperNet, Unet
-from hyper_lap.serialisation.safetensors import load_config, load_pytree
+from hyper_lap.serialisation import load_config, load_pytree
 
 COMMON_CONFIG = {
     "seed": 42,
@@ -193,7 +190,7 @@ class Args:
     wandb: bool
     no_umap: bool
 
-    num_workers: int | None
+    num_workers: int
 
     run_name: str | None
 
@@ -224,7 +221,7 @@ def parse_args() -> tuple[Args, DictConfig]:
     parser.add_argument("--no-umap", action="store_true", help="Disable Umap generation")
 
     parser.add_argument(
-        "--num-workers", type=int, default=None, help="Number of dataloader worker threads"
+        "--num-workers", type=int, default=16, help="Number of dataloader worker threads"
     )
 
     parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
@@ -335,14 +332,8 @@ def make_dataloaders(
     testset_name: str | None,
     *,
     batch_size: int,
-    num_workers: int | None,
     degenerate: bool = False,
-) -> tuple[MultiDataLoader, MultiDataLoader, DataLoader | None]:
-    if num_workers is None:
-        # maximum of 16 total workers, but at least 2 per dataset
-        # caps out a 6 datasets, at which point the sampling should be well-distributed enough
-        num_workers = max(2, 16 // len(trainset_names))
-
+) -> tuple[list[MapDataset], list[MapDataset], MapDataset | None]:
     match dataset:
         case "amos":
             trainsets = load_amos_datasets("train")
@@ -371,44 +362,49 @@ def make_dataloaders(
     trainsets = {name: dataset for name, dataset in trainsets.items() if name in trainset_names}
     valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
 
-    trainsets = list(trainsets.values())
-    valsets = list(valsets.values())
-
-    print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets])}")
+    print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets.values()])}")
 
     if testset is not None:
         print(f"Testset:   {testset.name}")
 
-    if degenerate:
-        print("Using degenerate datasets")
+    # trainsets = list(trainsets.values())
+    # valsets = list(valsets.values())
 
-        trainsets = [DegenerateDataset(dataset) for dataset in trainsets]
+    def make_map_dataset(i: int, dataset: Dataset, *, batch_size: int) -> MapDataset:
+        return (
+            MapDataset.source(dataset)
+            .slice(slice(None) if not degenerate else slice(0, 1))
+            .seed(0)
+            .repeat()
+            .shuffle()
+            .batch(batch_size)
+            .map(
+                lambda X, idx=jnp.array(i): X
+                | {
+                    "dataset_idx": idx,
+                    "name": dataset.name,
+                }
+            )
+        )
 
-        for dataset_ in trainsets:
-            for X in dataset_:
-                assert eqx.tree_equal(X, dataset_[0])
-
-    train_loader = MultiDataLoader(
-        *trainsets,
-        num_samples=100 * batch_size,
-        batch_size=batch_size,
-        num_workers=num_workers,
-    )
-
-    val_loader = MultiDataLoader(
-        *valsets,
-        num_samples=10 * 2 * batch_size,
-        batch_size=2 * batch_size,
-        num_workers=num_workers,
-    )
+    trainsets_grain = [
+        make_map_dataset(i, dataset, batch_size=batch_size)
+        for i, dataset in enumerate(trainsets.values())
+    ]
+    valsets_grain = [
+        make_map_dataset(i, dataset, batch_size=2 * batch_size)
+        for i, dataset in enumerate(valsets.values())
+    ]
 
     if testset is not None:
-        # use 2 * batch_size for test loader since we need no grad here
-        test_loader = DataLoader(testset, batch_size=2 * batch_size, num_workers=8)
+        testset_grain = make_map_dataset(len(trainsets), testset, batch_size=4 * batch_size)
     else:
-        test_loader = None
+        testset_grain = None
 
-    return train_loader, val_loader, test_loader
+    # mixed_trainset = MapDataset.mix(trainsets_grain)
+    # mixed_valset = MapDataset.mix(valsets_grain)
+
+    return trainsets_grain, valsets_grain, testset_grain
 
 
 def make_lr_schedule(
