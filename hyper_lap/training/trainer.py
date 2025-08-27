@@ -16,7 +16,7 @@ import wandb
 from grain import MapDataset, ReadOptions
 from matplotlib import pyplot as plt
 from optax import GradientTransformation, OptState, global_norm
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from umap import UMAP
 
 from hyper_lap.embedder import InputEmbedder
@@ -285,20 +285,25 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         all_losses = []
 
-        for valset in self.valsets:
-            dataset_name: str = valset[0]["name"]  # type: ignore
+        valsets = {
+            valset[0]["name"]: valset.seed(self.epoch).shuffle()[: self.num_validation_batches]
+            for valset in self.valsets
+        }
 
+        it = iter(
+            MapDataset.concatenate(valsets.values()).to_iter_dataset(
+                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=self.num_workers)
+            )
+        )
+
+        for dataset_name in valsets.keys():
             metrices = []
 
-            data_loader = (
-                valset.seed(self.epoch)
-                .shuffle()[: self.num_validation_batches]
-                .to_iter_dataset(
-                    ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=self.num_workers)
-                )
-            )
+            for _ in trange(self.num_validation_batches):
+                batch = next(it)
 
-            for batch in data_loader:
+                assert batch["name"] == dataset_name
+
                 images = jnp.asarray(batch["image"])
                 labels = jnp.asarray(batch["label"])
                 dataset_idx = jnp.asarray(batch["dataset_idx"])
