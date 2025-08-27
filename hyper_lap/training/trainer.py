@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float, Integer
-from typing import Any, Callable, ClassVar, overload
+from typing import Any, Callable, overload
 
 import itertools
 import shutil
@@ -54,7 +54,7 @@ def transpose(elems: list[dict[str, Any]]) -> dict[str, list[Any]]:
 
 
 class Trainer[Net: Callable[[Array, Array | None], Array]]:
-    NUM_VALIDATION_BATCHES: ClassVar[int] = 20
+    # NUM_VALIDATION_BATCHES: ClassVar[int] = 20
 
     @staticmethod
     @eqx.filter_jit
@@ -145,6 +145,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     trainsets: list[MapDataset]
     valsets: list[MapDataset]
 
+    num_validation_batches: int
+
     _get_step: Callable[[], int]
 
     def __init__(
@@ -158,6 +160,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         optim_config: dict[str, Any],
         grad_accu: int,
         num_workers: int,
+        num_validation_batches: int,
     ):
         super().__init__()
 
@@ -204,6 +207,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         self.trainsets = trainsets
         self.valsets = valsets
+
+        self.num_validation_batches = num_validation_batches
 
     @property
     def learning_rate(self) -> float:
@@ -287,7 +292,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             data_loader = (
                 valset.seed(self.epoch)
-                .shuffle()[: self.NUM_VALIDATION_BATCHES]
+                .shuffle()[: self.num_validation_batches]
                 .to_iter_dataset(
                     ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=self.num_workers)
                 )

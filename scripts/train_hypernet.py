@@ -100,6 +100,7 @@ def main():
         first_epoch=first_epoch,
         grad_accu=config.grad_accu,
         num_workers=args.num_workers,
+        num_validation_batches=config.num_validation_batches,
     )
 
     for _ in trange(config.epochs):
