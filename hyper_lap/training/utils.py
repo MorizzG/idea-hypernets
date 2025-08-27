@@ -1,10 +1,12 @@
 from jaxtyping import Array, PyTree
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import json
 import time
 from argparse import ArgumentParser
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -157,33 +159,32 @@ def make_base_config(
     return base_config
 
 
-class Timer:
-    msg: str
-    pbar: tqdm | None
-    start_time: float | None
+@contextmanager
+def timer(msg: str, *, use_tqdm: bool = False):
+    start_time = time.perf_counter()
 
-    def __init__(self, msg: str, pbar: tqdm | None = None):
-        super().__init__()
-
-        self.msg = msg
-
-        self.pbar = pbar
-
-        self.start_time = None
-
-    def __enter__(self):
-        self.start_time = time.perf_counter()
-
-    def __exit__(self, exc_type, exc_value, traceback):
+    try:
+        yield
+    finally:
         end_time = time.perf_counter()
-        start_time = self.start_time
 
-        assert start_time is not None
+        s = f"{msg}: {end_time - start_time:.3}s"
 
-        if self.pbar:
-            self.pbar.write(f"{self.msg}: {end_time - start_time:.2}s")
+        if use_tqdm:
+            tqdm.write(s)
         else:
-            print(f"{self.msg}: {end_time - start_time:.2}s")
+            print(s)
+
+
+def with_timer(fn: Callable | None, *, msg: str, use_tqdm: bool = False):
+    if fn is None:
+        return partial(with_timer, msg=msg, use_tqdm=use_tqdm)
+
+    def wrapped_fn(*args, **kw_args):
+        with timer(msg, use_tqdm=use_tqdm):
+            return fn(*args, **kw_args)
+
+    return wrapped_fn
 
 
 @dataclass
