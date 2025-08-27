@@ -2,10 +2,10 @@ from jaxtyping import Array, PyTree
 from typing import Any, Literal
 
 import json
+import time
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
-from time import time
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -172,10 +172,10 @@ class Timer:
         self.start_time = None
 
     def __enter__(self):
-        self.start_time = time()
+        self.start_time = time.perf_counter()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        end_time = time()
+        end_time = time.perf_counter()
         start_time = self.start_time
 
         assert start_time is not None
