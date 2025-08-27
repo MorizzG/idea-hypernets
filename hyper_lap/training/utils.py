@@ -39,7 +39,6 @@ COMMON_CONFIG = {
     "epochs": MISSING,
     "batch_size": MISSING,
     "grad_accu": 1,
-    "num_validation_batches": MISSING,
     "optim": {
         "optimizer": "adamw",
         "lr": 5e-4,

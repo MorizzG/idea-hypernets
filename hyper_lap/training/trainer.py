@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float, Integer
-from typing import Any, Callable, overload
+from typing import Any, Callable, ClassVar, overload
 
 import itertools
 import shutil
@@ -24,6 +24,12 @@ from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.utils import make_lr_schedule, to_PIL
 
 from .metrics import calc_metrics
+
+
+def unwrap[T](x: T | None) -> T:
+    assert x is not None
+
+    return x
 
 
 def transpose(elems: list[dict[str, Any]]) -> dict[str, list[Any]]:
@@ -54,7 +60,7 @@ def transpose(elems: list[dict[str, Any]]) -> dict[str, list[Any]]:
 
 
 class Trainer[Net: Callable[[Array, Array | None], Array]]:
-    # NUM_VALIDATION_BATCHES: ClassVar[int] = 20
+    NUM_VALIDATION_BATCHES: ClassVar[int] = 10
 
     @staticmethod
     @eqx.filter_jit
@@ -145,8 +151,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     trainsets: list[MapDataset]
     valsets: list[MapDataset]
 
-    num_validation_batches: int
-
     _get_step: Callable[[], int]
 
     def __init__(
@@ -160,7 +164,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         optim_config: dict[str, Any],
         grad_accu: int,
         num_workers: int,
-        num_validation_batches: int,
     ):
         super().__init__()
 
@@ -207,8 +210,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         self.trainsets = trainsets
         self.valsets = valsets
-
-        self.num_validation_batches = num_validation_batches
 
     @property
     def learning_rate(self) -> float:
@@ -285,13 +286,15 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         all_losses = []
 
-        valsets = {
-            valset[0]["name"]: valset.seed(self.epoch).shuffle()[: self.num_validation_batches]
+        valsets: dict[str, MapDataset] = {
+            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[
+                : self.NUM_VALIDATION_BATCHES
+            ]
             for valset in self.valsets
         }
 
         it = iter(
-            MapDataset.concatenate(valsets.values()).to_iter_dataset(
+            MapDataset.concatenate(list(valsets.values())).to_iter_dataset(
                 ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=self.num_workers)
             )
         )
@@ -299,7 +302,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         for dataset_name in valsets.keys():
             metrices = []
 
-            for _ in trange(self.num_validation_batches):
+            for _ in trange(self.NUM_VALIDATION_BATCHES):
                 batch = next(it)
 
                 assert batch["name"] == dataset_name
@@ -438,7 +441,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         assert all(isinstance(dataset, MapDataset) for dataset in datasets)
 
-        batches: list[dict[str, Any]] = [dataset[0] for dataset in datasets]  # type: ignore
+        batches: list[dict[str, Any]] = [unwrap(dataset[0]) for dataset in datasets]
 
         samples = {
             batch["name"]: jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, batch)
