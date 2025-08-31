@@ -398,8 +398,11 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             else:
                 no_improvement_counter += 1
 
-                if no_improvement_counter == 10:
-                    tqdm.write("Stopping early after no validation improvement for 10 epochs")
+                if no_improvement_counter == 20:
+                    tqdm.write(
+                        "Stopping early after no validation improvement for"
+                        f" {no_improvement_counter} epochs"
+                    )
 
                     break
 
