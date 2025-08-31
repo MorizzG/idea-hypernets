@@ -165,9 +165,9 @@ def save_with_config_safetensors(path: str | Path, config: Any, pytree: PyTree):
     hyperparams_path = path.with_suffix(".json")
     safetensors_path = path.with_suffix(".safetensors")
 
-    with hyperparams_path.open("wb") as f:
+    with hyperparams_path.open("w") as f:
         hyper_params_str = json.dumps(config)
-        f.write((hyper_params_str).encode())
+        f.write(hyper_params_str)
 
     save_pytree(safetensors_path, pytree)
 
@@ -181,7 +181,7 @@ def load_config(path: str | Path) -> dict:
     if not path.suffix == ".json":
         raise ValueError(f"Expected .json file, got {path.suffix} instead")
 
-    with path.open("rb") as f:
-        config = json.loads(f.read().decode())
+    with path.open("r") as f:
+        config = json.loads(f.read())
 
     return config
