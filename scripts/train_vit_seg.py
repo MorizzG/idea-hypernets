@@ -3,10 +3,9 @@ from pathlib import Path
 import jax.random as jr
 import wandb
 from omegaconf import OmegaConf
-from tqdm import trange
 
 from hyper_lap.models import VitSegmentator
-from hyper_lap.serialisation import load_pytree, save_with_config_safetensors
+from hyper_lap.serialisation import load_pytree
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     load_model_artifact,
@@ -89,38 +88,14 @@ def main():
         None,
         trainsets,
         valsets,
+        model_name=model_name,
         optim_config=config.optim,
         first_epoch=first_epoch,
         grad_accu=config.grad_accu,
         num_workers=args.num_workers,
     )
 
-    for _ in trange(config.epochs):
-        if wandb.run is not None:
-            wandb.run.log(
-                {
-                    "epoch": trainer.epoch,
-                    "learning_rate": trainer.learning_rate,
-                }
-            )
-
-        vit_seg, _ = trainer.train(vit_seg, None)
-
-        trainer.validate(vit_seg, None)
-
-    model_path = Path(f"./models/{model_name}.safetensors")
-
-    model_path.parent.mkdir(exist_ok=True)
-
-    save_with_config_safetensors(model_path, OmegaConf.to_object(config), vit_seg)
-
-    if wandb.run is not None:
-        model_artifact = wandb.Artifact(model_name, type="model")
-
-        model_artifact.add_file(str(model_path.with_suffix(".json")))
-        model_artifact.add_file(str(model_path.with_suffix(".safetensors")))
-
-        wandb.run.log_artifact(model_artifact)
+    vit_seg, _ = trainer.run(vit_seg, None, config.epochs, OmegaConf.to_object(config))
 
     print()
     print()

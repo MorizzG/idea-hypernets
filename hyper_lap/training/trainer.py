@@ -20,6 +20,7 @@ from tqdm import tqdm, trange
 from umap import UMAP
 
 from hyper_lap.embedder import InputEmbedder
+from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn
 from hyper_lap.training.utils import make_lr_schedule, to_PIL
 
@@ -137,6 +138,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         return net, embedder, opt_state, aux
 
+    model_name: str
+
     num_workers: int
 
     epoch: int
@@ -160,12 +163,15 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         trainsets: list[MapDataset],
         valsets: list[MapDataset],
         *,
+        model_name: str,
         first_epoch: int = 0,
         optim_config: dict[str, Any],
         grad_accu: int,
         num_workers: int,
     ):
         super().__init__()
+
+        self.model_name = model_name
 
         self.batches_per_epoch = 100 * len(trainsets)
         self.num_workers = num_workers
@@ -277,7 +283,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         return net, embedder
 
-    def validate(self, net: Net, embedder: InputEmbedder | None):
+    def validate(self, net: Net, embedder: InputEmbedder | None) -> float:
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
         @jax.jit
@@ -348,6 +354,75 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         else:
             tqdm.write(f"Validation loss: {np.mean(all_losses):.3}")
             tqdm.write("")
+
+        return float(np.mean(all_losses))
+
+    @overload
+    def run(
+        self, net: Net, embedder: InputEmbedder, num_epochs: int, config: Any
+    ) -> tuple[Net, InputEmbedder]: ...
+
+    @overload
+    def run(self, net: Net, embedder: None, num_epochs: int, config: Any) -> tuple[Net, None]: ...
+
+    def run(
+        self,
+        net: Net,
+        embedder: InputEmbedder | None,
+        num_epochs: int,
+        config: Any,
+    ) -> tuple[Net, InputEmbedder | None]:
+        best_val_loss = np.inf
+        no_improvement_counter = 0
+
+        model_path = Path(f"./models/{self.model_name}.safetensors")
+
+        model_path.parent.mkdir(exist_ok=True)
+
+        if wandb.run is not None:
+            model_artifact = wandb.Artifact(self.model_name, type="model")
+        else:
+            model_artifact = None
+
+        for _ in trange(num_epochs):
+            if wandb.run is not None:
+                wandb.run.log(
+                    {
+                        "epoch": self.epoch,
+                        "learning_rate": self.learning_rate,
+                    }
+                )
+
+            net, embedder = self.train(net, embedder)
+
+            val_loss = self.validate(net, embedder)
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                no_improvement_counter = 0
+
+                save_with_config_safetensors(model_path, config, net)
+
+                if wandb.run is not None:
+                    assert model_artifact is not None
+
+                    model_artifact.add_file(str(model_path.with_suffix(".json")), overwrite=True)
+                    model_artifact.add_file(
+                        str(model_path.with_suffix(".safetensors")), overwrite=True
+                    )
+            else:
+                no_improvement_counter += 1
+
+                if no_improvement_counter == 10:
+                    tqdm.write("Stopping early after no validation improvement for 10 epochs")
+                    break
+
+        if wandb.run is not None:
+            assert model_artifact is not None
+
+            wandb.run.log_artifact(model_artifact)
+
+        return net, embedder
 
     def make_plots(
         self,
