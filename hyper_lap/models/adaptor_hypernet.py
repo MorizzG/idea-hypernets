@@ -15,7 +15,6 @@ from hyper_lap.hyper.generator import (
     Conv2dGeneratorNew,
     Conv2dLoraGenerator,
 )
-from hyper_lap.layers.unet import ConvNormAct
 
 from .adaptor_unet import AdaptorUnet
 
@@ -32,8 +31,6 @@ class AdaptorHyperNet(eqx.Module):
 
     input_emb_size: int = eqx.field(static=True)
     pos_emb_size: int = eqx.field(static=True)
-
-    res: bool = eqx.field(static=True)
 
     kernel_generator: Conv2dGeneratorABC
 
@@ -85,7 +82,6 @@ class AdaptorHyperNet(eqx.Module):
         pos_emb_size: int,
         *,
         kernel_size: int = 3,
-        res: bool,
         filter_spec: PyTree | None = None,
         generator_kind: Literal["basic", "lora", "new"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
@@ -108,8 +104,6 @@ class AdaptorHyperNet(eqx.Module):
         self.block_size = block_size
         self.input_emb_size = input_emb_size
         self.pos_emb_size = pos_emb_size
-
-        self.res = res
 
         total_emb_size = input_emb_size + pos_emb_size
 
@@ -185,38 +179,6 @@ class AdaptorHyperNet(eqx.Module):
 
         return embs
 
-    def gen_init_conv(self, init_conv: ConvNormAct) -> ConvNormAct:
-        assert_equal_shape([init_conv.conv.weight, self.init_kernel])
-
-        if self.res:
-            init_conv = eqx.tree_at(
-                lambda _init_conv: _init_conv.conv.weight,
-                init_conv,
-                init_conv.conv.weight + self.init_kernel,
-            )
-        else:
-            init_conv = eqx.tree_at(
-                lambda _init_conv: _init_conv.conv.weight, init_conv, self.init_kernel
-            )
-
-        return init_conv
-
-    def gen_final_conv(self, final_conv: nn.Conv2d) -> nn.Conv2d:
-        assert_equal_shape([final_conv.weight, self.final_kernel])
-
-        if self.res:
-            final_conv = eqx.tree_at(
-                lambda _final_conv: _final_conv.weight,
-                final_conv,
-                final_conv.weight + self.final_kernel,
-            )
-        else:
-            final_conv = eqx.tree_at(
-                lambda _final_conv: _final_conv.weight, final_conv, self.final_kernel
-            )
-
-        return final_conv
-
     def gen_weights[T: PyTree](
         self,
         unet: T,
@@ -268,10 +230,8 @@ class AdaptorHyperNet(eqx.Module):
 
             assert_equal_shape([weight, weights[i]])
 
-            if self.res:
-                weights[i] = jax.lax.stop_gradient(weights[i]) + weight
-            else:
-                weights[i] = weight
+            assert b_out == b_in
+            weights[i] = jnp.eye(b_out * self.block_size) + weight
 
             reg += (weight**2).sum()
 
@@ -309,9 +269,6 @@ class AdaptorHyperNet(eqx.Module):
         unet = dyn_unet.unet
         recomb = dyn_unet.recomb
         final_conv = dyn_unet.final_conv
-
-        init_conv = self.gen_init_conv(init_conv)
-        final_conv = self.gen_final_conv(final_conv)
 
         unet, unet_reg = self.gen_weights(
             unet, input_emb, self.unet_pos_embs, self.filter_spec.unet
