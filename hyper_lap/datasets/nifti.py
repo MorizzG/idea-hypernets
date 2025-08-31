@@ -74,7 +74,7 @@ class NiftiDataset(Dataset):
 
         assert nib.ndim == 3
 
-        return np.asanyarray(nib.dataobj).astype(dtype)
+        return np.asarray(nib.dataobj, dtype=dtype)
 
     @staticmethod
     def load_array_slice(
@@ -96,7 +96,7 @@ class NiftiDataset(Dataset):
         else:
             assert False
 
-        return np.asanyarray(sliced.dataobj).astype(dtype).squeeze(slice_axis)
+        return np.asarray(sliced.dataobj, dtype=dtype).squeeze(slice_axis)
 
     def get_image_shape(self, idx: int) -> tuple[int, ...]:
         assert 0 <= idx < len(self), f"index {idx} out of range"

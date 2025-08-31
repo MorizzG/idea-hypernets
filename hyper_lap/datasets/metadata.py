@@ -59,9 +59,9 @@ class Metadata(BaseModel):
         assert (list(dataset_json["modality"].keys())) == list(
             range(len(dataset_json["modality"]))
         ), f"{list(dataset_json['modality'].keys())} != {range(len(dataset_json['modality']))}"
-        assert list(dataset_json["labels"].keys()) == list(range(len(dataset_json["labels"]))), (
-            f"{list(dataset_json['labels'].keys())} != {range(len(dataset_json['labels']))}"
-        )
+        assert list(dataset_json["labels"].keys()) == list(
+            range(len(dataset_json["labels"]))
+        ), f"{list(dataset_json['labels'].keys())} != {range(len(dataset_json['labels']))}"
 
         def replace_key(old: str, new: str):
             if old not in dataset_json:
@@ -148,15 +148,15 @@ class Metadata(BaseModel):
             # spellchecking is totally overrated
             replace_key("relase", "release")
 
-        assert dataset_json["num_training"] == len(dataset_json["training"]), (
-            f"{dataset_json['num_training']} != {len(dataset_json['training'])}"
-        )
-        assert dataset_json["num_validation"] == len(dataset_json["validation"]), (
-            f"{dataset_json['num_validation']} != {len(dataset_json['validation'])}"
-        )
-        assert dataset_json["num_test"] == len(dataset_json["test"]), (
-            f"{dataset_json['num_test']} != {len(dataset_json['test'])}"
-        )
+        assert dataset_json["num_training"] == len(
+            dataset_json["training"]
+        ), f"{dataset_json['num_training']} != {len(dataset_json['training'])}"
+        assert dataset_json["num_validation"] == len(
+            dataset_json["validation"]
+        ), f"{dataset_json['num_validation']} != {len(dataset_json['validation'])}"
+        assert dataset_json["num_test"] == len(
+            dataset_json["test"]
+        ), f"{dataset_json['num_test']} != {len(dataset_json['test'])}"
 
         if "license" in dataset_json:
             # oops
@@ -166,7 +166,10 @@ class Metadata(BaseModel):
 
     def __str__(self) -> str:
         modality_s = yaml.dump(self.modality)
+        assert isinstance(modality_s, str)
+
         labels_s = yaml.dump(self.labels)
+        assert isinstance(labels_s, str)
 
         # prepend each line by 2 tabs for indentation
         modality_s = "\n".join("\t\t" + line for line in modality_s.split("\n"))
@@ -174,6 +177,8 @@ class Metadata(BaseModel):
 
         if self.extra:
             extra_s = yaml.dump(self.extra)
+            assert isinstance(extra_s, str)
+
             extra_s = "\n".join("\t" + line for line in extra_s.split("\n"))
 
             extra_s = f"\n{extra_s}"

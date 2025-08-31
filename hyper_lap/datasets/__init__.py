@@ -7,6 +7,4 @@ from .medidec import MediDec as MediDec
 from .medidec_sliced import MediDecSliced as MediDecSliced
 from .nifti import NiftiDataset as NiftiDataset
 from .normalised import NormalisedDataset as NormalisedDataset
-from .preloaded import PreloadedDataset as PreloadedDataset
-from .sliced import SlicedDataset as SlicedDataset
 from .total_segmentator import TotalSegmentator as TotalSegmentator
