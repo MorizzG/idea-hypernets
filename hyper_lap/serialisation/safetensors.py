@@ -56,7 +56,7 @@ def to_state_dict(tree: PyTree) -> dict[str, Array]:
     arrays = {}
 
     for tree_path, value in paths_and_values:
-        path_parts = []
+        path_parts: list[str] = []
 
         for p in tree_path:
             if hasattr(p, "name"):
@@ -89,7 +89,7 @@ def load_state_dict(
     new_values = []
 
     for tree_path, value in paths_and_values:
-        path_parts = []
+        path_parts: list[str] = []
 
         for p in tree_path:
             if hasattr(p, "name"):
