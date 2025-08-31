@@ -375,14 +375,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         best_val_loss = np.inf
         no_improvement_counter = 0
 
-        model_path = Path(f"./models/{self.model_name}.safetensors")
-
-        model_path.parent.mkdir(exist_ok=True)
-
-        if wandb.run is not None:
-            model_artifact = wandb.Artifact(self.model_name, type="model")
-        else:
-            model_artifact = None
+        best_model = jax.device_get((net, embedder))
 
         for _ in trange(num_epochs):
             if wandb.run is not None:
@@ -401,24 +394,26 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 best_val_loss = val_loss
                 no_improvement_counter = 0
 
-                save_with_config_safetensors(model_path, config, net)
-
-                if wandb.run is not None:
-                    assert model_artifact is not None
-
-                    model_artifact.add_file(str(model_path.with_suffix(".json")), overwrite=True)
-                    model_artifact.add_file(
-                        str(model_path.with_suffix(".safetensors")), overwrite=True
-                    )
+                best_model = jax.device_get((net, embedder))
             else:
                 no_improvement_counter += 1
 
                 if no_improvement_counter == 10:
                     tqdm.write("Stopping early after no validation improvement for 10 epochs")
+
                     break
 
+        model_path = Path(f"./models/{self.model_name}.safetensors")
+
+        model_path.parent.mkdir(exist_ok=True)
+
+        save_with_config_safetensors(model_path, config, best_model)
+
         if wandb.run is not None:
-            assert model_artifact is not None
+            model_artifact = wandb.Artifact(self.model_name, type="model")
+
+            model_artifact.add_file(str(model_path.with_suffix(".json")), overwrite=True)
+            model_artifact.add_file(str(model_path.with_suffix(".safetensors")), overwrite=True)
 
             wandb.run.log_artifact(model_artifact)
 

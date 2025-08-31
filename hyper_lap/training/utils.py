@@ -167,7 +167,7 @@ def timer(msg: str, *, use_tqdm: bool = False):
     finally:
         end_time = time.perf_counter()
 
-        s = f"{msg}: {end_time - start_time:.3}s"
+        s = f"{msg}: {end_time - start_time:.3g}s"
 
         if use_tqdm:
             tqdm.write(s)
