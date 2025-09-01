@@ -22,7 +22,7 @@ from umap import UMAP
 from hyper_lap.embedder import InputEmbedder
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.training.loss import loss_fn
-from hyper_lap.training.utils import make_lr_schedule, to_PIL
+from hyper_lap.training.utils import make_lr_schedule, timer, to_PIL
 
 from .metrics import calc_metrics
 
@@ -225,12 +225,16 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         return float(self.lr_schedule(self._get_step()))  # type: ignore
 
     @overload
-    def train(self, net: Net, embedder: InputEmbedder) -> tuple[Net, InputEmbedder]: ...
+    def train(
+        self, net: Net, embedder: InputEmbedder
+    ) -> tuple[Net, InputEmbedder, dict[str, float]]: ...
 
     @overload
-    def train(self, net: Net, embedder: None) -> tuple[Net, None]: ...
+    def train(self, net: Net, embedder: None) -> tuple[Net, None, dict[str, float]]: ...
 
-    def train(self, net: Net, embedder: InputEmbedder | None) -> tuple[Net, InputEmbedder | None]:
+    def train(
+        self, net: Net, embedder: InputEmbedder | None
+    ) -> tuple[Net, InputEmbedder | None, dict[str, float]]:
         self.epoch += 1
 
         tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
@@ -264,26 +268,30 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         aux = transpose(auxs)
 
-        if wandb.run is not None:
-            data: dict[str, Any] = {"epoch": self.epoch}
+        tqdm.write(f"Loss:        {np.mean(aux['loss']):.3}")
+        tqdm.write(f"Grad Norm:   {np.mean(aux['grad_norm']):.3}")
+        tqdm.write(f"Update Norm: {np.mean(aux['update_norm']):.3}")
+        tqdm.write("")
 
-            for key, value in aux.items():
-                if key == "loss":
-                    data["loss/train/mean"] = np.mean(aux["loss"])
-                    data["loss/train/std"] = np.std(aux["loss"])
-                else:
-                    data[key] = np.mean(value)
+        metrics = {
+            "loss/train/mean": float(np.mean(aux["loss"])),
+            "loss/train/std": float(np.std(aux["loss"])),
+            "grad_norm": np.mean(aux["grad_norm"]),
+            "update_norm": np.mean(aux["update_norm"]),
+        }
 
-            wandb.run.log(data)
-        else:
-            tqdm.write(f"Loss:        {np.mean(aux['loss']):.3}")
-            tqdm.write(f"Grad Norm:   {np.mean(aux['grad_norm']):.3}")
-            tqdm.write(f"Update Norm: {np.mean(aux['update_norm']):.3}")
-            tqdm.write("")
+        return net, embedder, metrics
 
-        return net, embedder
+    def validate(
+        self,
+        net: Net,
+        embedder: InputEmbedder | None,
+        *,
+        num_batches: int | None = None,
+    ) -> dict[str, float]:
+        if num_batches is None:
+            num_batches = self.NUM_VALIDATION_BATCHES
 
-    def validate(self, net: Net, embedder: InputEmbedder | None) -> float:
         tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
         @jax.jit
@@ -291,11 +299,10 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             return jax.vmap(loss_fn)(logits, labels)
 
         all_losses = []
+        metrics = {}
 
         valsets: dict[str, MapDataset] = {
-            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[
-                : self.NUM_VALIDATION_BATCHES
-            ]
+            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
             for valset in self.valsets
         }
 
@@ -306,9 +313,9 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         )
 
         for dataset_name in valsets.keys():
-            metrices = []
+            dataset_metrices = []
 
-            for _ in trange(self.NUM_VALIDATION_BATCHES):
+            for _ in trange(num_batches):
                 batch = next(it)
 
                 assert batch["name"] == dataset_name
@@ -319,43 +326,33 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
                 logits = self.net_forward(net, embedder, images, labels, dataset_idx)
 
-                metrics = calc_metrics(logits, labels)
+                dataset_metrics = calc_metrics(logits, labels)
 
                 loss = loss_jit(logits, labels)
 
-                metrices.append(metrics)
+                dataset_metrices.append(dataset_metrics)
                 all_losses += list(loss)
 
-            metrics = transpose(metrices)
+            dataset_metrics = transpose(dataset_metrices)
 
-            if wandb.run is not None:
-                wandb.run.log(
-                    {
-                        f"{metric}/{dataset_name}": np.mean(value)
-                        for metric, value in metrics.items()
-                    },
-                    commit=False,
-                )
-            else:
-                tqdm.write(f"Dataset: {dataset_name}:")
-                tqdm.write(f"    Dice score: {np.mean(metrics['dice']):.3f}")
-                tqdm.write(f"    IoU score : {np.mean(metrics['iou']):.3f}")
-                tqdm.write(f"    Hausdorff : {np.mean(metrics['hausdorff']):.3f}")
-                tqdm.write("")
+            metrics |= {
+                f"{metric}/{dataset_name}": float(np.mean(value))
+                for metric, value in dataset_metrics.items()
+            }
 
-        if wandb.run is not None:
-            wandb.run.log(
-                {
-                    "epoch": self.epoch,
-                    "loss/validation/mean": np.mean(all_losses),
-                    "loss/validation/std": np.std(all_losses),
-                }
-            )
-        else:
-            tqdm.write(f"Validation loss: {np.mean(all_losses):.3}")
+            tqdm.write(f"Dataset: {dataset_name}:")
+            tqdm.write(f"    Dice score: {np.mean(dataset_metrics['dice']):.3f}")
+            tqdm.write(f"    IoU score : {np.mean(dataset_metrics['iou']):.3f}")
+            tqdm.write(f"    Hausdorff : {np.mean(dataset_metrics['hausdorff']):.3f}")
             tqdm.write("")
 
-        return float(np.mean(all_losses))
+        tqdm.write(f"Validation loss: {np.mean(all_losses):.3}")
+        tqdm.write("")
+
+        metrics["loss/validation/mean"] = float(np.mean(all_losses))
+        metrics["loss/validation/std"] = float(np.std(all_losses))
+
+        return metrics
 
     @overload
     def run(
@@ -372,39 +369,52 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         num_epochs: int,
         config: Any,
     ) -> tuple[Net, InputEmbedder | None]:
+        best_epoch = self.epoch
         best_val_loss = np.inf
         no_improvement_counter = 0
 
         best_model = jax.device_get((net, embedder))
 
         for _ in trange(num_epochs):
+            learning_rate = self.learning_rate
+
+            with timer("train", use_tqdm=True):
+                net, embedder, train_metrics = self.train(net, embedder)
+
+            with timer("validate", use_tqdm=True):
+                val_metrics = self.validate(net, embedder)
+
+            metrics = {
+                "epoch": self.epoch,
+                "learning_rate": learning_rate,
+            }
+
+            metrics |= train_metrics
+            metrics |= val_metrics
+
             if wandb.run is not None:
-                wandb.run.log(
-                    {
-                        "epoch": self.epoch,
-                        "learning_rate": self.learning_rate,
-                    }
-                )
+                wandb.run.log(metrics)
 
-            net, embedder = self.train(net, embedder)
-
-            val_loss = self.validate(net, embedder)
-
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if val_metrics["loss/validation/mean"] < best_val_loss:
+                best_epoch = self.epoch
+                best_val_loss = val_metrics["loss/validation/mean"]
                 no_improvement_counter = 0
 
                 best_model = jax.device_get((net, embedder))
             else:
                 no_improvement_counter += 1
 
-                # if no_improvement_counter == 20:
-                #     tqdm.write(
-                #         "Stopping early after no validation improvement for"
-                #         f" {no_improvement_counter} epochs"
-                #     )
+        net, embedder = jt.map(lambda x: jax.device_put(x) if eqx.is_array(x) else x, best_model)
 
-                #     break
+        with timer("best_validation", use_tqdm=True):
+            best_metrics = self.validate(net, embedder, num_batches=100)
+
+        if wandb.run is not None:
+            for key in wandb.run.summary.keys():
+                del wandb.run.summary[key]
+
+            wandb.run.summary["epoch"] = best_epoch
+            wandb.run.summary.update(best_metrics)
 
         model_path = Path(f"./models/{self.model_name}.safetensors")
 
@@ -442,8 +452,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             logits = self.net_forward(net, embedder, images, labels, dataset_idx)
 
-            metrics = calc_metrics(logits, labels)
-
             image = images[1]
             label = labels[1]
 
@@ -456,17 +464,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             axs[2].imshow(pred, cmap="gray")
 
             fig.savefig(image_folder / f"{dataset_name}{'_test' if test else ''}.pdf")
-            if not test:
-                print(f"Dataset {dataset_name}:")
-            else:
-                print(f"Test Dataset {dataset_name}:")
-
-            print(f"    Dice score: {metrics['dice']:.3f}")
-            print(f"    IoU score : {metrics['iou']:.3f}")
-            print(f"    Hausdorff : {metrics['hausdorff']:.3f}")
-
-            print()
-            print()
 
             if wandb.run is not None:
                 class_labels = {0: "background", 1: "foreground"}
@@ -488,8 +485,10 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
                 if not test:
                     wandb.run.log({f"images/train/{dataset_name}": image})
+                    del wandb.run.summary[f"images/train/{dataset_name}"]
                 else:
                     wandb.run.log({f"images/test/{dataset_name}": image})
+                    del wandb.run.summary[f"images/test/{dataset_name}"]
 
         for valset in self.valsets:
             batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, valset[0])
