@@ -398,13 +398,13 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             else:
                 no_improvement_counter += 1
 
-                if no_improvement_counter == 20:
-                    tqdm.write(
-                        "Stopping early after no validation improvement for"
-                        f" {no_improvement_counter} epochs"
-                    )
+                # if no_improvement_counter == 20:
+                #     tqdm.write(
+                #         "Stopping early after no validation improvement for"
+                #         f" {no_improvement_counter} epochs"
+                #     )
 
-                    break
+                #     break
 
         model_path = Path(f"./models/{self.model_name}.safetensors")
 
