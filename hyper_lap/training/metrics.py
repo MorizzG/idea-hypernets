@@ -4,6 +4,23 @@ import jax
 import jax.numpy as jnp
 
 from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
+from hyper_lap.training.utils import timer
+
+
+@jax.jit
+def dice_fn(preds, labels):
+    return jax.vmap(dice_score)(preds, labels).mean()
+
+
+@jax.jit
+def iou_fn(preds, labels):
+    return jax.vmap(jaccard_index)(preds, labels).mean()
+
+
+def hausdorff_fn(preds, labels):
+    return jnp.array(
+        [hausdorff_distance(preds[i], labels[i]) for i in range(preds.shape[0])]
+    ).mean()
 
 
 def calc_metrics(
@@ -14,18 +31,10 @@ def calc_metrics(
     preds = preds != 0
     labels = labels != 0
 
-    @jax.jit
-    def dice_fn(preds, labels):
-        return jax.vmap(dice_score)(preds, labels).mean()
-
-    @jax.jit
-    def iou_fn(preds, labels):
-        return jax.vmap(jaccard_index)(preds, labels).mean()
-
     dice = dice_fn(preds, labels)
 
     iou = iou_fn(preds, labels)
 
-    hd = jnp.array([hausdorff_distance(preds[i], labels[i]) for i in range(preds.shape[0])]).mean()
+    hd = hausdorff_fn(preds, labels)
 
     return {"dice": dice, "iou": iou, "hausdorff": hd}
