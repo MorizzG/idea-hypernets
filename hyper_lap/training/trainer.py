@@ -404,6 +404,14 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             else:
                 no_improvement_counter += 1
 
+                if no_improvement_counter == 20:
+                    tqdm.write(
+                        "Stopping early after no validation improvement for"
+                        f" {no_improvement_counter} epochs"
+                    )
+
+                    break
+
         net, embedder = jt.map(lambda x: jax.device_put(x) if eqx.is_array(x) else x, best_model)
 
         with timer("best_validation", use_tqdm=True):
