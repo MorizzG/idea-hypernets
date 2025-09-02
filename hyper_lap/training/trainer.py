@@ -235,10 +235,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     def train(
         self, net: Net, embedder: InputEmbedder | None
     ) -> tuple[Net, InputEmbedder | None, dict[str, float]]:
-        self.epoch += 1
-
-        tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
-
         auxs: list[dict[str, Any]] = []
 
         mixed_trainset = (
@@ -291,8 +287,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     ) -> dict[str, float]:
         if num_batches is None:
             num_batches = self.NUM_VALIDATION_BATCHES
-
-        tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
         @jax.jit
         def loss_jit(logits, labels):
@@ -376,10 +370,16 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         best_model = jax.device_get((net, embedder))
 
         for _ in trange(num_epochs):
+            self.epoch += 1
+
             learning_rate = self.learning_rate
+
+            tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
 
             with timer("train", use_tqdm=True):
                 net, embedder, train_metrics = self.train(net, embedder)
+
+            tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
             with timer("validate", use_tqdm=True):
                 val_metrics = self.validate(net, embedder)
@@ -413,6 +413,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                     break
 
         net, embedder = jt.map(lambda x: jax.device_put(x) if eqx.is_array(x) else x, best_model)
+
+        tqdm.write("Best model validation:\n")
 
         with timer("best_validation", use_tqdm=True):
             best_metrics = self.validate(net, embedder, num_batches=100)
