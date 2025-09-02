@@ -242,9 +242,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             .seed(self.epoch)
             .shuffle()[: self.batches_per_epoch]
             .to_iter_dataset(
-                read_options=ReadOptions(
-                    num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers
-                )
+                read_options=ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=200)
             )
         )
 
@@ -302,7 +300,9 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         it = iter(
             MapDataset.concatenate(list(valsets.values())).to_iter_dataset(
-                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=self.num_workers)
+                ReadOptions(
+                    num_threads=self.num_workers, prefetch_buffer_size=len(valsets) * num_batches
+                )
             )
         )
 
