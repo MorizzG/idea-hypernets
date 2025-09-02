@@ -164,7 +164,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         valsets: list[MapDataset],
         *,
         model_name: str,
-        first_epoch: int = 0,
+        first_epoch: int = 1,
         optim_config: dict[str, Any],
         grad_accu: int,
         num_workers: int,

@@ -195,8 +195,6 @@ class Args:
 
     run_name: str | None
 
-    command: str
-
     artifact: str | None = None
 
 
@@ -226,14 +224,6 @@ def parse_args() -> tuple[Args, DictConfig]:
     )
 
     parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
-
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    _train_parser = subparsers.add_parser("train")
-
-    resume_parser = subparsers.add_parser("resume", help="Resume training from an artifact")
-
-    resume_parser.add_argument("artifact", type=str)
 
     args, unknown_args = parser.parse_known_args()
 

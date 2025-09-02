@@ -32,93 +32,44 @@ def main():
             # sync_tensorboard=True,
         )
 
-    match args.command:
-        case "train":
-            config = OmegaConf.merge(base_config, arg_config)
+    config = OmegaConf.merge(base_config, arg_config)
 
-            if missing_keys := OmegaConf.missing_keys(config):
-                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+    if missing_keys := OmegaConf.missing_keys(config):
+        raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            unet_config, unet_weights_path = load_model_artifact(config.unet_artifact)
+    unet_config, unet_weights_path = load_model_artifact(config.unet_artifact)
 
-            print(f"Loading U-Net weights from {unet_weights_path}")
+    print(f"Loading U-Net weights from {unet_weights_path}")
 
-            unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
+    unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
 
-            unet = load_pytree(unet_weights_path, unet)
+    unet = load_pytree(unet_weights_path, unet)
 
-            filter_spec = jt.map(lambda _: False, unet)
-            filter_spec = eqx.tree_at(
-                lambda filter_spec: filter_spec.unet.up,
-                filter_spec,
-                jt.map(lambda x: eqx.is_array(x), unet.unet.up),
-            )
-            filter_spec = eqx.tree_at(
-                lambda filter_spec: filter_spec.recomb,
-                filter_spec,
-                jt.map(lambda x: eqx.is_array(x), unet.recomb),
-            )
+    filter_spec = jt.map(lambda _: False, unet)
+    filter_spec = eqx.tree_at(
+        lambda filter_spec: filter_spec.unet.up,
+        filter_spec,
+        jt.map(lambda x: eqx.is_array(x), unet.unet.up),
+    )
+    filter_spec = eqx.tree_at(
+        lambda filter_spec: filter_spec.recomb,
+        filter_spec,
+        jt.map(lambda x: eqx.is_array(x), unet.recomb),
+    )
 
-            key = jr.PRNGKey(config.seed)
+    key = jr.PRNGKey(config.seed)
 
-            model_key, embedder_key = jr.split(key)
+    model_key, embedder_key = jr.split(key)
 
-            hypernet = HyperNet(
-                unet,
-                res=True,
-                filter_spec=filter_spec,
-                **config.hypernet,
-                key=model_key,
-            )
+    hypernet = HyperNet(
+        unet,
+        res=True,
+        filter_spec=filter_spec,
+        **config.hypernet,
+        key=model_key,
+    )
 
-            first_epoch = unet_config["epochs"]
-
-        case "resume":
-            assert args.artifact is not None
-
-            loaded_config, weights_path = load_model_artifact(args.artifact)
-
-            config = OmegaConf.merge(loaded_config, arg_config)
-
-            if missing_keys := OmegaConf.missing_keys(config):
-                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
-
-            unet_config, unet_weights_path = load_model_artifact(config.unet_artifact)
-
-            unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
-
-            unet = load_pytree(unet_weights_path, unet)
-
-            filter_spec = jt.map(lambda _: False, unet)
-            filter_spec = eqx.tree_at(
-                lambda filter_spec: filter_spec.unet.up,
-                filter_spec,
-                jt.map(lambda x: eqx.is_array(x), unet.unet.up),
-            )
-            filter_spec = eqx.tree_at(
-                lambda filter_spec: filter_spec.recomb,
-                filter_spec,
-                jt.map(lambda x: eqx.is_array(x), unet.recomb),
-            )
-
-            key = jr.PRNGKey(config.seed)
-
-            model_key, embedder_key = jr.split(key)
-
-            hypernet = HyperNet(
-                unet,
-                res=True,
-                filter_spec=filter_spec,
-                **config.hypernet,
-                key=model_key,
-            )
-
-            hypernet = load_pytree(weights_path, hypernet)
-
-            first_epoch = unet_config["epochs"] + loaded_config["epochs"]
-
-        case cmd:
-            raise RuntimeError(f"Unrecognised command {cmd}")
+    first_epoch = unet_config["epochs"] + 1
 
     print_config(OmegaConf.to_object(config))
 

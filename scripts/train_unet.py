@@ -5,10 +5,8 @@ import wandb
 from omegaconf import OmegaConf
 
 from hyper_lap.models import Unet
-from hyper_lap.serialisation import load_pytree
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
-    load_model_artifact,
     make_base_config,
     make_dataloaders,
     parse_args,
@@ -29,35 +27,12 @@ def main():
             # sync_tensorboard=True,
         )
 
-    first_epoch = 0
+    config = OmegaConf.merge(base_config, arg_config)
 
-    match args.command:
-        case "train":
-            config = OmegaConf.merge(base_config, arg_config)
+    if missing_keys := OmegaConf.missing_keys(config):
+        raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
 
-            if missing_keys := OmegaConf.missing_keys(config):
-                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
-
-            unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
-
-        case "resume":
-            assert args.artifact is not None
-
-            loaded_config, weights_path = load_model_artifact(args.artifact)
-
-            first_epoch = loaded_config["epochs"]
-
-            config = OmegaConf.merge(loaded_config, arg_config)
-
-            if missing_keys := OmegaConf.missing_keys(config):
-                raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
-
-            unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
-
-            unet = load_pytree(weights_path, unet)
-
-        case cmd:
-            raise RuntimeError(f"Unrecognised command {cmd}")
+    unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
 
     print_config(OmegaConf.to_object(config))
 
@@ -82,7 +57,6 @@ def main():
         valsets,
         model_name=model_name,
         optim_config=config.optim,
-        first_epoch=first_epoch,
         grad_accu=config.grad_accu,
         num_workers=args.num_workers,
     )
