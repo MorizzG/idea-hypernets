@@ -249,7 +249,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         )
 
         for batches_np in itertools.batched(
-            tqdm(mixed_trainset, total=self.batches_per_epoch, leave=False), self.grad_accu
+            tqdm(mixed_trainset, total=self.batches_per_epoch), self.grad_accu
         ):
             for batch in batches_np:
                 batch.pop("name")
