@@ -38,7 +38,7 @@ def dice_score(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
 
 
 @jaxtyped(typechecker=beartype)
-def jaccard_index(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
+def intersection_over_union(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
     """
     Calculate Jaccard index (Intersection over Union).
     """
@@ -69,7 +69,9 @@ def generalised_energy_distance(preds: Bool[Array, "n h w"], labels: Bool[Array,
 
     # vmap first axis of each input separately, dist = 1 - IoU
     def dist_fn(x, y):
-        ious = jax.vmap(jax.vmap(jaccard_index, in_axes=(None, 0)), in_axes=(0, None))(x, y)
+        ious = jax.vmap(jax.vmap(intersection_over_union, in_axes=(None, 0)), in_axes=(0, None))(
+            x, y
+        )
         dists = 1 - ious
 
         assert_shape([ious, dists], [x.shape[0], y.shape[0]])

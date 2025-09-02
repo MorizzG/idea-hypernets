@@ -3,8 +3,7 @@ from jaxtyping import Array, Float, Integer
 import jax
 import jax.numpy as jnp
 
-from hyper_lap.metrics import dice_score, hausdorff_distance, jaccard_index
-from hyper_lap.training.utils import timer
+from hyper_lap.metrics import dice_score, hausdorff_distance, intersection_over_union
 
 
 @jax.jit
@@ -14,7 +13,7 @@ def dice_fn(preds, labels):
 
 @jax.jit
 def iou_fn(preds, labels):
-    return jax.vmap(jaccard_index)(preds, labels).mean()
+    return jax.vmap(intersection_over_union)(preds, labels).mean()
 
 
 def hausdorff_fn(preds, labels):
