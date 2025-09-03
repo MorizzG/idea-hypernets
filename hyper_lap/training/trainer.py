@@ -1,7 +1,6 @@
 from jaxtyping import Array, Float, Integer
 from typing import Any, Callable, ClassVar, overload
 
-import itertools
 import shutil
 from functools import partial
 from pathlib import Path
@@ -61,7 +60,7 @@ def transpose(elems: list[dict[str, Any]]) -> dict[str, list[Any]]:
 
 
 class Trainer[Net: Callable[[Array, Array | None], Array]]:
-    NUM_VALIDATION_BATCHES: ClassVar[int] = 10
+    NUM_VALIDATION_BATCHES: ClassVar[int] = 20
 
     @staticmethod
     @eqx.filter_jit
@@ -341,55 +340,51 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         best_model = jax.device_get((net, embedder))
 
-        for _ in trange(num_epochs):
+        # set val_interval to num_epochs, but at least 5 or num_epochs, whichever is smaller
+        val_interval = max(num_epochs // 20, min(5, num_epochs))
+
+        for i in trange(1, num_epochs + 1):
             self.epoch += 1
 
-            learning_rate = self.learning_rate
+            metrics = {
+                "epoch": self.epoch,
+                "learning_rate": self.learning_rate,
+            }
 
             tqdm.write(f"Epoch {self.epoch: 3}: Training\n")
 
             with timer("train", use_tqdm=True):
                 net, embedder, train_metrics = self.train(net, embedder)
 
-            tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
-
-            with timer("validate", use_tqdm=True):
-                val_metrics = self.validate(net, embedder)
-
-            metrics = {
-                "epoch": self.epoch,
-                "learning_rate": learning_rate,
-            }
-
             metrics |= train_metrics
-            metrics |= val_metrics
+
+            # validate every val_interval epochs and at the final epoch
+            if i % val_interval == 0 or i == num_epochs:
+                tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
+
+                with timer("validate", use_tqdm=True):
+                    val_metrics = self.validate(net, embedder)
+
+                metrics |= val_metrics
+
+                if val_metrics["loss/validation/mean"] < best_val_loss:
+                    best_epoch = self.epoch
+                    best_val_loss = val_metrics["loss/validation/mean"]
+                    no_improvement_counter = 0
+
+                    best_model = jax.device_get((net, embedder))
 
             if wandb.run is not None:
                 wandb.run.log(metrics)
 
-            if val_metrics["loss/validation/mean"] < best_val_loss:
-                best_epoch = self.epoch
-                best_val_loss = val_metrics["loss/validation/mean"]
-                no_improvement_counter = 0
-
-                best_model = jax.device_get((net, embedder))
-            else:
-                no_improvement_counter += 1
-
-                if no_improvement_counter == 20:
-                    tqdm.write(
-                        "Stopping early after no validation improvement for"
-                        f" {no_improvement_counter} epochs"
-                    )
-
-                    break
-
-        net, embedder = jt.map(lambda x: jax.device_put(x) if eqx.is_array(x) else x, best_model)
+        best_net, best_embedder = jt.map(
+            lambda x: jax.device_put(x) if eqx.is_array(x) else x, best_model
+        )
 
         tqdm.write("Best model validation:\n")
 
         with timer("best_validation", use_tqdm=True):
-            best_metrics = self.validate(net, embedder, num_batches=100)
+            best_metrics = self.validate(best_net, best_embedder, num_batches=100)
 
         if wandb.run is not None:
             for key in wandb.run.summary.keys():
@@ -412,7 +407,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             wandb.run.log_artifact(model_artifact)
 
-        return net, embedder
+        return best_net, best_embedder
 
     def make_plots(
         self,
