@@ -465,19 +465,19 @@ def to_PIL(img: np.ndarray | Array) -> Image.Image:
     return Image.fromarray(image, mode="RGB")
 
 
-def load_model_artifact(name: str) -> tuple[dict, Path]:
+def load_model_artifact(artifact_or_path: str) -> tuple[dict, Path]:
     # first try to interpret artifact as a path
-    config_path = Path(name).with_suffix(".json")
-    weights_path = Path(name).with_suffix(".safetensors")
+    config_path = Path(artifact_or_path).with_suffix(".json")
+    weights_path = Path(artifact_or_path).with_suffix(".safetensors")
 
     if not (config_path.exists() and weights_path.exists()):
         # if paths do not exists, interpret artifact as a W&B artifact and try to load it
         if wandb.run is not None:
-            artifact = wandb.run.use_artifact(name)
+            artifact = wandb.run.use_artifact(artifact_or_path)
         else:
             api = wandb.Api()
 
-            artifact = api.artifact(name)
+            artifact = api.artifact(artifact_or_path)
 
         artifact_dir = Path(artifact.download())
 
@@ -496,7 +496,8 @@ def load_model_artifact(name: str) -> tuple[dict, Path]:
                 case _:
                     raise RuntimeError("Unexpected file {file}")
 
-    assert config_path is not None and weights_path is not None
+        assert config_path is not None and weights_path is not None
+
     assert config_path.exists() and weights_path.exists()
 
     with config_path.open("r") as f:
