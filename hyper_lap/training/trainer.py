@@ -135,6 +135,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
     trainsets: list[MapDataset]
     valsets: list[MapDataset]
+    oodsets: list[MapDataset]
 
     _get_step: Callable[[], int]
 
@@ -144,6 +145,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         embedder: InputEmbedder | None,
         trainsets: list[MapDataset],
         valsets: list[MapDataset],
+        oodsets: list[MapDataset],
         *,
         model_name: str,
         first_epoch: int = 1,
@@ -192,6 +194,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         self.trainsets = trainsets
         self.valsets = valsets
+        self.oodsets = oodsets
 
     @property
     def learning_rate(self) -> float:
@@ -423,16 +426,17 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         self,
         net: Net,
         embedder: InputEmbedder | None,
-        testset: MapDataset | None,
         *,
         image_folder: Path,
     ):
+        print("Making plots")
+
         if image_folder.exists():
             shutil.rmtree(image_folder)
 
         image_folder.mkdir(parents=True)
 
-        def make_images(batch: dict[str, Array], *, dataset_name: str, test: bool = False):
+        def make_images(batch: dict[str, Array], *, dataset_name: str, ood: bool = False):
             images = batch["image"]
             labels = batch["label"]
             dataset_idx = batch["dataset_idx"]
@@ -450,7 +454,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             axs[1].imshow(label, cmap="gray")
             axs[2].imshow(pred, cmap="gray")
 
-            fig.savefig(image_folder / f"{dataset_name}{'_test' if test else ''}.pdf")
+            fig.savefig(image_folder / f"{dataset_name}{'_ood' if ood else ''}.pdf")
 
             if wandb.run is not None:
                 class_labels = {0: "background", 1: "foreground"}
@@ -470,52 +474,50 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                     },
                 )
 
-                if not test:
-                    wandb.run.log({f"images/train/{dataset_name}": image})
-                    del wandb.run.summary[f"images/train/{dataset_name}"]
+                if not ood:
+                    wandb.run.log({f"images/val/{dataset_name}": image})
+                    del wandb.run.summary[f"images/val/{dataset_name}"]
                 else:
-                    wandb.run.log({f"images/test/{dataset_name}": image})
-                    del wandb.run.summary[f"images/test/{dataset_name}"]
+                    wandb.run.log({f"images/ood/{dataset_name}": image})
+                    del wandb.run.summary[f"images/ood/{dataset_name}"]
 
         for valset in self.valsets:
             batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, valset[0])
 
             make_images(batch, dataset_name=batch["name"])
 
-        if testset is None:
-            return
+        for oodset in self.oodsets:
+            batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, oodset[0])
 
-        assert isinstance(testset, MapDataset)
+            make_images(batch, dataset_name=batch["name"], ood=True)
 
-        batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, testset[0])
+    def make_umap(self, embedder: InputEmbedder, image_folder: Path):
+        print("Making UMAP")
 
-        make_images(batch, dataset_name=batch["name"], test=True)
-
-    @staticmethod
-    def make_umap(embedder: InputEmbedder, datasets: list[MapDataset], image_folder: Path):
         if not image_folder.exists():
             image_folder.mkdir(parents=True)
 
-        embedder_jit = jax.jit(jax.vmap(embedder, in_axes=(0, 0, None)))
+        with timer("UMAP fitting"):
+            embedder_jit = jax.jit(jax.vmap(embedder, in_axes=(0, 0, None)))
 
-        assert all(isinstance(dataset, MapDataset) for dataset in datasets)
+            batches: list[dict[str, Any]] = [
+                unwrap(dataset[0]) for dataset in self.valsets + self.oodsets
+            ]
 
-        batches: list[dict[str, Any]] = [unwrap(dataset[0]) for dataset in datasets]
+            samples = {
+                batch["name"]: jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, batch)
+                for batch in batches
+            }
 
-        samples = {
-            batch["name"]: jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, batch)
-            for batch in batches
-        }
+            embs = {
+                name: embedder_jit(X["image"], X["label"], X["dataset_idx"])
+                for name, X in samples.items()
+            }
 
-        embs = {
-            name: embedder_jit(X["image"], X["label"], X["dataset_idx"])
-            for name, X in samples.items()
-        }
+            umap = UMAP()
+            umap.fit(jnp.concat([embs for embs in embs.values()]))
 
-        umap = UMAP()
-        umap.fit(jnp.concat([embs for embs in embs.values()]))
-
-        projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # type: ignore
+            projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # type: ignore
 
         fig, ax = plt.subplots()
 

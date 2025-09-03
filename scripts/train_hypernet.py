@@ -8,8 +8,8 @@ from hyper_lap.embedder import InputEmbedder
 from hyper_lap.models import HyperNet, Unet
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
+    get_datasets,
     make_base_config,
-    make_dataloaders,
     parse_args,
     print_config,
 )
@@ -50,20 +50,23 @@ def main():
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
         wandb.run.tags = [config.dataset, config.embedder.kind, "hypernet"]
 
-    trainsets, valsets, testset = make_dataloaders(
+    trainsets, valsets, oodsets = get_datasets(
         config.dataset,
         config.trainsets.split(","),
-        config.testset,
+        config.oodsets.split(","),
         batch_size=config.batch_size,
     )
 
-    embedder = InputEmbedder(num_datasets=len(trainsets), **config.embedder, key=embedder_key)
+    embedder = InputEmbedder(
+        num_datasets=len(trainsets) + len(oodsets), **config.embedder, key=embedder_key
+    )
 
     trainer = Trainer(
         hypernet,
         embedder,
         trainsets,
         valsets,
+        oodsets,
         model_name=model_name,
         optim_config=config.optim,
         num_workers=args.num_workers,
@@ -74,15 +77,10 @@ def main():
     print()
     print()
 
-    trainer.make_plots(hypernet, embedder, testset, image_folder=Path(f"./images/{model_name}"))
+    trainer.make_plots(hypernet, embedder, image_folder=Path(f"./images/{model_name}"))
 
     if not args.no_umap:
-        umap_datasets = trainsets
-
-        if testset is not None:
-            umap_datasets.append(testset)
-
-        trainer.make_umap(embedder, umap_datasets, image_folder=Path(f"./images/{model_name}"))
+        trainer.make_umap(embedder, image_folder=Path(f"./images/{model_name}"))
 
 
 if __name__ == "__main__":

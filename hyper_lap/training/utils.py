@@ -34,7 +34,7 @@ COMMON_CONFIG = {
     "seed": 42,
     "dataset": MISSING,
     "trainsets": MISSING,
-    "testset": MISSING,
+    "oodsets": "",
     "degenerate": False,
     "epochs": MISSING,
     "batch_size": MISSING,
@@ -301,49 +301,55 @@ def load_medidec_datasets(
     return datasets
 
 
-def make_dataloaders(
+def get_datasets(
     dataset: Literal["amos", "medidec"],
     trainset_names: list[str],
-    testset_name: str | None,
+    oodset_names: list[str],
     *,
     batch_size: int,
     degenerate: bool = False,
-) -> tuple[list[MapDataset], list[MapDataset], MapDataset | None]:
+) -> tuple[list[MapDataset], list[MapDataset], list[MapDataset]]:
     match dataset:
         case "amos":
-            trainsets = load_amos_datasets("train")
-            valsets = load_amos_datasets("validation")
+            all_trainsets = load_amos_datasets("train")
+            all_valsets = load_amos_datasets("validation")
         case "medidec":
-            trainsets = load_medidec_datasets("train")
-            valsets = load_medidec_datasets("validation")
+            all_trainsets = load_medidec_datasets("train")
+            all_valsets = load_medidec_datasets("validation")
         case _:
             raise ValueError(f"Invalid dataset {dataset}")
 
-    assert trainsets.keys() == valsets.keys(), (
+    assert all_trainsets.keys() == all_valsets.keys(), (
         "trainsets and valsets have different keys: "
-        f"{', '.join(trainsets.keys())} vs {', '.join(valsets.keys())}"
+        f"{', '.join(all_trainsets.keys())} vs {', '.join(all_valsets.keys())}"
     )
 
-    if not set(trainset_names) <= trainsets.keys():
+    if not set(trainset_names) <= all_trainsets.keys():
         raise ValueError(
-            f"invalid trainsets {trainset_names}. valid names are: {', '.join(trainsets.keys())}"
+            f"invalid trainsets {trainset_names}. "
+            f"valid names are: {', '.join(all_trainsets.keys())}"
         )
 
-    if testset_name is not None:
-        testset = trainsets[testset_name]
-    else:
-        testset = None
+    if not set(oodset_names) <= all_trainsets.keys():
+        raise ValueError(
+            f"invalid testsets {oodset_names}. "
+            f"valid names are: {', '.join(all_trainsets.keys())}"
+        )
 
-    trainsets = {name: dataset for name, dataset in trainsets.items() if name in trainset_names}
-    valsets = {name: dataset for name, dataset in valsets.items() if name in trainset_names}
+    if intersect := set(trainset_names).intersection(oodset_names):
+        raise ValueError(
+            "Intersection between training sets and ood sets is not empty: "
+            f"{", ".join(intersect)} is/are in both sets"
+        )
 
-    print(f"Trainsets: {', '.join([trainset.name for trainset in trainsets.values()])}")
+    trainsets = {name: dataset for name, dataset in all_trainsets.items() if name in trainset_names}
+    valsets = {name: dataset for name, dataset in all_valsets.items() if name in trainset_names}
+    oodsets = {name: dataset for name, dataset in all_valsets.items() if name in oodset_names}
 
-    if testset is not None:
-        print(f"Testset:   {testset.name}")
+    print(f"Training Sets: {', '.join([trainset.name for trainset in trainsets.values()])}")
 
-    # trainsets = list(trainsets.values())
-    # valsets = list(valsets.values())
+    if oodset_names:
+        print(f"OOD Sets:      {', '.join([ood_set.name for ood_set in oodsets.values()])}")
 
     def make_map_dataset(i: int, dataset: Dataset, *, batch_size: int) -> MapDataset:
         return (
@@ -366,20 +372,18 @@ def make_dataloaders(
         make_map_dataset(i, dataset, batch_size=batch_size)
         for i, dataset in enumerate(trainsets.values())
     ]
+
     valsets_grain = [
         make_map_dataset(i, dataset, batch_size=2 * batch_size)
         for i, dataset in enumerate(valsets.values())
     ]
 
-    if testset is not None:
-        testset_grain = make_map_dataset(len(trainsets), testset, batch_size=4 * batch_size)
-    else:
-        testset_grain = None
+    oodsets_grain = [
+        make_map_dataset(len(trainsets_grain) + i, dataset, batch_size=2 * batch_size)
+        for i, dataset in enumerate(oodsets.values())
+    ]
 
-    # mixed_trainset = MapDataset.mix(trainsets_grain)
-    # mixed_valset = MapDataset.mix(valsets_grain)
-
-    return trainsets_grain, valsets_grain, testset_grain
+    return trainsets_grain, valsets_grain, oodsets_grain
 
 
 def make_lr_schedule(
