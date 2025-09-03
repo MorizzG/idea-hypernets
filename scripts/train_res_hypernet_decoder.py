@@ -27,10 +27,7 @@ def main():
     args, arg_config = parse_args()
 
     if args.wandb:
-        wandb.init(
-            project="idea-laplacian-hypernet",
-            # sync_tensorboard=True,
-        )
+        wandb.init(project="idea-laplacian-hypernet")
 
     config = OmegaConf.merge(base_config, arg_config)
 

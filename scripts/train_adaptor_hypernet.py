@@ -23,10 +23,7 @@ def main():
     args, arg_config = parse_args()
 
     if args.wandb:
-        wandb.init(
-            project="idea-laplacian-hypernet",
-            # sync_tensorboard=True,
-        )
+        wandb.init(project="idea-laplacian-hypernet")
 
     config = OmegaConf.merge(base_config, arg_config)
 
@@ -48,7 +45,7 @@ def main():
     if wandb.run is not None:
         wandb.run.name = args.run_name or model_name
         wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder.kind, "hypernet"]
+        wandb.run.tags = [config.dataset, config.embedder.kind, "adaptor_hypernet"]
 
     trainsets, valsets, oodsets = get_datasets(
         config.dataset,
