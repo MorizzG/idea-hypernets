@@ -84,7 +84,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     def training_step(
         net: Net,
         embedder: InputEmbedder | None,
-        batches: list[dict[str, Array]],
+        batch: dict[str, Array],
         opt: optax.GradientTransformation,
         opt_state: OptState,
     ) -> tuple[Net, InputEmbedder | None, OptState, dict[str, Any]]:
@@ -105,26 +105,11 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             return loss
 
-        images = batches[0]["image"]
-        labels = batches[0]["label"]
-        dataset_idx = batches[0]["dataset_idx"]
+        images = batch["image"]
+        labels = batch["label"]
+        dataset_idx = batch["dataset_idx"]
 
         loss, grads = grad_fn(net_embedder, images, labels, dataset_idx)
-
-        for batch in batches[1:]:
-            images = batch["image"]
-            labels = batch["label"]
-            dataset_idx = batch["dataset_idx"]
-
-            next_loss, next_grads = grad_fn(net_embedder, images, labels, dataset_idx)
-
-            loss += next_loss
-            grads = jt.map(jnp.add, grads, next_grads)
-
-        n_batches = len(batches)
-
-        loss /= n_batches
-        grads = jt.map(lambda x: x / n_batches, grads)
 
         updates, opt_state = opt.update(grads, opt_state, net_embedder)  # type: ignore
 
@@ -149,8 +134,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     opt: GradientTransformation
     opt_state: OptState
 
-    grad_accu: int
-
     trainsets: list[MapDataset]
     valsets: list[MapDataset]
 
@@ -166,7 +149,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         model_name: str,
         first_epoch: int = 1,
         optim_config: dict[str, Any],
-        grad_accu: int,
         num_workers: int,
     ):
         super().__init__()
@@ -176,16 +158,11 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         self.batches_per_epoch = 100 * len(trainsets)
         self.num_workers = num_workers
 
-        if grad_accu < 1:
-            raise ValueError(f"grad_accu must be at least 1, but is {grad_accu}")
-
         # epoch gets incremented at start of train, so set to one less of start value
         self.epoch = first_epoch - 1
 
-        self.grad_accu = grad_accu
-
         self.lr_schedule = make_lr_schedule(
-            self.batches_per_epoch // grad_accu,
+            self.batches_per_epoch,
             lr=optim_config["lr"],
             epochs=optim_config["epochs"],
             scheduler=optim_config["scheduler"],
@@ -246,16 +223,13 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             )
         )
 
-        for batches_np in itertools.batched(
-            tqdm(mixed_trainset, total=self.batches_per_epoch), self.grad_accu
-        ):
-            for batch in batches_np:
-                batch.pop("name")
+        for batch_np in tqdm(mixed_trainset, total=self.batches_per_epoch):
+            batch_np.pop("name")
 
-            batches: list[dict[str, Array]] = jt.map(jnp.asarray, list(batches_np))
+            batch: dict[str, Array] = jt.map(jnp.asarray, batch_np)
 
             net, embedder, self.opt_state, aux = self.training_step(
-                net, embedder, batches, self.opt, self.opt_state
+                net, embedder, batch, self.opt, self.opt_state
             )
 
             auxs.append(aux)

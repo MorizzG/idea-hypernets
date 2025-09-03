@@ -57,7 +57,6 @@ def main():
         valsets,
         model_name=model_name,
         optim_config=config.optim,
-        grad_accu=config.grad_accu,
         num_workers=args.num_workers,
     )
 

@@ -97,7 +97,6 @@ def main():
         model_name=model_name,
         optim_config=config.optim,
         first_epoch=first_epoch,
-        grad_accu=config.grad_accu,
         num_workers=args.num_workers,
     )
 
