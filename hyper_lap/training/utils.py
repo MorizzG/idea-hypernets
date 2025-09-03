@@ -198,21 +198,6 @@ class Args:
     artifact: str | None = None
 
 
-dataset_paths = [
-    "/vol/ideadata/eg94ifeh/idea-laplacian-hypernet/datasets",
-    "/media/LinuxData/datasets",
-    "./datasets",
-]
-
-for dataset_path in dataset_paths:
-    DATASET_DIR = Path(dataset_path)
-
-    if DATASET_DIR.exists():
-        break
-else:
-    raise RuntimeError("Could not determine root_dir")
-
-
 def parse_args() -> tuple[Args, DictConfig]:
     parser = ArgumentParser()
 
@@ -244,7 +229,7 @@ def print_config(config: Any):
 def load_amos_datasets(
     split: Literal["train", "validation", "test"], normalised: bool = True
 ) -> dict[str, Dataset]:
-    amos_dir = DATASET_DIR / "AmosSliced"
+    amos_dir = Path("./datasets/AmosSliced")
 
     if not amos_dir.exists():
         raise RuntimeError("AmosSliced dir doesn't exist")
@@ -268,7 +253,7 @@ def load_amos_datasets(
 def load_medidec_datasets(
     split: Literal["train", "validation", "test"], normalised: bool = True, size: int = 336
 ) -> dict[str, Dataset]:
-    medidec_sliced = DATASET_DIR / f"MediDecSliced-{size}"
+    medidec_sliced = Path(f"./datasets/MediDecSliced-{size}")
 
     if not medidec_sliced.exists():
         raise RuntimeError("MediDecSliced dir doesn't exist")

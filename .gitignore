@@ -1,9 +1,9 @@
-/artifacts/
-/datasets/
-/images/
-/models/
-/tmp/
-/wandb/
+/artifacts
+/datasets
+/images
+/models
+/tmp
+/wandb
 
 scratch.md
 
