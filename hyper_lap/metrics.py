@@ -15,7 +15,7 @@ from chex import (
 )
 
 
-# @jaxtyped(typechecker=beartype)
+@jaxtyped(typechecker=beartype)
 def dice_score(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
     """
     Calculate Dice score (F1 score).
@@ -25,14 +25,14 @@ def dice_score(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> Array:
     assert_equal_shape([pred, label])
     assert_type([pred, label], jnp.bool)
 
-    eps = 1e-10
-
     true_pos = jnp.count_nonzero(pred & label)
 
     pred_pos = jnp.count_nonzero(pred)
     label_pos = jnp.count_nonzero(label)
 
-    dice_score = 2 * true_pos / (pred_pos + label_pos + eps)
+    dice_score = jax.lax.select(
+        pred_pos + label_pos != 0, 2 * true_pos / (pred_pos + label_pos), 1.0
+    )
 
     return dice_score
 
@@ -47,15 +47,13 @@ def intersection_over_union(pred: Bool[Array, "h w"], label: Bool[Array, "h w"])
     assert_equal_shape([pred, label])
     assert_type([pred, label], jnp.bool)
 
-    eps = 1e-10
-
     intersection = jnp.count_nonzero(pred & label)
 
     union = jnp.count_nonzero(pred | label)
 
-    jaccard_index = intersection / (union + eps)
+    iou = jax.lax.select(union != 0, intersection / union, 1.0)
 
-    return jaccard_index
+    return iou
 
 
 @jaxtyped(typechecker=beartype)
@@ -103,6 +101,9 @@ def hausdorff_distance(pred: Bool[Array, "h w"], label: Bool[Array, "h w"]) -> f
     label_np = np.asarray(label)
 
     if np.count_nonzero(pred_np) == 0 or np.count_nonzero(label_np) == 0:
+        if np.count_nonzero(pred_np) == 0 and np.count_nonzero(label_np) == 0:
+            return 0.0
+
         return 1.0
 
     d = skimage.metrics.hausdorff_distance(pred_np, label_np)
