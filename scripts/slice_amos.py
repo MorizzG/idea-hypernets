@@ -10,11 +10,14 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
-from tqdm import tqdm
+from grain import MapDataset, ReadOptions
+from tqdm import tqdm, trange
 
 from hyper_lap.datasets import Amos
 
 jax.config.update("jax_platform_name", "cpu")
+
+TARGET_SIZE = 512
 
 AMOS_FOLDER = Path("./datasets/AMOS/amos22/")
 
@@ -22,7 +25,6 @@ BASE_FOLDER = Path("./datasets/AmosSliced")
 
 AMOS_TRAIN = Amos(AMOS_FOLDER, split="train")
 AMOS_VAL = Amos(AMOS_FOLDER, split="validation")
-AMOS_TEST = Amos(AMOS_FOLDER, split="test")
 
 LABELS = AMOS_TRAIN.metadata.labels
 
@@ -105,33 +107,42 @@ def make_slice_dist(label: Array | None, target: int) -> Array | None:
 
 
 @jax.jit
-def normalise(image: Array, label: Optional[Array]) -> tuple[Array, Optional[Array]] | None:  # type: ignore
+def normalise(image: Array, label: Optional[Array]) -> tuple[Array, Optional[Array]]:
     c, h, w, d = image.shape
 
     if label is not None:
         assert label.shape == (h, w, d, NUM_CLASSES)
 
-    if h < 256 and w < 256:
-        # volume too small -> continue
-        return None
-
-    if h != 512 or w != 512:
+    if h != TARGET_SIZE or w != TARGET_SIZE:
         # resize
 
-        image = jax.image.resize(image, (c, 512, 512, d), method="cubic")
+        image = jax.image.resize(image, (c, TARGET_SIZE, TARGET_SIZE, d), method="cubic")
 
         if label is not None:
             label = label.astype(jnp.float32)
 
-            label: Array = jax.image.resize(label, (512, 512, d, NUM_CLASSES), method="cubic")
+            label = jax.image.resize(
+                label, (TARGET_SIZE, TARGET_SIZE, d, NUM_CLASSES), method="cubic"
+            )
 
-            label = (label > 0.5).astype(jnp.uint8)
+            label = (label > 0.5).astype(jnp.uint8)  # type: ignore
 
     return image, label
 
 
-def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "val", "test"]):
-    for n_item, X in enumerate((pbar := tqdm(amos))):  # type: ignore
+def make_slices(
+    datasets: list[Dataset],
+    source: MapDataset[dict[str, np.ndarray]],
+    split: Literal["train", "val", "test"],
+):
+    for n_item, X in enumerate(
+        tqdm(
+            source.to_iter_dataset(
+                read_options=ReadOptions(num_threads=16, prefetch_buffer_size=16)
+            ),
+            total=len(source),
+        )
+    ):
         image = jnp.asarray(X["image"])
 
         if "label" in X:
@@ -141,19 +152,41 @@ def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "va
         else:
             label = None
 
-        result = normalise(image, label)
+        # rotate so smallest axis is at the end
+        min_axis = int(np.argmin(image.shape[1:]))
 
-        if result is None:
+        assert min_axis == 2
+
+        # if min_axis == 2:
+        #     pass
+        # elif min_axis == 1:
+        #     image = image.transpose(0, 3, 1, 2)
+
+        #     if label is not None:
+        #         assert label.shape == image.shape[1:]
+
+        #         label = label.transpose(2, 0, 1, 3)
+        # elif min_axis == 0:
+        #     image = image.transpose(0, 2, 3, 1)
+
+        #     if label is not None:
+        #         assert label.shape == image.shape[1:]
+
+        #         label = label.transpose(1, 2, 0, 3)
+        # else:
+        #     raise AssertionError(f"Unexpected min_axis: {min_axis}")
+
+        if image.shape[1] < TARGET_SIZE // 2 or image.shape[2] < TARGET_SIZE:
             continue
 
-        image, label = result
+        image, label = normalise(image, label)
 
         c, h, w, d = image.shape
 
         if label is not None:
             assert label.shape == (h, w, d, NUM_CLASSES)
 
-        for dataset in datasets:
+        for dataset in tqdm(datasets, leave=False):
             i = dataset.i
 
             split_folder = dataset.split_folders[split]
@@ -161,7 +194,7 @@ def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "va
             p = make_slice_dist(label, i)
 
             if label is not None and p is None:
-                pbar.write(f"item {n_item} has empty label {i}")
+                tqdm.write(f"item {n_item} has empty label {i}")
 
             if p is not None:
                 num_candidates = jnp.count_nonzero(p).item()
@@ -190,8 +223,7 @@ def make_slices(datasets: list[Dataset], amos: Amos, split: Literal["train", "va
 
             assert label_slice is None or label_slice.shape == (h, w, num_samples)
 
-            for k in range(num_samples):
-                pbar.refresh()
+            for k in trange(num_samples, leave=False):
                 counter = dataset.counters[split]
 
                 file = split_folder / f"{counter:04}.npz"
@@ -247,9 +279,17 @@ def main():
 
     datasets = make_datasets()
 
-    make_slices(datasets, AMOS_TRAIN, "train")
-    make_slices(datasets, AMOS_VAL, "val")
-    make_slices(datasets, AMOS_TEST, "test")
+    train_source = MapDataset.source(AMOS_TRAIN)[:200]  # type: ignore
+    val_test_source = MapDataset.source(AMOS_VAL)[:100]  # type: ignore
+
+    amos_val_mid = len(val_test_source) // 2
+
+    val_source = val_test_source[:amos_val_mid]
+    test_source = val_test_source[amos_val_mid:]
+
+    make_slices(datasets, train_source, "train")
+    make_slices(datasets, val_source, "val")
+    make_slices(datasets, test_source, "test")
 
     make_json(datasets)
 
