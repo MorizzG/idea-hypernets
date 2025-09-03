@@ -373,6 +373,16 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                     no_improvement_counter = 0
 
                     best_model = jax.device_get((net, embedder))
+                else:
+                    no_improvement_counter += 1
+
+                    if no_improvement_counter == 3:
+                        tqdm.write(
+                            "Stopping early after no validation improvement for"
+                            f" {val_interval * no_improvement_counter} epochs"
+                        )
+
+                        break
 
             if wandb.run is not None:
                 wandb.run.log(metrics)
