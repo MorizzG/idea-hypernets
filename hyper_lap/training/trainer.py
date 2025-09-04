@@ -266,22 +266,9 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         def loss_jit(logits, labels):
             return jax.vmap(loss_fn)(logits, labels)
 
-        all_losses = []
-        metrics = {}
-
-        valsets: dict[str, MapDataset] = {
-            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
-            for valset in self.valsets
-        }
-
-        it = iter(
-            MapDataset.concatenate(list(valsets.values())).to_iter_dataset(
-                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers)
-            )
-        )
-
-        for dataset_name in valsets.keys():
+        def validate_dataset(it):
             dataset_metrices = []
+            losses = []
 
             for _ in trange(num_batches):
                 batch = next(it)
@@ -299,9 +286,30 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 loss = loss_jit(logits, labels)
 
                 dataset_metrices.append(dataset_metrics)
-                all_losses += list(loss)
+                losses += [x.item() for x in loss]
 
             dataset_metrics = transpose(dataset_metrices)
+
+            return losses, dataset_metrics
+
+        val_losses = []
+        metrics = {}
+
+        valsets: dict[str, MapDataset] = {
+            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
+            for valset in self.valsets
+        }
+
+        it = iter(
+            MapDataset.concatenate(list(valsets.values())).to_iter_dataset(
+                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers)
+            )
+        )
+
+        for dataset_name in valsets.keys():
+            losses, dataset_metrics = validate_dataset(it)
+
+            val_losses += losses
 
             metrics |= {
                 f"{metric}/{dataset_name}": float(np.mean(value))
@@ -314,11 +322,49 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             tqdm.write(f"    Hausdorff : {np.mean(dataset_metrics['hausdorff']):.3f}")
             tqdm.write("")
 
-        tqdm.write(f"Validation loss: {np.mean(all_losses):.3}")
+        tqdm.write(f"Validation loss: {np.mean(val_losses):.3}")
         tqdm.write("")
 
-        metrics["loss/validation/mean"] = float(np.mean(all_losses))
-        metrics["loss/validation/std"] = float(np.std(all_losses))
+        metrics["loss/validation/mean"] = float(np.mean(val_losses))
+        metrics["loss/validation/std"] = float(np.std(val_losses))
+
+        if self.oodsets:
+            oodsets: dict[str, MapDataset] = {
+                unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
+                for valset in self.oodsets
+            }
+
+            it = iter(
+                MapDataset.concatenate(list(oodsets.values())).to_iter_dataset(
+                    ReadOptions(
+                        num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers
+                    )
+                )
+            )
+
+            ood_losses = []
+
+            for dataset_name in oodsets.keys():
+                losses, dataset_metrics = validate_dataset(it)
+
+                ood_losses += losses
+
+                metrics |= {
+                    f"{metric}/{dataset_name}": float(np.mean(value))
+                    for metric, value in dataset_metrics.items()
+                }
+
+                tqdm.write(f"Dataset: {dataset_name}:")
+                tqdm.write(f"    Dice score: {np.mean(dataset_metrics['dice']):.3f}")
+                tqdm.write(f"    IoU score : {np.mean(dataset_metrics['iou']):.3f}")
+                tqdm.write(f"    Hausdorff : {np.mean(dataset_metrics['hausdorff']):.3f}")
+                tqdm.write("")
+
+            tqdm.write(f"OOD loss: {np.mean(ood_losses):.3}")
+            tqdm.write("")
+
+            metrics["loss/ood/mean"] = float(np.mean(ood_losses))
+            metrics["loss/ood/std"] = float(np.std(ood_losses))
 
         return metrics
 
@@ -344,7 +390,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         best_model = jax.device_get((net, embedder))
 
         # set val_interval to num_epochs, but at least 5 or num_epochs, whichever is smaller
-        val_interval = max(num_epochs // 20, min(5, num_epochs))
+        val_interval = min(max(num_epochs // 20, 1), 10)
 
         for i in trange(1, num_epochs + 1):
             self.epoch += 1
