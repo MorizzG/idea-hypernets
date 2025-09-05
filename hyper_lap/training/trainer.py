@@ -266,7 +266,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         def loss_jit(logits, labels):
             return jax.vmap(loss_fn)(logits, labels)
 
-        def validate_dataset(it):
+        def validate_dataset(it, dataset_name):
             dataset_metrices = []
             losses = []
 
@@ -307,7 +307,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         )
 
         for dataset_name in valsets.keys():
-            losses, dataset_metrics = validate_dataset(it)
+            losses, dataset_metrics = validate_dataset(it, dataset_name)
 
             val_losses += losses
 
@@ -345,7 +345,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             ood_losses = []
 
             for dataset_name in oodsets.keys():
-                losses, dataset_metrics = validate_dataset(it)
+                losses, dataset_metrics = validate_dataset(it, dataset_name)
 
                 ood_losses += losses
 
@@ -425,7 +425,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 else:
                     no_improvement_counter += 1
 
-                    if no_improvement_counter == 3:
+                    # no improvement for 20% of total epochs: early stop
+                    if 20 * val_interval * no_improvement_counter >= num_epochs:
                         tqdm.write(
                             "Stopping early after no validation improvement for"
                             f" {val_interval * no_improvement_counter} epochs"
