@@ -389,8 +389,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         best_model = jax.device_get((net, embedder))
 
-        # set val_interval to num_epochs, but at least 5 or num_epochs, whichever is smaller
-        val_interval = min(max(num_epochs // 20, 1), 10)
+        # set val_interval to num_epochs, but at least 1 and at most 5
+        val_interval = min(max(num_epochs // 20, 1), 5)
 
         for i in trange(1, num_epochs + 1):
             self.epoch += 1
