@@ -426,16 +426,16 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                     no_improvement_counter += 1
 
                     # no improvement for 20% of total epochs: early stop
-                    if 20 * val_interval * no_improvement_counter >= num_epochs:
-                        tqdm.write(
-                            "Stopping early after no validation improvement for"
-                            f" {val_interval * no_improvement_counter} epochs"
-                        )
+                    # if 20 * val_interval * no_improvement_counter >= num_epochs:
+                    #     tqdm.write(
+                    #         "Stopping early after no validation improvement for"
+                    #         f" {val_interval * no_improvement_counter} epochs"
+                    #     )
 
-                        if wandb.run is not None:
-                            wandb.run.log(metrics)
+                    #     if wandb.run is not None:
+                    #         wandb.run.log(metrics)
 
-                        break
+                    #     break
 
             if wandb.run is not None:
                 wandb.run.log(metrics)
