@@ -306,7 +306,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             )
         )
 
-        for dataset_name in valsets.keys():
+        for dataset_name in tqdm(valsets.keys()):
             losses, dataset_metrics = validate_dataset(it, dataset_name)
 
             val_losses += losses
@@ -344,7 +344,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             ood_losses = []
 
-            for dataset_name in oodsets.keys():
+            for dataset_name in tqdm(oodsets.keys()):
                 losses, dataset_metrics = validate_dataset(it, dataset_name)
 
                 ood_losses += losses
