@@ -408,7 +408,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             metrics |= train_metrics
 
             # validate every val_interval epochs and at the final epoch
-            if i % val_interval == 0 or i == num_epochs:
+            if i % val_interval == 0 or i == 1 or i == num_epochs:
                 tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
                 with timer("validate", use_tqdm=True):
