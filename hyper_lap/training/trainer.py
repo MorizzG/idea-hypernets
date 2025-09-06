@@ -266,7 +266,26 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         def loss_jit(logits, labels):
             return jax.vmap(loss_fn)(logits, labels)
 
-        def validate_dataset(it, dataset_name):
+        val_losses = []
+        metrics = {}
+
+        valsets: dict[str, MapDataset] = {
+            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
+            for valset in self.valsets
+        }
+
+        oodsets: dict[str, MapDataset] = {
+            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
+            for valset in self.oodsets
+        }
+
+        it = iter(
+            MapDataset.concatenate(list(valsets.values()) + list(oodsets.values())).to_iter_dataset(
+                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers)
+            )
+        )
+
+        def validate_dataset(dataset_name):
             dataset_metrices = []
             losses = []
 
@@ -292,22 +311,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             return losses, dataset_metrics
 
-        val_losses = []
-        metrics = {}
-
-        valsets: dict[str, MapDataset] = {
-            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
-            for valset in self.valsets
-        }
-
-        it = iter(
-            MapDataset.concatenate(list(valsets.values())).to_iter_dataset(
-                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers)
-            )
-        )
-
         for dataset_name in tqdm(valsets.keys()):
-            losses, dataset_metrics = validate_dataset(it, dataset_name)
+            losses, dataset_metrics = validate_dataset(dataset_name)
 
             val_losses += losses
 
@@ -329,23 +334,10 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         metrics["loss/validation/std"] = float(np.std(val_losses))
 
         if self.oodsets:
-            oodsets: dict[str, MapDataset] = {
-                unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
-                for valset in self.oodsets
-            }
-
-            it = iter(
-                MapDataset.concatenate(list(oodsets.values())).to_iter_dataset(
-                    ReadOptions(
-                        num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers
-                    )
-                )
-            )
-
             ood_losses = []
 
             for dataset_name in tqdm(oodsets.keys()):
-                losses, dataset_metrics = validate_dataset(it, dataset_name)
+                losses, dataset_metrics = validate_dataset(dataset_name)
 
                 ood_losses += losses
 
