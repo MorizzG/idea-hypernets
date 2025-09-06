@@ -406,7 +406,7 @@ def make_lr_schedule(
                 lr / 1e3,
                 lr,
                 warmup_steps,
-                transition_steps,
+                total_steps,
                 end_value=lr / 1e3,
             )
         case "exponential":
