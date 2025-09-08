@@ -399,7 +399,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             metrics |= train_metrics
 
-            # validate every val_interval epochs and at the final epoch
+            # validate every val_interval epochs and after the first and final epoch
             if i % val_interval == 0 or i == 1 or i == num_epochs:
                 tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
@@ -418,16 +418,19 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                     no_improvement_counter += 1
 
                     # no improvement for 20% of total epochs: early stop
-                    # if 20 * val_interval * no_improvement_counter >= num_epochs:
-                    #     tqdm.write(
-                    #         "Stopping early after no validation improvement for"
-                    #         f" {val_interval * no_improvement_counter} epochs"
-                    #     )
+                    if (
+                        no_improvement_counter >= 3
+                        and 20 * val_interval * no_improvement_counter >= num_epochs
+                    ):
+                        tqdm.write(
+                            "Stopping early after no validation improvement for"
+                            f" {val_interval * no_improvement_counter} epochs"
+                        )
 
-                    #     if wandb.run is not None:
-                    #         wandb.run.log(metrics)
+                        if wandb.run is not None:
+                            wandb.run.log(metrics)
 
-                    #     break
+                        break
 
             if wandb.run is not None:
                 wandb.run.log(metrics)
