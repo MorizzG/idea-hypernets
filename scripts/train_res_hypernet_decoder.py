@@ -13,7 +13,6 @@ from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     get_datasets,
     load_model_artifact,
-    make_base_config,
     parse_args,
     print_config,
 )
@@ -22,17 +21,19 @@ from hyper_lap.training.utils import (
 def main():
     global hypernet
 
-    base_config = make_base_config("res_hypernet")
+    args, config = parse_args("res_hypernet")
 
-    args, arg_config = parse_args()
+    print_config(OmegaConf.to_object(config))
+
+    model_name = f"res_hypernet-{config.dataset}-{config.embedder.kind}-decoder"
 
     if args.wandb:
-        wandb.init(project="idea-laplacian-hypernet")
-
-    config = OmegaConf.merge(base_config, arg_config)
-
-    if missing_keys := OmegaConf.missing_keys(config):
-        raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+        wandb.init(
+            project="idea-laplacian-hypernet",
+            name=args.run_name or model_name,
+            config=OmegaConf.to_object(config),  # type: ignore
+            tags=[config.dataset, config.embedder.kind, "res_hypernet", "decoder-only"],
+        )
 
     unet_config, unet_weights_path = load_model_artifact(config.unet_artifact)
 
@@ -67,15 +68,6 @@ def main():
     )
 
     first_epoch = unet_config["epochs"] + 1
-
-    print_config(OmegaConf.to_object(config))
-
-    model_name = f"res_hypernet-{config.dataset}-{config.embedder.kind}-decoder"
-
-    if wandb.run is not None:
-        wandb.run.name = args.run_name or model_name
-        wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder.kind, "res_hypernet", "decoder-only"]
 
     trainsets, valsets, oodsets = get_datasets(
         config.dataset,

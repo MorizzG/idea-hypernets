@@ -9,7 +9,6 @@ from hyper_lap.models import FilmUnet
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     get_datasets,
-    make_base_config,
     parse_args,
     print_config,
 )
@@ -18,32 +17,25 @@ from hyper_lap.training.utils import (
 def main():
     global film_unet
 
-    base_config = make_base_config("film_unet")
+    args, config = parse_args("film_unet")
 
-    args, arg_config = parse_args()
+    print_config(OmegaConf.to_object(config))
+
+    model_name = f"filmunet-{config.dataset}-{config.embedder.kind}"
 
     if args.wandb:
-        wandb.init(project="idea-laplacian-hypernet")
-
-    config = OmegaConf.merge(base_config, arg_config)
-
-    if missing_keys := OmegaConf.missing_keys(config):
-        raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+        wandb.init(
+            project="idea-laplacian-hypernet",
+            name=args.run_name or model_name,
+            config=OmegaConf.to_object(config),  # type: ignore
+            tags=[config.dataset, config.embedder.kind, "film_unet"],
+        )
 
     key = jr.PRNGKey(config.seed)
 
     unet_key, embedder_key = jr.split(key)
 
     film_unet = FilmUnet(**config.film_unet, key=unet_key)
-
-    print_config(OmegaConf.to_object(config))
-
-    model_name = f"filmunet-{config.dataset}-{config.embedder.kind}"
-
-    if wandb.run is not None:
-        wandb.run.name = args.run_name or model_name
-        wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder.kind, "film_unet"]
 
     trainsets, valsets, oodsets = get_datasets(
         config.dataset,

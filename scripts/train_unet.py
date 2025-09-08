@@ -8,7 +8,6 @@ from hyper_lap.models import Unet
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     get_datasets,
-    make_base_config,
     parse_args,
     print_config,
 )
@@ -17,28 +16,21 @@ from hyper_lap.training.utils import (
 def main():
     global unet
 
-    base_config = make_base_config("unet")
-
-    args, arg_config = parse_args()
-
-    if args.wandb:
-        wandb.init(project="idea-laplacian-hypernet")
-
-    config = OmegaConf.merge(base_config, arg_config)
-
-    if missing_keys := OmegaConf.missing_keys(config):
-        raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
-
-    unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
+    args, config = parse_args("unet")
 
     print_config(OmegaConf.to_object(config))
 
     model_name = f"unet-{config.dataset}"
 
-    if wandb.run is not None:
-        wandb.run.name = args.run_name or model_name
-        wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, "unet"]
+    if args.wandb:
+        wandb.init(
+            project="idea-laplacian-hypernet",
+            name=args.run_name or model_name,
+            config=OmegaConf.to_object(config),  # type: ignore
+            tags=[config.dataset, "unet"],
+        )
+
+    unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
 
     trainsets, valsets, oodsets = get_datasets(
         config.dataset,

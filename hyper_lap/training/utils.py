@@ -97,16 +97,19 @@ VITSEG_CONFIG = {
 }
 
 
+type ModelType = Literal[
+    "unet",
+    "hypernet",
+    "res_hypernet",
+    "film_unet",
+    "vit_seg",
+    "attn_hypernet",
+    "attn_res_hypernet",
+]
+
+
 def make_base_config(
-    model: Literal[
-        "unet",
-        "hypernet",
-        "res_hypernet",
-        "film_unet",
-        "vit_seg",
-        "attn_hypernet",
-        "attn_res_hypernet",
-    ],
+    model: ModelType,
 ) -> DictConfig:
     config = COMMON_CONFIG
 
@@ -157,6 +160,48 @@ def make_base_config(
     return base_config
 
 
+@dataclass
+class Args:
+    wandb: bool
+    no_umap: bool
+
+    num_workers: int
+
+    run_name: str | None
+
+    artifact: str | None = None
+
+
+def parse_args(model: ModelType) -> tuple[Args, DictConfig]:
+    parser = ArgumentParser()
+
+    parser.add_argument("--wandb", action="store_true", help="Run with W&B logging")
+    parser.add_argument("--no-umap", action="store_true", help="Disable Umap generation")
+
+    parser.add_argument(
+        "--num-workers", type=int, default=16, help="Number of dataloader worker threads"
+    )
+
+    parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
+
+    args, unknown_args = parser.parse_known_args()
+
+    args = Args(**vars(args))
+
+    if args.run_name and not args.wandb:
+        raise ValueError("Can't set run name without wandb")
+
+    base_config = make_base_config(model)
+    arg_config = OmegaConf.from_cli(unknown_args)
+
+    config: DictConfig = OmegaConf.merge(base_config, arg_config)  # type: ignore
+
+    if missing_keys := OmegaConf.missing_keys(config):
+        raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+
+    return args, config
+
+
 @contextmanager
 def timer(msg: str, *, use_tqdm: bool = False):
     start_time = time.perf_counter()
@@ -183,42 +228,6 @@ def with_timer(fn: Callable | None, *, msg: str, use_tqdm: bool = False):
             return fn(*args, **kw_args)
 
     return wrapped_fn
-
-
-@dataclass
-class Args:
-    wandb: bool
-    no_umap: bool
-
-    num_workers: int
-
-    run_name: str | None
-
-    artifact: str | None = None
-
-
-def parse_args() -> tuple[Args, DictConfig]:
-    parser = ArgumentParser()
-
-    parser.add_argument("--wandb", action="store_true", help="Run with W&B logging")
-    parser.add_argument("--no-umap", action="store_true", help="Disable Umap generation")
-
-    parser.add_argument(
-        "--num-workers", type=int, default=16, help="Number of dataloader worker threads"
-    )
-
-    parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
-
-    args, unknown_args = parser.parse_known_args()
-
-    args = Args(**vars(args))
-
-    arg_config = OmegaConf.from_cli(unknown_args)
-
-    if args.run_name and not args.wandb:
-        raise ValueError("Can't set run name without wandb")
-
-    return args, arg_config
 
 
 def print_config(config: Any):

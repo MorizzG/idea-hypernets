@@ -9,7 +9,6 @@ from hyper_lap.models import HyperNet, Unet
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     get_datasets,
-    make_base_config,
     parse_args,
     print_config,
 )
@@ -18,17 +17,19 @@ from hyper_lap.training.utils import (
 def main():
     global hypernet
 
-    base_config = make_base_config("hypernet")
+    args, config = parse_args("hypernet")
 
-    args, arg_config = parse_args()
+    print_config(OmegaConf.to_object(config))
+
+    model_name = f"hypernet-{config.dataset}-{config.embedder.kind}"
 
     if args.wandb:
-        wandb.init(project="idea-laplacian-hypernet")
-
-    config = OmegaConf.merge(base_config, arg_config)
-
-    if missing_keys := OmegaConf.missing_keys(config):
-        raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
+        wandb.init(
+            project="idea-laplacian-hypernet",
+            name=args.run_name or model_name,
+            config=OmegaConf.to_object(config),  # type: ignore
+            tags=[config.dataset, config.embedder.kind, "hypernet"],
+        )
 
     key = jr.PRNGKey(config.seed)
 
@@ -37,15 +38,6 @@ def main():
     unet = Unet(**config.unet, key=unet_key)
 
     hypernet = HyperNet(unet, **config.hypernet, res=False, key=hypernet_key)
-
-    print_config(OmegaConf.to_object(config))
-
-    model_name = f"hypernet-{config.dataset}-{config.embedder.kind}"
-
-    if wandb.run is not None:
-        wandb.run.name = args.run_name or model_name
-        wandb.run.config.update(OmegaConf.to_object(config))  # type: ignore
-        wandb.run.tags = [config.dataset, config.embedder.kind, "hypernet"]
 
     trainsets, valsets, oodsets = get_datasets(
         config.dataset,
