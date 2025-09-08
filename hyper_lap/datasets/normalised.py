@@ -122,14 +122,14 @@ class NormalisedDataset(Dataset):
         label = X.pop("label")
 
         # TODO: sth better than just slice out first channel here?
-        image = image[self.channel, ...]
+        # image = image[self.channel, ...]
 
         # image = self.resize(image)
         # label = self.resize(label)
 
-        if image.shape != self.target_size:
-            image = self.resize(image)
-            label = self.resize(label)
+        # if image.shape != self.target_size:
+        #     image = self.resize(image)
+        #     label = self.resize(label)
 
         image = self.renormalise_to_clip(image)
 
