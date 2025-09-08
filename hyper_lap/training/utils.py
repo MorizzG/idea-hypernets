@@ -318,6 +318,10 @@ def get_datasets(
     batch_size: int,
     degenerate: bool = False,
 ) -> tuple[list[MapDataset], list[MapDataset], list[MapDataset]]:
+    # filter out empty strings
+    trainset_names = list(filter(None, trainset_names))
+    oodset_names = list(filter(None, oodset_names))
+
     match dataset:
         case "amos":
             all_trainsets = load_amos_datasets("train")
