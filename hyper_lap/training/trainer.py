@@ -86,7 +86,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         batch: dict[str, Array],
         opt: optax.GradientTransformation,
         opt_state: OptState,
-    ) -> tuple[Net, InputEmbedder | None, OptState, dict[str, Any]]:
+    ) -> tuple[Net, InputEmbedder | None, OptState, dict[str, Array]]:
         net_embedder = (net, embedder)
 
         @eqx.filter_value_and_grad
@@ -214,7 +214,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     def train(
         self, net: Net, embedder: InputEmbedder | None
     ) -> tuple[Net, InputEmbedder | None, dict[str, float]]:
-        auxs: list[dict[str, Any]] = []
+        auxs: list[dict[str, Array]] = []
 
         mixed_trainset = (
             MapDataset.mix(self.trainsets)
@@ -238,16 +238,22 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         aux = transpose(auxs)
 
-        tqdm.write(f"Loss:        {np.mean(aux['loss']):.3}")
-        tqdm.write(f"Grad Norm:   {np.mean(aux['grad_norm']):.3}")
-        tqdm.write(f"Update Norm: {np.mean(aux['update_norm']):.3}")
+        loss_mean = float(np.mean(aux["loss"]))
+        loss_std = float(np.std(aux["loss"]))
+
+        grad_norm = float(np.mean(aux["grad_norm"]))
+        update_norm = float(np.mean(aux["update_norm"]))
+
+        tqdm.write(f"Loss:        {loss_mean:.3}")
+        tqdm.write(f"Grad Norm:   {grad_norm:.3}")
+        tqdm.write(f"Update Norm: {update_norm:.3}")
         tqdm.write("")
 
         metrics = {
-            "loss/train/mean": float(np.mean(aux["loss"])),
-            "loss/train/std": float(np.std(aux["loss"])),
-            "grad_norm": np.mean(aux["grad_norm"]),
-            "update_norm": np.mean(aux["update_norm"]),
+            "loss/train/mean": loss_mean,
+            "loss/train/std": loss_std,
+            "grad_norm": grad_norm,
+            "update_norm": update_norm,
         }
 
         return net, embedder, metrics
