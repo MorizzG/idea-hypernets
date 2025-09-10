@@ -54,7 +54,7 @@ EMBEDDER_CONFIG = {
 
 UNET_CONFIG = {
     "base_channels": 8,
-    "channel_mults": [1, 2, 4],
+    "channel_mults": [1, 2, 4, 6, 6],
     "in_channels": 3,
     "out_channels": 2,
     "use_weight_standardized_conv": False,
@@ -78,7 +78,7 @@ ATTN_HYPERNET_CONFIG = {
 
 FILMUNET_CONFIG = {
     "base_channels": 8,
-    "channel_mults": [1, 2, 4],
+    "channel_mults": [1, 2, 4, 6, 6],
     "in_channels": 3,
     "out_channels": 2,
     "emb_size": "${embedder.emb_size}",
