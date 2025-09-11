@@ -510,7 +510,10 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             fig.savefig(image_folder / f"{dataset_name}{'_ood' if ood else ''}.pdf")
 
             if wandb.run is not None:
-                class_labels = {0: "background", 1: "foreground"}
+                class_labels = {
+                    # 0: "background",
+                    1: "foreground",
+                }
 
                 image = wandb.Image(
                     to_PIL(image),
