@@ -54,8 +54,6 @@ class DinoEmbedder(eqx.Module):
 
         x = jnp.stack([image, pos_masked_image, neg_masked_image])
 
-        assert x.shape[:2] == (3, 3)
-
         assert_shape(x, (3, 3, h, w))
 
         dino_out = jax.vmap(self.dino)(x)

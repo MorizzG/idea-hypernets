@@ -16,8 +16,6 @@ class Conv2dGeneratorABC(ABC):
 
 
 class Conv2dGenerator(eqx.Module, Conv2dGeneratorABC):
-    # input_emb_size: int = eqx.field(static=True)
-    # pos_emb_size: int = eqx.field(static=True)
     emb_size: int = eqx.field(static=True)
 
     h_size: int = eqx.field(static=True)
@@ -46,14 +44,9 @@ class Conv2dGenerator(eqx.Module, Conv2dGeneratorABC):
     ):
         super().__init__()
 
-        # total_emb_size = input_emb_size + pos_emb_size
-
         if h_size is None:
-            # h_size = input_emb_size + pos_emb_size
             h_size = emb_size
 
-        # self.input_emb_size = input_emb_size
-        # self.pos_emb_size = pos_emb_size
         self.emb_size = emb_size
 
         self.h_size = h_size
@@ -73,11 +66,6 @@ class Conv2dGenerator(eqx.Module, Conv2dGeneratorABC):
         self.second = nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
 
     def __call__(self, emb: Float[Array, " emb_size"]) -> Float[Array, "c_out c_in k k"]:
-        # assert input_emb.shape == (self.input_emb_size,)
-        # assert pos_emb.shape == (self.pos_emb_size,)
-
-        # emb = jnp.concatenate([input_emb, pos_emb])
-
         assert_shape(emb, (self.emb_size,))
 
         x = self.first(emb)
@@ -106,8 +94,6 @@ class Conv2dGenerator(eqx.Module, Conv2dGeneratorABC):
 
 
 class Conv2dGeneratorNew(eqx.Module, Conv2dGeneratorABC):
-    # input_emb_size: int = eqx.field(static=True)
-    # pos_emb_size: int = eqx.field(static=True)
     emb_size: int = eqx.field(static=True)
 
     h_size: int = eqx.field(static=True)
@@ -156,11 +142,6 @@ class Conv2dGeneratorNew(eqx.Module, Conv2dGeneratorABC):
         self.second = nn.Linear(h_size, in_channels * out_channels * kernel_size**2, key=second_key)
 
     def __call__(self, emb: Float[Array, " emb_size"]) -> Float[Array, "c_out c_in k k"]:
-        # assert input_emb.shape == (self.input_emb_size,)
-        # assert pos_emb.shape == (self.pos_emb_size,)
-
-        # emb = jnp.concatenate([input_emb, pos_emb])
-
         assert_shape(emb, (self.emb_size,))
 
         x = self.first(emb)
@@ -187,8 +168,6 @@ class Conv2dGeneratorNew(eqx.Module, Conv2dGeneratorABC):
 
 
 class Conv2dLoraGenerator(eqx.Module, Conv2dGeneratorABC):
-    # input_emb_size: int = eqx.field(static=True)
-    # pos_emb_size: int = eqx.field(static=True)
     emb_size: int = eqx.field(static=True)
 
     h_size: int = eqx.field(static=True)
@@ -210,8 +189,6 @@ class Conv2dLoraGenerator(eqx.Module, Conv2dGeneratorABC):
         in_channels: int,
         out_channels: int,
         kernel_size: int,
-        # input_emb_size: int,
-        # pos_emb_size: int,
         emb_size: int,
         *,
         h_size: int | None = None,
@@ -220,14 +197,9 @@ class Conv2dLoraGenerator(eqx.Module, Conv2dGeneratorABC):
     ):
         super().__init__()
 
-        # total_emb_size = input_emb_size + pos_emb_size
-
         if h_size is None:
-            # h_size = input_emb_size + pos_emb_size
             h_size = emb_size
 
-        # self.input_emb_size = input_emb_size
-        # self.pos_emb_size = pos_emb_size
         self.emb_size = emb_size
 
         self.h_size = h_size
@@ -244,9 +216,6 @@ class Conv2dLoraGenerator(eqx.Module, Conv2dGeneratorABC):
 
         self.middle = nn.Linear(h_size, h_size, key=middle_key)
 
-        # project from hidden to kernels
-        # self.second = nn.Linear(h_size, out_channels * kernel_size**2, key=second_key)
-
         a_key, b_key = jr.split(second_key)
 
         self.second_a = nn.Linear(h_size, in_channels * kernel_size * lora_rank, key=a_key)
@@ -256,11 +225,6 @@ class Conv2dLoraGenerator(eqx.Module, Conv2dGeneratorABC):
         self,
         emb: Float[Array, " emb_size"],
     ) -> Float[Array, "c_out c_in k k"]:
-        # assert input_emb.shape == (self.input_emb_size,)
-        # assert pos_emb.shape == (self.pos_emb_size,)
-
-        # emb = jnp.concatenate([input_emb, pos_emb])
-
         assert_shape(emb, (self.emb_size,))
 
         x = self.first(emb)
@@ -287,13 +251,5 @@ class Conv2dLoraGenerator(eqx.Module, Conv2dGeneratorABC):
         kernel = kernel.transpose(2, 0, 1, 3)
 
         # kernel shape: in_channels, out_channels * kernel_size**2
-
-        # c_in c_out k k
-        # kernel = kernel.reshape(
-        #     self.in_channels, self.out_channels, self.kernel_size, self.kernel_size
-        # )
-
-        # swap to c_out c_in k k
-        # kernel = kernel.swapaxes(0, 1)
 
         return kernel

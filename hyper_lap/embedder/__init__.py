@@ -53,6 +53,7 @@ class InputEmbedder(eqx.Module):
                 weights_paths = [
                     "/home/saturn/iwai/iwai104h/models/dinov3-equinox/vitl16.safetensors",
                     "/vol/ideadata/eg94ifeh/models/dinov3-equinox/vitl16.safetensors",
+                    "/media/LinuxData/models/dinov3_equinox/vitl16.safetensors",
                 ]
 
                 if "weights_path" in embedder_args:

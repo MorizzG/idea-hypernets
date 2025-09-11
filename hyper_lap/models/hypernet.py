@@ -21,29 +21,6 @@ from .unet import Unet
 
 
 class HyperNet(eqx.Module):
-    unet: Unet
-
-    filter_spec: PyTree = eqx.field(static=True)
-
-    kernel_size: int = eqx.field(static=True)
-    base_channels: int = eqx.field(static=True)
-
-    block_size: int = eqx.field(static=True)
-
-    input_emb_size: int = eqx.field(static=True)
-    pos_emb_size: int = eqx.field(static=True)
-
-    res: bool = eqx.field(static=True)
-
-    kernel_generator: Conv2dGeneratorABC
-    resample_generator: Conv2dGeneratorABC
-
-    unet_pos_embs: list[Array]
-    recomb_pos_embs: list[Array]
-
-    init_kernel: Array
-    final_kernel: Array
-
     @staticmethod
     def init_conv_generator(
         gen: Conv2dGeneratorABC, eps: float, *, key: PRNGKeyArray
@@ -77,6 +54,29 @@ class HyperNet(eqx.Module):
         gen = jt.unflatten(treedef, linears)
 
         return gen
+
+    unet: Unet
+
+    filter_spec: PyTree = eqx.field(static=True)
+
+    kernel_size: int = eqx.field(static=True)
+    base_channels: int = eqx.field(static=True)
+
+    block_size: int = eqx.field(static=True)
+
+    input_emb_size: int = eqx.field(static=True)
+    pos_emb_size: int = eqx.field(static=True)
+
+    res: bool = eqx.field(static=True)
+
+    kernel_generator: Conv2dGeneratorABC
+    resample_generator: Conv2dGeneratorABC
+
+    unet_pos_embs: list[Array]
+    recomb_pos_embs: list[Array]
+
+    init_kernel: Array
+    final_kernel: Array
 
     def __init__(
         self,
