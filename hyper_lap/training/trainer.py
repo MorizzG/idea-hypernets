@@ -125,6 +125,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     model_name: str
 
     num_workers: int
+    total_batches_per_epoch: int
 
     epoch: int
 
@@ -151,19 +152,20 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         first_epoch: int = 1,
         optim_config: dict[str, Any],
         num_workers: int,
+        batches_per_epoch: int,
     ):
         super().__init__()
 
         self.model_name = model_name
 
-        self.batches_per_epoch = 100 * len(trainsets)
+        self.total_batches_per_epoch = batches_per_epoch * len(trainsets)
         self.num_workers = num_workers
 
         # epoch gets incremented at start of train, so set to one less of start value
         self.epoch = first_epoch - 1
 
         self.lr_schedule = make_lr_schedule(
-            self.batches_per_epoch,
+            self.total_batches_per_epoch,
             lr=optim_config["lr"],
             epochs=optim_config["epochs"],
             scheduler=optim_config["scheduler"],
@@ -219,13 +221,13 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         mixed_trainset = (
             MapDataset.mix(self.trainsets)
             .seed(self.epoch)
-            .shuffle()[: self.batches_per_epoch]
+            .shuffle()[: self.total_batches_per_epoch]
             .to_iter_dataset(
                 ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers)
             )
         )
 
-        for batch_np in tqdm(mixed_trainset, total=self.batches_per_epoch):
+        for batch_np in tqdm(mixed_trainset, total=self.total_batches_per_epoch):
             batch_np.pop("name")
 
             batch: dict[str, Array] = jt.map(jnp.asarray, batch_np)

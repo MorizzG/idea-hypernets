@@ -59,6 +59,7 @@ def main():
         model_name=model_name,
         optim_config=config.optim,
         num_workers=args.num_workers,
+        batches_per_epoch=args.batches_per_epoch,
     )
 
     hypernet, embedder = trainer.run(hypernet, embedder, config.epochs, OmegaConf.to_object(config))

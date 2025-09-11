@@ -90,6 +90,7 @@ def main():
         optim_config=config.optim,
         first_epoch=first_epoch,
         num_workers=args.num_workers,
+        batches_per_epoch=args.batches_per_epoch,
     )
 
     print("Validation before training:")

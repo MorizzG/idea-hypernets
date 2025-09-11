@@ -166,6 +166,7 @@ class Args:
     no_umap: bool
 
     num_workers: int
+    batches_per_epoch: int
 
     run_name: str | None
 
@@ -180,6 +181,9 @@ def parse_args(model: ModelType) -> tuple[Args, DictConfig]:
 
     parser.add_argument(
         "--num-workers", type=int, default=16, help="Number of dataloader worker threads"
+    )
+    parser.add_argument(
+        "--batches-per-epoch", type=int, default=100, help="Number of batches per dataset per epoch"
     )
 
     parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
