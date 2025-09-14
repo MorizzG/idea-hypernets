@@ -84,9 +84,6 @@ class ConvNormFilmAct(eqx.Module):
 
         x = self.norm(x)
 
-        # scale = scale_shift[0]
-        # shift = scale_shift[1]
-
         scale, shift = self.film_proj(emb)
 
         x = (scale + 1) * x + shift
@@ -103,7 +100,6 @@ class FilmBlock(eqx.Module):
 
     film_cna: ConvNormFilmAct
 
-    # layers: nn.Sequential
     layers: list[ConvNormAct]
 
     res_conv: nn.Conv2d | nn.Identity
@@ -162,12 +158,8 @@ class FilmBlock(eqx.Module):
         else:
             self.res_conv = nn.Identity()
 
-    def __call__(
-        self, x: Float[Array, "c h w d"], cond_emb: Array, *, key: Optional[PRNGKeyArray] = None
-    ) -> Float[Array, "c h w d"]:
+    def __call__(self, x: Float[Array, "c h w d"], cond_emb: Array) -> Float[Array, "c h w d"]:
         res = x
-
-        # scale_shift = self.emb_proj(cond_emb)
 
         x = self.film_cna(x, cond_emb)
 
@@ -218,9 +210,7 @@ class FilmUnetDown(eqx.Module):
 
             self.downs.append(nn.MaxPool2d(2, 2))
 
-    def __call__(
-        self, x: Array, cond: Array, *, key: Optional[PRNGKeyArray] = None
-    ) -> tuple[Array, list[Array]]:
+    def __call__(self, x: Array, cond: Array) -> tuple[Array, list[Array]]:
         skips: list[Array] = []
 
         for block, down in zip(self.blocks, self.downs):
@@ -278,9 +268,7 @@ class FilmUnetUp(eqx.Module):
 
             self.blocks.append(FilmBlock(2 * channels, new_channels, key=block_key, **block_args))
 
-    def __call__(
-        self, x: Array, skips: list[Array], cond: Array, *, key: Optional[PRNGKeyArray] = None
-    ) -> Array:
+    def __call__(self, x: Array, skips: list[Array], cond: Array) -> Array:
         skips = skips.copy()
 
         for up, block in zip(self.ups, self.blocks):
@@ -336,7 +324,7 @@ class FilmUnetModule(eqx.Module):
 
         self.up = FilmUnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 
-    def __call__(self, x: Array, cond: Array, *, key: Optional[PRNGKeyArray] = None) -> Array:
+    def __call__(self, x: Array, cond: Array) -> Array:
         c, h, w = x.shape
 
         down_factor = 2 ** len(self.channel_mults)

@@ -65,9 +65,7 @@ class AttnUnetDown(eqx.Module):
 
             self.downs.append(nn.MaxPool2d(2, 2))
 
-    def __call__(
-        self, x: Array, context: Array | None = None, *, key: Optional[PRNGKeyArray] = None
-    ) -> tuple[Array, list[Array]]:
+    def __call__(self, x: Array, context: Array | None = None) -> tuple[Array, list[Array]]:
         skips: list[Array] = []
 
         for block, resample, attn_block, down in zip(
@@ -82,9 +80,9 @@ class AttnUnetDown(eqx.Module):
 
             c, h, w = x.shape
 
-            assert h % 2 == 0 and w % 2 == 0, (
-                f"spatial dims of shape {x.shape} are not divisible by 2"
-            )
+            assert (
+                h % 2 == 0 and w % 2 == 0
+            ), f"spatial dims of shape {x.shape} are not divisible by 2"
 
             x = resample(x)
 
@@ -216,19 +214,17 @@ class AttnUnetModule(eqx.Module):
 
         self.up = AttnUnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 
-    def __call__(
-        self, x: Array, context: Array | None = None, *, key: Optional[PRNGKeyArray] = None
-    ) -> Array:
+    def __call__(self, x: Array, context: Array | None = None) -> Array:
         c, h, w = x.shape
 
         down_factor = 2 ** len(self.channel_mults)
 
-        assert h % down_factor == 0, (
-            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
-        )
-        assert w % down_factor == 0, (
-            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
-        )
+        assert (
+            h % down_factor == 0
+        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        assert (
+            w % down_factor == 0
+        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
 
         x, skips = self.down(x, context)
 

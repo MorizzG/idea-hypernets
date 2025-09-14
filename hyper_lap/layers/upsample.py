@@ -16,9 +16,7 @@ class ConvDownsample2d(eqx.Module):
 
         self.conv = nn.Conv2d(2**2 * in_channels, out_channels, 1, use_bias=False, key=key)
 
-    def __call__(
-        self, x: Float[Array, "c_in h w"], *, key: Optional[PRNGKeyArray] = None
-    ) -> Float[Array, "c_out h/2 w/2"]:
+    def __call__(self, x: Float[Array, "c_in h w"]) -> Float[Array, "c_out h/2 w/2"]:
         x = _spatials_to_channel2d(x)
 
         x = self.conv(x)
@@ -34,9 +32,7 @@ class ConvUpsample2d(eqx.Module):
 
         self.conv = nn.Conv2d(in_channels, 2**2 * out_channels, 1, use_bias=False, key=key)
 
-    def __call__(
-        self, x: Float[Array, "c_in h w"], *, key: Optional[PRNGKeyArray] = None
-    ) -> Float[Array, "c_out 2*h 2*w"]:
+    def __call__(self, x: Float[Array, "c_in h w"]) -> Float[Array, "c_out 2*h 2*w"]:
         x = self.conv(x)
 
         x = _channel_to_spatials2d(x)

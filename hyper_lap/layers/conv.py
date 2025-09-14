@@ -86,9 +86,7 @@ class ConvNormAct(eqx.Module):
 
         self.act = SiLU()
 
-    def __call__(
-        self, x: Float[Array, "c h w d"], *, key: Optional[PRNGKeyArray] = None
-    ) -> Float[Array, "c h w d"]:
+    def __call__(self, x: Float[Array, "c h w d"]) -> Float[Array, "c h w d"]:
         x = self.conv(x)
         x = self.norm(x)
         x = self.act(x)

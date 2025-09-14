@@ -55,9 +55,7 @@ class AdaptorUnetDown(eqx.Module):
 
             self.downs.append(nn.MaxPool2d(2, 2))
 
-    def __call__(
-        self, x: Array, *, key: Optional[PRNGKeyArray] = None
-    ) -> tuple[Array, list[Array]]:
+    def __call__(self, x: Array) -> tuple[Array, list[Array]]:
         skips: list[Array] = []
 
         for block, down in zip(self.blocks, self.downs):
@@ -121,9 +119,7 @@ class AdaptorUnetUp(eqx.Module):
 
             channels = new_channels
 
-    def __call__(
-        self, x: Array, skips: list[Array], *, key: Optional[PRNGKeyArray] = None
-    ) -> Array:
+    def __call__(self, x: Array, skips: list[Array]) -> Array:
         skips = skips.copy()
 
         for up, block in zip(self.ups, self.blocks):
@@ -173,7 +169,7 @@ class AdaptorUnetModule(eqx.Module):
 
         self.up = AdaptorUnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 
-    def __call__(self, x: Array, *, key: Optional[PRNGKeyArray] = None) -> Array:
+    def __call__(self, x: Array) -> Array:
         c, h, w = x.shape
 
         down_factor = 2 ** len(self.channel_mults)
