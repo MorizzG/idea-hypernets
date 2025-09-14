@@ -11,12 +11,6 @@ from .upsample import BilinearUpsample2d
 
 
 class ResBlock(eqx.Module):
-    """
-    Block module for U-Nets.
-
-    Groups n_convs convolutions, with same in_channels as out_channels.
-    """
-
     in_channels: int = eqx.field(static=True)
     out_channels: int = eqx.field(static=True)
 
@@ -28,6 +22,7 @@ class ResBlock(eqx.Module):
     use_weight_standardized_conv: bool = eqx.field(static=True)
 
     layers: nn.Sequential
+    # layers: list[ConvNormAct]
 
     res_conv: nn.Conv2d | nn.Identity
 
@@ -131,7 +126,7 @@ class UnetDown(eqx.Module):
         for channel_mult in channel_mults[1:]:
             new_channels = channel_mult * base_channels
 
-            key, block_key = jr.split(key, 2)
+            key, block_key = jr.split(key)
 
             self.blocks.append(ResBlock(channels, new_channels, key=block_key, **block_args))
 

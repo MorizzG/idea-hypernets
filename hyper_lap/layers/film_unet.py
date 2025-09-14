@@ -73,12 +73,7 @@ class ConvNormFilmAct(eqx.Module):
         self.act = SiLU()
 
     def __call__(
-        self,
-        x: Float[Array, "c h w d"],
-        # scale_shift: Float[Array, "2 c"],
-        emb: Float[Array, " emb_size"],
-        *,
-        key: Optional[PRNGKeyArray] = None,
+        self, x: Float[Array, "c h w d"], emb: Float[Array, " emb_size"]
     ) -> Float[Array, "c h w d"]:
         x = self.conv(x)
 
@@ -93,10 +88,18 @@ class ConvNormFilmAct(eqx.Module):
         return x
 
 
-class FilmBlock(eqx.Module):
-    emb_size: int = eqx.field(static=True)
+class FilmResBlock(eqx.Module):
+    in_channels: int = eqx.field(static=True)
+    out_channels: int = eqx.field(static=True)
 
-    # emb_proj: FilmProjection
+    kernel_size: int = eqx.field(static=True)
+
+    groups: int = eqx.field(static=True)
+    n_convs: int = eqx.field(static=True)
+
+    use_weight_standardized_conv: bool = eqx.field(static=True)
+
+    emb_size: int = eqx.field(static=True)
 
     film_cna: ConvNormFilmAct
 
@@ -121,11 +124,15 @@ class FilmBlock(eqx.Module):
         if n_convs < 1:
             raise ValueError("Must have at least one conv")
 
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        self.kernel_size = kernel_size
+        self.groups = groups
+        self.n_convs = n_convs
+        self.use_weight_standardized_conv = use_weight_standardized_conv
+
         self.emb_size = emb_size
-
-        # key, emb_proj_key = jr.split(key)
-
-        # self.emb_proj = FilmProjection(emb_size, out_channels, key=emb_proj_key)
 
         res_conv_key, *keys = jr.split(key, n_convs + 1)
 
@@ -175,7 +182,7 @@ class FilmUnetDown(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
-    blocks: list[FilmBlock]
+    blocks: list[FilmResBlock]
     downs: list[nn.MaxPool2d]
 
     def __init__(
@@ -183,6 +190,7 @@ class FilmUnetDown(eqx.Module):
         base_channels: int,
         channel_mults: Sequence[int],
         *,
+        emb_size: int,
         key: PRNGKeyArray,
         block_args: Optional[dict[str, Any]] = None,
     ):
@@ -194,17 +202,19 @@ class FilmUnetDown(eqx.Module):
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
 
-        channels = base_channels
-
         self.blocks = []
         self.downs = []
+
+        channels = base_channels
 
         for channel_mult in channel_mults[1:]:
             new_channels = channel_mult * base_channels
 
             key, block_key = jr.split(key)
 
-            self.blocks.append(FilmBlock(channels, new_channels, key=block_key, **block_args))
+            self.blocks.append(
+                FilmResBlock(channels, new_channels, emb_size=emb_size, key=block_key, **block_args)
+            )
 
             channels = new_channels
 
@@ -234,13 +244,14 @@ class FilmUnetUp(eqx.Module):
     channel_mults: list[int] = eqx.field(static=True)
 
     ups: list[BilinearUpsample2d]
-    blocks: list[FilmBlock]
+    blocks: list[FilmResBlock]
 
     def __init__(
         self,
         base_channels: int,
         channel_mults: Sequence[int],
         *,
+        emb_size: int,
         key: PRNGKeyArray,
         block_args: Optional[dict[str, Any]] = None,
     ):
@@ -252,8 +263,8 @@ class FilmUnetUp(eqx.Module):
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
 
-        self.blocks = []
         self.ups = []
+        self.blocks = []
 
         channels = base_channels * channel_mults[-1]
 
@@ -264,9 +275,13 @@ class FilmUnetUp(eqx.Module):
 
             self.ups.append(BilinearUpsample2d())
 
-            channels = 2 * new_channels
+            self.blocks.append(
+                FilmResBlock(
+                    2 * channels, new_channels, emb_size=emb_size, key=block_key, **block_args
+                )
+            )
 
-            self.blocks.append(FilmBlock(2 * channels, new_channels, key=block_key, **block_args))
+            channels = new_channels
 
     def __call__(self, x: Array, skips: list[Array], cond: Array) -> Array:
         skips = skips.copy()
@@ -290,7 +305,7 @@ class FilmUnetModule(eqx.Module):
     emb_size: int = eqx.field(static=True)
 
     down: FilmUnetDown
-    middle: FilmBlock
+    middle: FilmResBlock
     up: FilmUnetUp
 
     def __init__(
@@ -304,11 +319,6 @@ class FilmUnetModule(eqx.Module):
     ):
         super().__init__()
 
-        if block_args is None:
-            block_args = {}
-
-        block_args["emb_size"] = emb_size
-
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
 
@@ -316,13 +326,23 @@ class FilmUnetModule(eqx.Module):
 
         down_key, middle_key, up_key = jr.split(key, 3)
 
-        self.down = FilmUnetDown(base_channels, channel_mults, key=down_key, block_args=block_args)
+        self.down = FilmUnetDown(
+            base_channels, channel_mults, emb_size=emb_size, key=down_key, block_args=block_args
+        )
 
         middle_channels = base_channels * channel_mults[-1]
 
-        self.middle = FilmBlock(middle_channels, middle_channels, key=middle_key, **block_args)
+        self.middle = FilmResBlock(
+            middle_channels,
+            middle_channels,
+            emb_size=emb_size,
+            key=middle_key,
+            **(block_args or {}),
+        )
 
-        self.up = FilmUnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
+        self.up = FilmUnetUp(
+            base_channels, channel_mults, emb_size=emb_size, key=up_key, block_args=block_args
+        )
 
     def __call__(self, x: Array, cond: Array) -> Array:
         c, h, w = x.shape
