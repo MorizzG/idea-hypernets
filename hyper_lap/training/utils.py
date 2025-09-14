@@ -183,7 +183,7 @@ def parse_args(model: ModelType) -> tuple[Args, DictConfig]:
         "--num-workers", type=int, default=16, help="Number of dataloader worker threads"
     )
     parser.add_argument(
-        "--batches-per-epoch", type=int, default=100, help="Number of batches per dataset per epoch"
+        "--batches-per-epoch", type=int, default=50, help="Number of batches per dataset per epoch"
     )
 
     parser.add_argument("--run-name", type=str, default=None, help="Run name on W&B")
