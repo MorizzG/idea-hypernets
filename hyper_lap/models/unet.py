@@ -15,6 +15,8 @@ class Unet(eqx.Module):
     base_channels: int = eqx.field(static=True)
     channel_mults: list[int] = eqx.field(static=True)
 
+    kernel_size: int = eqx.field(static=True)
+
     init_conv: ConvNormAct
     unet: UnetModule
     recomb: ResBlock
@@ -27,6 +29,7 @@ class Unet(eqx.Module):
         in_channels: int,
         out_channels: int,
         *,
+        kernel_size: int = 3,
         use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
@@ -37,6 +40,8 @@ class Unet(eqx.Module):
 
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
+
+        self.kernel_size = kernel_size
 
         init_key, unet_key, recomb_key, final_key = jr.split(key, 4)
 
@@ -53,6 +58,7 @@ class Unet(eqx.Module):
             channel_mults,
             key=unet_key,
             block_args={
+                "kernel_size": kernel_size,
                 "use_weight_standardized_conv": use_weight_standardized_conv,
             },
         )
@@ -60,6 +66,7 @@ class Unet(eqx.Module):
         self.recomb = ResBlock(
             base_channels,
             base_channels,
+            kernel_size=kernel_size,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,
         )

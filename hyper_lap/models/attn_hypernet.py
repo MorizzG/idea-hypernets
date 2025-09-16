@@ -24,7 +24,6 @@ from .unet import Unet
 class AttnHyperNet(eqx.Module):
     unet: Unet
 
-    kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
 
     block_size: int = eqx.field(static=True)
@@ -128,7 +127,6 @@ class AttnHyperNet(eqx.Module):
         emb_size: int,
         *,
         transformer_depth: int,
-        kernel_size: int = 3,
         res: bool,
         generator_kind: Literal["basic", "lora", "new"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
@@ -140,7 +138,6 @@ class AttnHyperNet(eqx.Module):
 
         self.unet = unet
 
-        self.kernel_size = kernel_size
         self.base_channels = unet.base_channels
 
         self.block_size = block_size
@@ -163,7 +160,7 @@ class AttnHyperNet(eqx.Module):
         self.kernel_generator = Gen(
             block_size,
             block_size,
-            kernel_size,
+            unet.kernel_size,
             emb_size,
             key=kernel_key,
             **(generator_kw_args or {}),
@@ -207,7 +204,7 @@ class AttnHyperNet(eqx.Module):
         leaves, _ = jt.flatten(eqx.filter(module, eqx.is_array))
 
         block_size = self.block_size
-        kernel_size = self.kernel_size
+        kernel_size = self.unet.kernel_size
 
         embs = []
 
@@ -296,7 +293,7 @@ class AttnHyperNet(eqx.Module):
             assert b_out == c_out // self.block_size
             assert b_in == c_in // self.block_size
 
-            if k1 == self.kernel_size:
+            if k1 == self.unet.kernel_size:
                 weight = kernel_generator(emb)
             elif k1 == 1:
                 continue

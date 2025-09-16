@@ -25,7 +25,6 @@ class AdaptorHyperNet(eqx.Module):
 
     filter_spec: PyTree = eqx.field(static=True)
 
-    kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
 
     block_size: int = eqx.field(static=True)
@@ -82,7 +81,6 @@ class AdaptorHyperNet(eqx.Module):
         input_emb_size: int,
         pos_emb_size: int,
         *,
-        kernel_size: int = 3,
         filter_spec: PyTree | None = None,
         generator_kind: Literal["basic", "lora", "new"] = "basic",
         generator_kw_args: dict[str, Any] | None = None,
@@ -99,7 +97,6 @@ class AdaptorHyperNet(eqx.Module):
 
         self.filter_spec = filter_spec
 
-        self.kernel_size = kernel_size
         self.base_channels = unet.base_channels
 
         self.block_size = block_size
@@ -153,7 +150,6 @@ class AdaptorHyperNet(eqx.Module):
         leaves, _ = jt.flatten_with_path(eqx.filter(module, filter_spec))
 
         block_size = self.block_size
-        kernel_size = self.kernel_size
 
         embs = []
 

@@ -64,7 +64,6 @@ HYPERNET_CONFIG = {
     "block_size": 8,
     "input_emb_size": "${embedder.emb_size}",
     "pos_emb_size": "${embedder.emb_size}",
-    "kernel_size": 3,
     "generator_kind": "basic",
 }
 
@@ -72,7 +71,6 @@ ATTN_HYPERNET_CONFIG = {
     "block_size": 8,
     "emb_size": "${embedder.emb_size}",
     "transformer_depth": 2,
-    "kernel_size": 3,
     "generator_kind": "basic",
 }
 

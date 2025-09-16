@@ -59,7 +59,6 @@ class HyperNet(eqx.Module):
 
     filter_spec: PyTree = eqx.field(static=True)
 
-    kernel_size: int = eqx.field(static=True)
     base_channels: int = eqx.field(static=True)
 
     block_size: int = eqx.field(static=True)
@@ -85,7 +84,6 @@ class HyperNet(eqx.Module):
         input_emb_size: int,
         pos_emb_size: int,
         *,
-        kernel_size: int = 3,
         res: bool,
         filter_spec: PyTree | None = None,
         generator_kind: Literal["basic", "lora", "new"] = "basic",
@@ -103,7 +101,6 @@ class HyperNet(eqx.Module):
 
         self.filter_spec = filter_spec
 
-        self.kernel_size = kernel_size
         self.base_channels = unet.base_channels
 
         self.block_size = block_size
@@ -129,7 +126,7 @@ class HyperNet(eqx.Module):
         self.kernel_generator = Gen(
             block_size,
             block_size,
-            kernel_size,
+            unet.kernel_size,
             total_emb_size,
             key=kernel_key,
             **(generator_kw_args or {}),
@@ -171,7 +168,7 @@ class HyperNet(eqx.Module):
         leaves, _ = jt.flatten(eqx.filter(module, filter_spec))
 
         block_size = self.block_size
-        kernel_size = self.kernel_size
+        kernel_size = self.unet.kernel_size
 
         embs = []
 
@@ -267,7 +264,7 @@ class HyperNet(eqx.Module):
             assert b_out == c_out // self.block_size
             assert b_in == c_in // self.block_size
 
-            if k1 == self.kernel_size:
+            if k1 == self.unet.kernel_size:
                 weight = kernel_generator(pos_emb)
             elif k1 == 1:
                 continue
