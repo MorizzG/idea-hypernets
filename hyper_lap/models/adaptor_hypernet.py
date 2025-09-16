@@ -15,6 +15,7 @@ from hyper_lap.hyper.generator import (
     Conv2dGeneratorNew,
     Conv2dLoraGenerator,
 )
+from hyper_lap.serialisation.safetensors import tree_path_to_str
 
 from .adaptor_unet import AdaptorUnet
 
@@ -107,7 +108,7 @@ class AdaptorHyperNet(eqx.Module):
 
         total_emb_size = input_emb_size + pos_emb_size
 
-        key, kernel_key, resample_key, init_key, final_key = jr.split(key, 5)
+        key, kernel_key, init_key, final_key = jr.split(key, 4)
 
         match generator_kind:
             case "basic":
@@ -149,24 +150,29 @@ class AdaptorHyperNet(eqx.Module):
     def generate_pos_embs(
         self, module: eqx.Module, filter_spec: PyTree, *, key: PRNGKeyArray
     ) -> list[Array]:
-        leaves, _ = jt.flatten(eqx.filter(module, filter_spec))
+        leaves, _ = jt.flatten_with_path(eqx.filter(module, filter_spec))
 
         block_size = self.block_size
         kernel_size = self.kernel_size
 
         embs = []
 
-        for leaf in leaves:
+        for tree_path, leaf in leaves:
             assert isinstance(leaf, Array)
+
+            path_str = tree_path_to_str(tree_path)
+
+            if "adaptors" not in path_str:
+                embs.append(None)
+                continue
 
             c_out, c_in, k1, k2 = leaf.shape
 
-            assert (
-                k1 == k2 == kernel_size or k1 == k2 == 1
-            ), f"Array has unexpected shape: {leaf.shape}"
+            assert k1 == k2 == 1, f"Array has unexpected shape: {leaf.shape}"
             assert (
                 c_out % block_size == 0 and c_in % block_size == 0
             ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert c_out == c_in, "in_channels must be out_channels"
 
             b_out = c_out // block_size
             b_in = c_in // block_size
@@ -208,20 +214,22 @@ class AdaptorHyperNet(eqx.Module):
         reg = jnp.array(0.0)
 
         for i, pos_emb in enumerate(pos_embs):
+            if pos_emb is None:
+                continue
+
             b_out, b_in, _ = pos_emb.shape
 
-            c_out, c_in, k1, k2 = weights[i].shape
+            weight = weights[i]
+
+            c_out, c_in, k1, k2 = weight.shape
 
             assert k1 == k2
             assert b_out == c_out // self.block_size
             assert b_in == c_in // self.block_size
 
-            if k1 == 1:
-                weight = kernel_generator(pos_emb)
-            elif k1 == self.kernel_size:
-                continue
-            else:
-                raise RuntimeError(f"weight has unexpected shape {weights[i].shape}")
+            assert k1 == 1, f"weight has unexpected shape {weight.shape}"
+
+            weight = kernel_generator(pos_emb)
 
             assert_shape(weight, [b_out, b_in, self.block_size, self.block_size, k1, k2])
 

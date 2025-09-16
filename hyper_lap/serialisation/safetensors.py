@@ -12,9 +12,26 @@ import json
 from pathlib import Path
 
 import equinox as eqx
+import jax
 import jax.tree as jt
 from safetensors import safe_open
 from safetensors.flax import save_file
+
+
+def tree_path_to_str(tree_path: jax.tree_util.KeyPath) -> str:
+    path_parts: list[str] = []
+
+    for p in tree_path:
+        if hasattr(p, "name"):
+            path_parts.append(p.name)
+        elif hasattr(p, "idx"):
+            path_parts.append(str(p.idx))
+        else:
+            raise ValueError(f"Don't know how to deal with tree path part {p}")
+
+    path_str = ".".join(path_parts)
+
+    return path_str
 
 
 def as_path(path: str | Path):
@@ -56,17 +73,7 @@ def to_state_dict(tree: PyTree) -> dict[str, Array]:
     arrays = {}
 
     for tree_path, value in paths_and_values:
-        path_parts: list[str] = []
-
-        for p in tree_path:
-            if hasattr(p, "name"):
-                path_parts.append(p.name)
-            elif hasattr(p, "idx"):
-                path_parts.append(str(p.idx))
-            else:
-                raise ValueError(f"Don't know how to deal with tree path part {p}")
-
-        path_str = ".".join(path_parts)
+        path_str = tree_path_to_str(tree_path)
 
         arrays[path_str] = value
 
@@ -89,17 +96,7 @@ def load_state_dict(
     new_values = []
 
     for tree_path, value in paths_and_values:
-        path_parts: list[str] = []
-
-        for p in tree_path:
-            if hasattr(p, "name"):
-                path_parts.append(p.name)
-            elif hasattr(p, "idx"):
-                path_parts.append(str(p.idx))
-            else:
-                raise ValueError(f"Don't know how to deal with tree path part {p}")
-
-        path_str = ".".join(path_parts)
+        path_str = tree_path_to_str(tree_path)
 
         if path_str not in state_dict:
             raise ValueError(f"state dict is missing key {path_str}")
