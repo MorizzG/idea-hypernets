@@ -506,7 +506,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             labels = batch["label"]
             dataset_idx = batch["dataset_idx"]
 
-            logits = self.net_forward(net, embedder, images, labels, dataset_idx)
+            logits = self.net_forward(net, embedder, images[:2], labels[:2], dataset_idx)
 
             image = images[1]
             label = labels[1]
