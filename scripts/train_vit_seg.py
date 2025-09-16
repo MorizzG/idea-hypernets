@@ -49,6 +49,7 @@ def main():
         trainsets,
         valsets,
         oodsets,
+        loss_fn=config.loss_fn,
         model_name=model_name,
         optim_config=config.optim,
         num_workers=args.num_workers,

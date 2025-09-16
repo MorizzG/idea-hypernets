@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float, Integer
-from typing import Any, Callable, ClassVar, overload
+from typing import Any, Callable, ClassVar, Literal, overload
 
 import shutil
 from functools import partial
@@ -20,7 +20,7 @@ from umap import UMAP
 
 from hyper_lap.embedder import InputEmbedder
 from hyper_lap.serialisation import save_with_config_safetensors
-from hyper_lap.training.loss import loss_fn
+from hyper_lap.training.loss import ce_loss_fn, focal_loss_fn, hybrid_loss_fn
 from hyper_lap.training.utils import make_lr_schedule, timer, to_PIL
 
 from .metrics import calc_metrics
@@ -86,6 +86,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         batch: dict[str, Array],
         opt: optax.GradientTransformation,
         opt_state: OptState,
+        loss_fn: Callable[[Array, Array], Array],
     ) -> tuple[Net, InputEmbedder | None, OptState, dict[str, Array]]:
         net_embedder = (net, embedder)
 
@@ -129,6 +130,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
     epoch: int
 
+    loss_fn: Callable[[Array, Array], Array]
+
     lr_schedule: optax.Schedule
 
     opt: GradientTransformation
@@ -148,6 +151,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         valsets: list[MapDataset],
         oodsets: list[MapDataset],
         *,
+        loss_fn: Literal["CE", "focal", "hybrid"],
         model_name: str,
         first_epoch: int = 1,
         optim_config: dict[str, Any],
@@ -163,6 +167,14 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         # epoch gets incremented at start of train, so set to one less of start value
         self.epoch = first_epoch - 1
+
+        match loss_fn:
+            case "CE":
+                self.loss_fn = ce_loss_fn
+            case "focal":
+                self.loss_fn = focal_loss_fn
+            case "hybrid":
+                self.loss_fn = hybrid_loss_fn
 
         self.lr_schedule = make_lr_schedule(
             self.total_batches_per_epoch,
@@ -233,7 +245,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             batch: dict[str, Array] = jt.map(jnp.asarray, batch_np)
 
             net, embedder, self.opt_state, aux = self.training_step(
-                net, embedder, batch, self.opt, self.opt_state
+                net, embedder, batch, self.opt, self.opt_state, self.loss_fn
             )
 
             auxs.append(aux)
@@ -270,8 +282,8 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         if num_batches is None:
             num_batches = self.NUM_VALIDATION_BATCHES
 
-        @jax.jit
-        def loss_jit(logits, labels):
+        @partial(jax.jit, static_argnums=(2,))
+        def loss_jit(logits, labels, loss_fn):
             return jax.vmap(loss_fn)(logits, labels)
 
         val_losses = []
@@ -289,7 +301,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         it = iter(
             MapDataset.concatenate(list(valsets.values()) + list(oodsets.values())).to_iter_dataset(
-                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=2 * self.num_workers)
+                ReadOptions(num_threads=self.num_workers, prefetch_buffer_size=self.num_workers)
             )
         )
 
@@ -310,7 +322,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
                 dataset_metrics = calc_metrics(logits, labels)
 
-                loss = loss_jit(logits, labels)
+                loss = loss_jit(logits, labels, self.loss_fn)
 
                 dataset_metrices.append(dataset_metrics)
                 losses += [x.item() for x in loss]

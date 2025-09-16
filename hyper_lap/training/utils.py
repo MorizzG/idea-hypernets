@@ -38,6 +38,7 @@ COMMON_CONFIG = {
     "degenerate": False,
     "epochs": MISSING,
     "batch_size": MISSING,
+    "loss_fn": "CE",
     "optim": {
         "optimizer": "adamw",
         "lr": 5e-4,
