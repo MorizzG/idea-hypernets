@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jt
@@ -527,3 +528,13 @@ def global_norm(updates: PyTree) -> Array:
     # return jnp.sqrt(sum(jnp.sum(x**2) for x in jt.leaves(updates)))
 
     return jnp.sqrt(jt.reduce(lambda c, x: c + jnp.sum(x**2), updates, jnp.array(0.0)))
+
+
+def peak_memory(f, *args, **kw_args):
+    return (
+        eqx.filter_jit(f)
+        .lower(*args, **kw_args)
+        .lowered.compile()
+        .memory_analysis()
+        .peak_memory_in_bytes
+    )
