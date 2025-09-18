@@ -566,7 +566,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             image_folder.mkdir(parents=True)
 
         with timer("UMAP fitting"):
-            embedder_jit = jax.jit(jax.vmap(embedder, in_axes=(0, 0, None)))
+            embedder_jit = eqx.filter_jit(eqx.filter_vmap(embedder, in_axes=(0, 0, None)))
 
             batches: list[dict[str, Any]] = [
                 unwrap(dataset[0]) for dataset in self.valsets + self.oodsets
@@ -578,7 +578,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             }
 
             embs = {
-                name: embedder_jit(X["image"], X["label"], X["dataset_idx"])
+                    name: jnp.concat([embedder_jit(X["image"][32 * i : 32 * (i+1)], X["label"][32 * i : 32 * (i+1)], X["dataset_idx"]) for i in range(X["image"].shape[0] // 32)], axis=0)
                 for name, X in samples.items()
             }
 
