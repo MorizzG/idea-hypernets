@@ -21,9 +21,8 @@ from umap import UMAP
 from hyper_lap.embedder import InputEmbedder
 from hyper_lap.serialisation import save_with_config_safetensors
 from hyper_lap.training.loss import ce_loss_fn, focal_loss_fn, hybrid_loss_fn
+from hyper_lap.training.metrics import calc_metrics
 from hyper_lap.training.utils import make_lr_schedule, timer, to_PIL
-
-from .metrics import calc_metrics
 
 
 def unwrap[T](x: T | None) -> T:
@@ -431,13 +430,14 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 if val_metrics["loss/validation/mean"] < best_val_loss:
                     best_epoch = self.epoch
                     best_val_loss = val_metrics["loss/validation/mean"]
-                    no_improvement_counter = 0
 
                     best_model = jax.device_get((net, embedder))
+
+                    no_improvement_counter = 0
                 else:
                     no_improvement_counter += 1
 
-                    # no improvement for 20% of total epochs: early stop
+                    # no improvement for 3 validations and 20% of total epochs: early stop
                     if (
                         no_improvement_counter >= 3
                         and 20 * val_interval * no_improvement_counter >= num_epochs
@@ -447,10 +447,10 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                             f" {val_interval * no_improvement_counter} epochs"
                         )
 
-                        # if wandb.run is not None:
-                        #     wandb.run.log(metrics)
+                        if wandb.run is not None:
+                            wandb.run.log(metrics)
 
-                        # break
+                        break
 
             if wandb.run is not None:
                 wandb.run.log(metrics)
@@ -578,7 +578,17 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             }
 
             embs = {
-                    name: jnp.concat([embedder_jit(X["image"][32 * i : 32 * (i+1)], X["label"][32 * i : 32 * (i+1)], X["dataset_idx"]) for i in range(X["image"].shape[0] // 32)], axis=0)
+                name: jnp.concat(
+                    [
+                        embedder_jit(
+                            X["image"][32 * i : 32 * (i + 1)],
+                            X["label"][32 * i : 32 * (i + 1)],
+                            X["dataset_idx"],
+                        )
+                        for i in range(X["image"].shape[0] // 32)
+                    ],
+                    axis=0,
+                )
                 for name, X in samples.items()
             }
 

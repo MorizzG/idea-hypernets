@@ -533,7 +533,7 @@ def global_norm(updates: PyTree) -> Array:
 def peak_memory(f, *args, **kw_args):
     return (
         eqx.filter_jit(f)
-        .lower(*args, **kw_args)
+        .lower(*args, **kw_args)  # type: ignore
         .lowered.compile()
         .memory_analysis()
         .peak_memory_in_bytes
