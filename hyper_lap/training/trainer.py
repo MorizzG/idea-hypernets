@@ -1,6 +1,7 @@
 from jaxtyping import Array, Float, Integer
 from typing import Any, Callable, ClassVar, Literal, overload
 
+import math
 import shutil
 from functools import partial
 from pathlib import Path
@@ -66,14 +67,18 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
     def net_forward(
         net: Net,
         embedder: InputEmbedder | None,
-        images: Float[Array, "b c h w"],
-        labels: Integer[Array, "b h w"],
-        dataset_idx: Integer[Array, ""],
+        batch: dict[str, Array],
     ) -> Array:
         if embedder is not None:
-            input_emb = embedder(images[0], labels[0], dataset_idx)
+            example_image = batch["example_image"]
+            example_label = batch["example_label"]
+            dataset_idx = batch["dataset_idx"]
+
+            input_emb = embedder(example_image, example_label, dataset_idx)
         else:
             input_emb = None
+
+        images = batch["image"]
 
         return jax.vmap(net, in_axes=(0, None))(images, input_emb)
 
@@ -92,23 +97,19 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         @eqx.filter_value_and_grad
         def grad_fn(
             net_embedder: tuple[Net, InputEmbedder | None],
-            images: Array,
-            labels: Array,
-            dataset_idx: Array,
+            batch: dict[str, Array],
         ) -> Array:
             (net, embedder) = net_embedder
 
-            logits = Trainer.net_forward(net, embedder, images, labels, dataset_idx)
+            logits = Trainer.net_forward(net, embedder, batch)
+
+            labels = batch["label"]
 
             loss = jax.vmap(loss_fn)(logits, labels).mean()
 
             return loss
 
-        images = batch["image"]
-        labels = batch["label"]
-        dataset_idx = batch["dataset_idx"]
-
-        loss, grads = grad_fn(net_embedder, images, labels, dataset_idx)
+        loss, grads = grad_fn(net_embedder, batch)
 
         updates, opt_state = opt.update(grads, opt_state, net_embedder)  # type: ignore
 
@@ -178,7 +179,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         self.lr_schedule = make_lr_schedule(
             self.total_batches_per_epoch,
             lr=optim_config["lr"],
-            epochs=optim_config["epochs"],
+            epochs=optim_config["epochs"] or 1,
             scheduler=optim_config["scheduler"],
         )
 
@@ -312,13 +313,11 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             for _ in trange(num_batches):
                 batch = next(it)
 
-                assert batch["name"] == dataset_name
+                assert batch.pop("name") == dataset_name
 
-                images = jnp.asarray(batch["image"])
                 labels = jnp.asarray(batch["label"])
-                dataset_idx = jnp.asarray(batch["dataset_idx"])
 
-                logits = self.net_forward(net, embedder, images, labels, dataset_idx)
+                logits = self.net_forward(net, embedder, batch)
 
                 dataset_metrics = calc_metrics(logits, labels)
 
@@ -508,17 +507,18 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         image_folder.mkdir(parents=True)
 
-        def make_images(batch: dict[str, Array], *, dataset_name: str, ood: bool = False):
-            images = batch["image"]
-            labels = batch["label"]
-            dataset_idx = batch["dataset_idx"]
+        def make_images(batch: dict[str, Any], ood: bool = False):
+            dataset_name = batch.pop("name")
 
-            logits = self.net_forward(net, embedder, images[:2], labels[:2], dataset_idx)
+            batch["image"] = batch["image"][:1]
+            batch["label"] = batch["label"][:1]
 
-            image = images[1]
-            label = labels[1]
+            logits = self.net_forward(net, embedder, batch)
 
-            pred = jnp.argmax(logits[1], axis=0)
+            image = batch["image"][0]
+            label = batch["label"][0]
+
+            pred = jnp.argmax(logits[0], axis=0)
 
             fig, axs = plt.subplots(ncols=3)
 
@@ -559,12 +559,12 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         for valset in self.valsets:
             batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, valset[0])
 
-            make_images(batch, dataset_name=batch["name"])
+            make_images(batch)
 
         for oodset in self.oodsets:
             batch = jt.map(lambda x: jnp.asarray(x) if eqx.is_array(x) else x, oodset[0])
 
-            make_images(batch, dataset_name=batch["name"], ood=True)
+            make_images(batch, ood=True)
 
     def make_umap(self, embedder: InputEmbedder, image_folder: Path):
         print("Making UMAP")
@@ -592,7 +592,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                             X["label"][32 * i : 32 * (i + 1)],
                             X["dataset_idx"],
                         )
-                        for i in range(X["image"].shape[0] // 32)
+                        for i in range(math.ceil(X["image"].shape[0] / 32))
                     ],
                     axis=0,
                 )

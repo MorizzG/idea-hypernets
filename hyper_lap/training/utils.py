@@ -375,10 +375,13 @@ def get_datasets(
             .seed(0)
             .repeat()
             .shuffle()
-            .batch(batch_size)
+            .batch(batch_size + 1)
             .map(
-                lambda X, idx=jnp.array(i): X
-                | {
+                lambda X, idx=jnp.array(i): {
+                    "image": X["image"][1:],
+                    "label": X["label"][1:],
+                    "example_image": X["image"][0],
+                    "example_label": X["label"][0],
                     "dataset_idx": idx,
                     "name": dataset.name,
                 }
