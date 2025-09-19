@@ -446,7 +446,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                     # no improvement for 3 validations and 20% of total epochs: early stop
                     if (
                         no_improvement_counter >= 3
-                        and 20 * val_interval * no_improvement_counter >= num_epochs
+                        and 5 * val_interval * no_improvement_counter >= num_epochs
                     ):
                         tqdm.write(
                             "Stopping early after no validation improvement for"
