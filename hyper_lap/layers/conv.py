@@ -56,7 +56,6 @@ class WeightStandardizedConv2d(nn.Conv2d):
 
 class ConvNormAct(eqx.Module):
     conv: nn.Conv2d | WeightStandardizedConv2d
-    # norm: nn.BatchNorm2d
     norm: nn.GroupNorm
     act: ReLU | SiLU
 
@@ -81,8 +80,7 @@ class ConvNormAct(eqx.Module):
                 in_channels, out_channels, kernel_size, padding="SAME", use_bias=False, key=key
             )
 
-        # self.norm = nn.BatchNorm2d(out_channels, "batch")
-        self.norm = nn.GroupNorm(groups, out_channels, channelwise_affine=False)
+        self.norm = nn.GroupNorm(groups, out_channels)
 
         self.act = SiLU()
 
