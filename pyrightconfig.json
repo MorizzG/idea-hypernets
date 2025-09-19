@@ -1,0 +1,19 @@
+{
+  "reportAny": false,
+  "reportExplicitAny": false,
+  "reportIgnoreCommentWithoutRule": false,
+  "reportImplicitOverride": false,
+  "reportImplicitStringConcatenation": false,
+  "reportMissingParameterType": false,
+  "reportMissingTypeArgument": false,
+  "reportMissingTypeStubs": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownLambdaType": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownVariableType": false,
+  "reportUnnecessaryComparison": "hint",
+  "reportUnnecessaryIsInstance": "hint",
+  "reportUnreachable": "hint",
+  "reportUnusedCallResult": false
+}
