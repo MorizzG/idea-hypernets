@@ -1,5 +1,4 @@
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional
 
 import equinox as eqx
 import equinox.nn as nn
@@ -70,7 +69,7 @@ class ConvNeXt(eqx.Module):
         self,
         num_classes: int,
         base_channels: int,
-        depths: Optional[list[int]] = None,
+        depths: list[int] | None = None,
         in_channels: int = 1,
         *,
         key: PRNGKeyArray,
@@ -138,7 +137,7 @@ class ConvNeXt(eqx.Module):
         )
 
     def __call__(self, x: Float[Array, "c h w"]) -> Float[Array, " d"]:
-        c, h, w = x.shape
+        _c, h, w = x.shape
 
         assert h % 4 == 0 and w % 4 == 0, f"h and w must be divisible by 4, bu x.shape={x.shape}"
 

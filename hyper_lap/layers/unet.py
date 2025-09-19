@@ -1,5 +1,6 @@
+from collections.abc import Sequence
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Any, Optional, Sequence
+from typing import Any
 
 import equinox as eqx
 import equinox.nn as nn
@@ -105,7 +106,7 @@ class UnetDown(eqx.Module):
         channel_mults: Sequence[int],
         *,
         key: PRNGKeyArray,
-        block_args: Optional[dict[str, Any]] = None,
+        block_args: dict[str, Any] | None = None,
     ):
         super().__init__()
 
@@ -139,11 +140,11 @@ class UnetDown(eqx.Module):
 
             skips.append(x)
 
-            c, h, w = x.shape
+            _c, h, w = x.shape
 
-            assert (
-                h % 2 == 0 and w % 2 == 0
-            ), f"spatial dims of shape {x.shape} are not divisible by 2"
+            assert h % 2 == 0 and w % 2 == 0, (
+                f"spatial dims of shape {x.shape} are not divisible by 2"
+            )
 
             x = down(x)
 
@@ -163,7 +164,7 @@ class UnetUp(eqx.Module):
         channel_mults: Sequence[int],
         *,
         key: PRNGKeyArray,
-        block_args: Optional[dict[str, Any]] = None,
+        block_args: dict[str, Any] | None = None,
     ):
         super().__init__()
 
@@ -218,7 +219,7 @@ class UnetModule(eqx.Module):
         channel_mults: Sequence[int],
         *,
         key: PRNGKeyArray,
-        block_args: Optional[dict[str, Any]] = None,
+        block_args: dict[str, Any] | None = None,
     ):
         super().__init__()
 
@@ -238,16 +239,16 @@ class UnetModule(eqx.Module):
         self.up = UnetUp(base_channels, channel_mults, key=up_key, block_args=block_args)
 
     def __call__(self, x: Array) -> Array:
-        c, h, w = x.shape
+        _c, h, w = x.shape
 
         down_factor = 2 ** len(self.channel_mults)
 
-        assert (
-            h % down_factor == 0
-        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
-        assert (
-            w % down_factor == 0
-        ), f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        assert h % down_factor == 0, (
+            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        )
+        assert w % down_factor == 0, (
+            f"spatial dims must be divisible by {down_factor}, but shape is {x.shape}"
+        )
 
         x, skips = self.down(x)
 

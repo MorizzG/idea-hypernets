@@ -37,7 +37,7 @@ COMMON_CONFIG = {
     "trainsets": MISSING,
     "oodsets": "",
     "degenerate": False,
-    "epochs": MISSING,
+    "epochs": 100,
     "batch_size": MISSING,
     "loss_fn": "CE",
     "optim": {
@@ -198,7 +198,7 @@ def parse_args(model: ModelType) -> tuple[Args, DictConfig]:
     base_config = make_base_config(model)
     arg_config = OmegaConf.from_cli(unknown_args)
 
-    config: DictConfig = OmegaConf.merge(base_config, arg_config)  # type: ignore
+    config: DictConfig = OmegaConf.merge(base_config, arg_config)  # pyright: ignore[reportAssignmentType]
 
     if missing_keys := OmegaConf.missing_keys(config):
         raise RuntimeError(f"Missing mandatory config options: {' '.join(missing_keys)}")
@@ -349,14 +349,13 @@ def get_datasets(
 
     if not set(oodset_names) <= all_trainsets.keys():
         raise ValueError(
-            f"invalid testsets {oodset_names}. "
-            f"valid names are: {', '.join(all_trainsets.keys())}"
+            f"invalid testsets {oodset_names}. valid names are: {', '.join(all_trainsets.keys())}"
         )
 
     if intersect := set(trainset_names).intersection(oodset_names):
         raise ValueError(
             "Intersection between training sets and ood sets is not empty: "
-            f"{", ".join(intersect)} is/are in both sets"
+            f"{', '.join(intersect)} is/are in both sets"
         )
 
     trainsets = {name: dataset for name, dataset in all_trainsets.items() if name in trainset_names}
@@ -377,12 +376,12 @@ def get_datasets(
             .shuffle()
             .batch(batch_size + 1)
             .map(
-                lambda X, idx=jnp.array(i): {
+                lambda X, idx=i: {
                     "image": X["image"][1:],
                     "label": X["label"][1:],
                     "example_image": X["image"][0],
                     "example_label": X["label"][0],
-                    "dataset_idx": idx,
+                    "dataset_idx": jnp.array(idx),
                     "name": dataset.name,
                 }
             )
@@ -536,7 +535,7 @@ def global_norm(updates: PyTree) -> Array:
 def peak_memory(f, *args, **kw_args):
     return (
         eqx.filter_jit(f)
-        .lower(*args, **kw_args)  # type: ignore
+        .lower(*args, **kw_args)  # pyright: ignore[reportFunctionMemberAccess]
         .lowered.compile()
         .memory_analysis()
         .peak_memory_in_bytes

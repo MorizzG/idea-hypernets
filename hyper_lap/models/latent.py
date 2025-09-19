@@ -30,7 +30,7 @@ class LatentModel(eqx.Module):
 
         # self.vae = FlaxAutoencoderKL.from_pretrained("stabilityai/sdxl-vae")
 
-        key, vae_key, embedder_key = jr.split(key, 3)
+        key, vae_key = jr.split(key)
 
         vae = VAE(key=vae_key)
 

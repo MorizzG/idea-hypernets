@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from pathlib import Path
 
@@ -74,7 +74,7 @@ class TotalSegmentator(NiftiDataset):
 
         return shape
 
-    def get_label(self, idx: int) -> Optional[np.ndarray]:
+    def get_label(self, idx: int) -> np.ndarray | None:
         label = super().get_label(idx)
 
         if label is None:
@@ -87,7 +87,7 @@ class TotalSegmentator(NiftiDataset):
 
         return label
 
-    def get_label_slice(self, idx: int, slice_idx: int) -> Optional[np.ndarray]:
+    def get_label_slice(self, idx: int, slice_idx: int) -> np.ndarray | None:
         assert 0 <= idx < len(self), f"index {idx} out of range"
 
         entry = self._dataset[idx]

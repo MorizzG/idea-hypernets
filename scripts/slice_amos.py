@@ -1,5 +1,5 @@
 from jaxtyping import Array
-from typing import Literal, Optional
+from typing import Literal
 
 import json
 from copy import deepcopy
@@ -107,7 +107,7 @@ def make_slice_dist(label: Array | None, target: int) -> Array | None:
 
 
 @jax.jit
-def normalise(image: Array, label: Optional[Array]) -> tuple[Array, Optional[Array]]:
+def normalise(image: Array, label: Array | None) -> tuple[Array, Array | None]:
     c, h, w, d = image.shape
 
     if label is not None:
@@ -125,7 +125,7 @@ def normalise(image: Array, label: Optional[Array]) -> tuple[Array, Optional[Arr
                 label, (TARGET_SIZE, TARGET_SIZE, d, NUM_CLASSES), method="cubic"
             )
 
-            label = (label > 0.5).astype(jnp.uint8)  # type: ignore
+            label = (label > 0.5).astype(jnp.uint8)  # pyright: ignore
 
     return image, label
 
@@ -214,7 +214,7 @@ def make_slices(
 
                 if p is not None:
                     assert jnp.all(
-                        jnp.sum(label_slice[..., :num_candidates], axis=(0, 1)) != 0  # type: ignore
+                        jnp.sum(label_slice[..., :num_candidates], axis=(0, 1)) != 0  # pyright: ignore
                     ), f"{jnp.sum(label_slice, axis=(0, 1))}"
             else:
                 label_slice = None
@@ -279,8 +279,8 @@ def main():
 
     datasets = make_datasets()
 
-    train_source = MapDataset.source(AMOS_TRAIN)[:200]  # type: ignore
-    val_test_source = MapDataset.source(AMOS_VAL)[:100]  # type: ignore
+    train_source = MapDataset.source(AMOS_TRAIN)[:200]  # pyright: ignore
+    val_test_source = MapDataset.source(AMOS_VAL)[:100]  # pyright: ignore
 
     amos_val_mid = len(val_test_source) // 2
 

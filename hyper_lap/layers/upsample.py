@@ -1,11 +1,10 @@
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional
 
 import equinox as eqx
 import equinox.nn as nn
 import jax
 
-from ._util import _channel_to_spatials2d, _spatials_to_channel2d
+from ._util import channel_to_spatials2d, spatials_to_channel2d
 
 
 class ConvDownsample2d(eqx.Module):
@@ -17,7 +16,7 @@ class ConvDownsample2d(eqx.Module):
         self.conv = nn.Conv2d(2**2 * in_channels, out_channels, 1, use_bias=False, key=key)
 
     def __call__(self, x: Float[Array, "c_in h w"]) -> Float[Array, "c_out h/2 w/2"]:
-        x = _spatials_to_channel2d(x)
+        x = spatials_to_channel2d(x)
 
         x = self.conv(x)
 
@@ -35,7 +34,7 @@ class ConvUpsample2d(eqx.Module):
     def __call__(self, x: Float[Array, "c_in h w"]) -> Float[Array, "c_out 2*h 2*w"]:
         x = self.conv(x)
 
-        x = _channel_to_spatials2d(x)
+        x = channel_to_spatials2d(x)
 
         return x
 

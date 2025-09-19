@@ -1,12 +1,13 @@
+from collections.abc import Sequence
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Sequence
 
 import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
 from hyper_lap.layers.adaptor_unet import AdaptorUnetModule
-from hyper_lap.layers.unet import ConvNormAct, ResBlock
+from hyper_lap.layers.conv import ConvNormAct
+from hyper_lap.layers.unet import ResBlock
 
 
 class AdaptorUnet(eqx.Module):

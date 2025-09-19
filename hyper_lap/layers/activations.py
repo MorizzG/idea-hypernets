@@ -1,5 +1,4 @@
-from jaxtyping import Array, PRNGKeyArray
-from typing import Optional
+from jaxtyping import Array
 
 import equinox as eqx
 import jax

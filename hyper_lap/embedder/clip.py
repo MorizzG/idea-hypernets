@@ -39,11 +39,9 @@ class ClipEmbedder(eqx.Module):
         self.select_layer = select_layer
         self.pool = pool
 
-        # logging.getLogger("transformers/modeling_flax_utils.py").setLevel(logging.ERROR)
+        orig_verbosity = transformers.logging.get_verbosity()
 
-        orig_verbosity = transformers.logging.get_verbosity()  # type: ignore
-
-        transformers.logging.set_verbosity_error()  # type: ignore
+        transformers.logging.set_verbosity_error()
 
         if clip == "openai":
             clip_vision = FlaxCLIPVisionModel.from_pretrained(
@@ -52,26 +50,12 @@ class ClipEmbedder(eqx.Module):
             assert isinstance(clip_vision, FlaxCLIPVisionModel)
             self.clip_vision = clip_vision
 
-            # tokenizer = CLIPTokenizerFast.from_pretrained(
-            #     "openai/clip-vit-large-patch14-336", from_pt=True
-            # )
-            # assert isinstance(tokenizer, CLIPTokenizerFast), (
-            #     f"expected CLIPTokenizerFast, found {type(tokenizer)}"
-            # )
-            # self.tokenizer = tokenizer
-
-            # clip_text = FlaxCLIPTextModel.from_pretrained(
-            #     "openai/clip-vit-large-patch14-336", from_pt=True
-            # )
-            # assert isinstance(clip_text, FlaxCLIPTextModel)
-            # self.clip_text = clip_text
         else:
             raise RuntimeError(f"Unknown clip variant {clip}")
 
-        transformers.logging.set_verbosity(orig_verbosity)  # type: ignore
+        transformers.logging.set_verbosity(orig_verbosity)
 
         self.num_layers = len(self.clip_vision.params["vision_model"]["encoder"]["layers"])
-        # self.num_layers = 24
 
         if not -self.num_layers <= select_layer < self.num_layers:
             raise ValueError(
@@ -83,8 +67,6 @@ class ClipEmbedder(eqx.Module):
                 self.projection = nn.Linear(3 * 1024, emb_size, key=key)
             case "both":
                 self.projection = nn.Linear(6 * 1024, emb_size, key=key)
-
-        # self.projection = nn.Identity(key=key)
 
     def __call__(
         self,
@@ -111,20 +93,13 @@ class ClipEmbedder(eqx.Module):
 
         output = self.clip_vision(input, output_hidden_states=True)
 
-        hidden_states: list[Array] = output["hidden_states"][1:]  # type: ignore
+        hidden_states: list[Array] = output["hidden_states"][1:]  # pyright: ignore
 
         assert len(hidden_states) == self.num_layers
 
         hidden_state = hidden_states[self.select_layer]
 
         assert_shape([hidden_state], (3, 577, 1024))
-
-        # if self.pool == "cls":
-        #     vision_emb = hidden_state[:, 0, :].ravel()
-        # elif self.pool == "mean":
-        #     vision_emb = hidden_state.mean(axis=1).ravel()
-        # else:
-        #     assert False
 
         match self.pool:
             case "cls":
@@ -146,10 +121,6 @@ class ClipEmbedder(eqx.Module):
                 vision_emb = vision_emb.ravel()
 
         vision_emb = jax.lax.stop_gradient(vision_emb)
-
-        # inputs = self.tokenizer(text=text, return_tensors="jax")
-
-        # text_emb = self.clip_text(input_ids=inputs["input_ids"]).pooler_output[0]  # type: ignore
 
         emb = self.projection(vision_emb)
 

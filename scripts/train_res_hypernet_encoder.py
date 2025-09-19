@@ -31,7 +31,7 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             name=args.run_name or model_name,
-            config=OmegaConf.to_object(config),  # type: ignore
+            config=OmegaConf.to_object(config),  # pyright: ignore
             tags=[config.dataset, config.embedder.kind, "res_hypernet", "encoder-only"],
         )
 
@@ -39,7 +39,7 @@ def main():
 
     print(f"Loading U-Net weights from {unet_weights_path}")
 
-    unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))  # type: ignore
+    unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))
 
     unet = load_pytree(unet_weights_path, unet)
 

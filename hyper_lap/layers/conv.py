@@ -1,5 +1,5 @@
+from collections.abc import Sequence
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional, Sequence, Union
 
 import equinox as eqx
 import equinox.nn as nn
@@ -13,10 +13,10 @@ class WeightStandardizedConv2d(nn.Conv2d):
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: Union[int, Sequence[int]],
-        stride: Union[int, Sequence[int]] = (1, 1),
-        padding: Union[str, int, Sequence[int], Sequence[tuple[int, int]]] = (0, 0),
-        dilation: Union[int, Sequence[int]] = (1, 1),
+        kernel_size: int | Sequence[int],
+        stride: int | Sequence[int] = (1, 1),
+        padding: str | int | Sequence[int] | Sequence[tuple[int, int]] = (0, 0),
+        dilation: int | Sequence[int] = (1, 1),
         groups: int = 1,
         use_bias: bool = True,
         padding_mode: str = "ZEROS",
@@ -38,10 +38,10 @@ class WeightStandardizedConv2d(nn.Conv2d):
             key=key,
         )
 
-    def _super_forward(self, x: Array, *, key: Optional[PRNGKeyArray] = None) -> Array:
+    def _super_forward(self, x: Array, *, key: PRNGKeyArray | None = None) -> Array:
         return super().__call__(x, key=key)
 
-    def __call__(self, x: Array, *, key: Optional[PRNGKeyArray] = None) -> Array:
+    def __call__(self, x: Array, *, key: PRNGKeyArray | None = None) -> Array:
         weight = self.weight
 
         mean = weight.mean()

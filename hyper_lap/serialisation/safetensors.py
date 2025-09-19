@@ -6,7 +6,7 @@ inspired by https://github.com/krypticmouse/saferax
 """
 
 from jaxtyping import Array, PyTree
-from typing import Any, Optional
+from typing import Any
 
 import json
 from pathlib import Path
@@ -45,7 +45,7 @@ def as_path(path: str | Path):
     return path
 
 
-def load_file(filename: str | Path, strip_prefix: Optional[str] = None):
+def load_file(filename: str | Path, strip_prefix: str | None = None):
     result = {}
 
     with safe_open(filename, framework="flax") as f:
@@ -145,7 +145,7 @@ def save_pytree(path: str | Path, tree: PyTree):
 
 
 def load_pytree[T: PyTree](
-    path: str | Path, tree: T, *, strip_prefix: Optional[str] = None, match_exact: bool = True
+    path: str | Path, tree: T, *, strip_prefix: str | None = None, match_exact: bool = True
 ) -> T:
     path = as_path(path)
 

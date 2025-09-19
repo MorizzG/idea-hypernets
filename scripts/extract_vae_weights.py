@@ -39,6 +39,6 @@ def save_and_get(vae: AutoencoderKL) -> dict[str, Tensor]:
 
 
 if __name__ == "__main__":
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained("stabilityai/sdxl-vae")  # type: ignore
+    vae: AutoencoderKL = AutoencoderKL.from_pretrained("stabilityai/sdxl-vae")
 
     state_dict = save_and_get(vae)

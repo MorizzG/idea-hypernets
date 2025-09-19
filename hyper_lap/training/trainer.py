@@ -1,4 +1,4 @@
-from jaxtyping import Array, Float, Integer
+from jaxtyping import Array
 from typing import Any, Callable, ClassVar, Literal, overload
 
 import math
@@ -111,15 +111,15 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         loss, grads = grad_fn(net_embedder, batch)
 
-        updates, opt_state = opt.update(grads, opt_state, net_embedder)  # type: ignore
+        updates, opt_state = opt.update(grads, opt_state, net_embedder)  # pyright: ignore
 
         (net, embedder) = eqx.apply_updates(net_embedder, updates)
 
-        aux = {
+        aux: dict[str, Array] = {
             "loss": loss,
-            "grad_norm": global_norm(grads),  # type: ignore
-            "update_norm": global_norm(updates),  # type: ignore
-        }
+            "grad_norm": global_norm(grads),
+            "update_norm": global_norm(updates),
+        }  # pyright: ignore
 
         return net, embedder, opt_state, aux
 
@@ -198,11 +198,11 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 optax.clip_by_global_norm(optim_config["grad_clip"]), optim(self.lr_schedule)
             )
 
-            self._get_step = lambda: self.opt_state[1][-1].count  # type: ignore
+            self._get_step = lambda: self.opt_state[1][-1].count  # pyright: ignore
         else:
             self.opt = optim(self.lr_schedule)
 
-            self._get_step = lambda: self.opt_state[-1].count  # type: ignore
+            self._get_step = lambda: self.opt_state[-1].count  # pyright: ignore
 
         self.opt_state = self.opt.init(eqx.filter((net, embedder), eqx.is_array_like))
 
@@ -215,7 +215,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         if isinstance(self.lr_schedule, float):
             return self.lr_schedule
 
-        return float(self.lr_schedule(self._get_step()))  # type: ignore
+        return float(self.lr_schedule(self._get_step()))
 
     @overload
     def train(
@@ -602,7 +602,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             umap = UMAP()
             umap.fit(jnp.concat([embs for embs in embs.values()]))
 
-            projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # type: ignore
+            projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # pyright: ignore
 
         fig, ax = plt.subplots()
 

@@ -116,10 +116,10 @@ class NormalisedDataset(Dataset):
         if not 0 <= idx < len(self):
             raise IndexError("index out of range")
 
-        X = self.dataset[idx]
+        elem = self.dataset[idx]
 
-        image = X.pop("image")
-        label = X.pop("label")
+        image = elem.pop("image")
+        label = elem.pop("label")
 
         # TODO: sth better than just slice out first channel here?
         # image = image[self.channel, ...]
@@ -135,6 +135,6 @@ class NormalisedDataset(Dataset):
 
         label = (label != 0).astype(np.uint8)
 
-        X |= {"image": image, "label": label}
+        elem |= {"image": image, "label": label}
 
-        return X
+        return elem

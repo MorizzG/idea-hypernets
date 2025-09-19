@@ -26,15 +26,13 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             name=args.run_name or model_name,
-            config=OmegaConf.to_object(config),  # type: ignore
+            config=OmegaConf.to_object(config),  # pyright: ignore
             tags=[config.dataset, "vit_seg"],
         )
 
     key = jr.PRNGKey(config.seed)
 
-    model_key, embedder_key = jr.split(key)
-
-    vit_seg = VitSegmentator(**config.vit_seg, key=model_key)
+    vit_seg = VitSegmentator(**config.vit_seg, key=key)
 
     trainsets, valsets, oodsets = get_datasets(
         config.dataset,

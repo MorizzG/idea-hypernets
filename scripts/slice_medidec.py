@@ -1,5 +1,5 @@
 from jaxtyping import Array
-from typing import Literal, Optional
+from typing import Literal
 
 import json
 import sys
@@ -101,10 +101,10 @@ def make_slice_dist(label: Array | None) -> Array | None:
 @partial(jax.jit, static_argnums=(2, 3))
 def normalise(
     image: Array,
-    label: Optional[Array],
+    label: Array | None,
     num_classes: int,
     target_size: int,
-) -> tuple[Array, Optional[Array]]:
+) -> tuple[Array, Array | None]:
     c, h, w, d = image.shape
 
     target_h = target_size
@@ -180,8 +180,8 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"],
             total = None
 
     for n_item, X in enumerate(
-        pbar := tqdm(items, leave=True, desc=f"{dataset.name} {split}", total=total)
-    ):  # type: ignore
+        tqdm(items, leave=True, desc=f"{dataset.name} {split}", total=total)
+    ):
         image = jnp.asarray(X["image"])
 
         if "label" in X:
@@ -199,7 +199,7 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"],
         p = make_slice_dist(label)
 
         if label is not None and p is None:
-            pbar.write(f"item {n_item} has empty label")
+            tqdm.write(f"item {n_item} has empty label")
 
         if p is not None:
             num_candidates = jnp.count_nonzero(p).item()
@@ -219,7 +219,7 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"],
 
             if p is not None:
                 assert jnp.all(
-                    jnp.sum(label_slice[..., :num_candidates], axis=(0, 1)) != 0  # type: ignore
+                    jnp.sum(label_slice[..., :num_candidates], axis=(0, 1)) != 0  # pyright: ignore
                 ), f"{jnp.sum(label_slice, axis=(0, 1))}"
         else:
             label_slice = None

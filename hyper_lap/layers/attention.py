@@ -1,5 +1,4 @@
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional
 
 import equinox as eqx
 import equinox.nn as nn
@@ -108,7 +107,7 @@ class Attention(eqx.Module):
         return x.reshape(n_seq, self.num_heads, self.dim_head)  # .transpose(1, 0, 2)
 
     def __call__(
-        self, x: Float[Array, "n d"], context: Optional[Float[Array, "m d"]] = None
+        self, x: Float[Array, "n d"], context: Float[Array, "m d"] | None = None
     ) -> Float[Array, "n d"]:
         assert_rank(x, 2)
         assert_axis_dimension(x, 1, self.d_model)
@@ -227,6 +226,8 @@ class SpatialSelfAttention(eqx.Module):
 
     qkv: nn.Conv2d
 
+    out_proj: nn.Conv2d
+
     def __init__(self, channels: int, num_heads: int, dim_head: int, *, key: PRNGKeyArray):
         super().__init__()
 
@@ -242,7 +243,7 @@ class SpatialSelfAttention(eqx.Module):
         self.out_proj = nn.Conv2d(hidden_dim, channels, kernel_size=1, key=out_key)
 
     def __call__(self, x: Float[Array, "c h w"]) -> Float[Array, "c h w"]:
-        c, h, w = x.shape
+        _c, h, w = x.shape
 
         # shape: [3, num_heads, hw, dim_head]
         q, k, v = self.qkv(x).reshape(3, self.num_heads, self.dim_head, h * w).transpose(0, 3, 1, 2)

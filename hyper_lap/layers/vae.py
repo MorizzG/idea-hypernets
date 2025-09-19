@@ -1,5 +1,4 @@
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional
 
 import equinox as eqx
 import equinox.nn as nn
@@ -99,7 +98,7 @@ class Attention(eqx.Module):
         heads: int,  # = 8,
         dim_head: int,  # = 64,
         bias: bool,  # = False,
-        norm_num_groups: Optional[int],  # = None,
+        norm_num_groups: int | None,  # = None,
         eps: float,  # = 1e-5,
         *,
         key: PRNGKeyArray,

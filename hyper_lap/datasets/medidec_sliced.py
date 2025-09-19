@@ -13,6 +13,8 @@ class MediDecSliced(Dataset):
 
     _dataset: list[dict[str, Path]]
 
+    _split: Literal["train", "validation", "test"]
+
     @property
     def metadata(self) -> Metadata:
         return self._metadata

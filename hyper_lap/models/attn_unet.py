@@ -1,12 +1,13 @@
+from collections.abc import Sequence
 from jaxtyping import Array, Float, PRNGKeyArray
-from typing import Optional, Sequence
 
 import equinox as eqx
 import equinox.nn as nn
 import jax.random as jr
 
 from hyper_lap.layers.attn_unet import AttnUnetModule
-from hyper_lap.layers.unet import ConvNormAct, ResBlock
+from hyper_lap.layers.conv import ConvNormAct
+from hyper_lap.layers.unet import ResBlock
 
 
 class AttentionUnet(eqx.Module):
@@ -38,10 +39,6 @@ class AttentionUnet(eqx.Module):
 
         self.base_channels = base_channels
         self.channel_mults = list(channel_mults)
-
-        key, emb_key = jr.split(key)
-
-        # self.embedder = InputEmbedder(emb_size, kind=embedder_kind, key=emb_key)
 
         init_key, unet_key, recomb_key, final_key = jr.split(key, 4)
 
@@ -76,7 +73,7 @@ class AttentionUnet(eqx.Module):
         x: Float[Array, "c_in h w"],
         context: Array | None = None,
         *,
-        key: Optional[PRNGKeyArray] = None,
+        key: PRNGKeyArray | None = None,
     ) -> Float[Array, "c_out h w"]:
         x = self.init_conv(x)
         x = self.attn_unet(x, context)

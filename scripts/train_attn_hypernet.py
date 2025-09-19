@@ -27,7 +27,7 @@ def main():
         wandb.init(
             project="idea-laplacian-hypernet",
             name=args.run_name or model_name,
-            config=OmegaConf.to_object(config),  # type: ignore
+            config=OmegaConf.to_object(config),  # pyright: ignore
             tags=[config.dataset, config.embedder.kind, "attn_hypernet"],
         )
 

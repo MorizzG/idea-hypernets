@@ -1,5 +1,5 @@
 from jaxtyping import DTypeLike
-from typing import Literal, Optional
+from typing import Literal
 
 from pathlib import Path
 
@@ -25,9 +25,6 @@ class NiftiDataset(Dataset):
     ):
         super().__init__()
 
-        if split not in ["train", "validation", "test"]:
-            raise ValueError(f"Invalid split: {split}")
-
         self._metadata = Metadata.load(root_dir)
 
         self._split = split
@@ -40,7 +37,7 @@ class NiftiDataset(Dataset):
             case "test":
                 self._dataset = self.metadata.test
             case _:
-                assert False
+                raise AssertionError(f"invalid split: {split}")
 
         if len(self._dataset) == 0:
             raise ValueError(f"dataset {root_dir} does not appear to have a {split} split")
@@ -62,7 +59,7 @@ class NiftiDataset(Dataset):
 
     @staticmethod
     def load_nib(path: Path) -> nib.nifti1.Nifti1Image:
-        image = nib.load(path)  # type: ignore
+        image = nib.load(path)  # pyright: ignore
 
         assert isinstance(image, nib.nifti1.Nifti1Image)
 
@@ -159,7 +156,7 @@ class NiftiDataset(Dataset):
 
         raise RuntimeError(f"Failed to find label in entry {entry}")
 
-    def get_label(self, idx: int) -> Optional[np.ndarray]:
+    def get_label(self, idx: int) -> np.ndarray | None:
         assert 0 <= idx < len(self), f"index {idx} out of range"
 
         entry = self._dataset[idx]
@@ -183,7 +180,7 @@ class NiftiDataset(Dataset):
 
         return None
 
-    def get_label_slice(self, idx: int, slice_idx: int) -> Optional[np.ndarray]:
+    def get_label_slice(self, idx: int, slice_idx: int) -> np.ndarray | None:
         assert 0 <= idx < len(self), f"index {idx} out of range"
 
         entry = self._dataset[idx]

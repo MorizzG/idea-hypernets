@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 import json
 from pathlib import Path
@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # @dataclass(frozen=True)
 class Metadata(BaseModel):
-    model_config = ConfigDict(extra="allow", frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow", frozen=True)
 
     name: str
     description: str
@@ -59,9 +59,9 @@ class Metadata(BaseModel):
         assert (list(dataset_json["modality"].keys())) == list(
             range(len(dataset_json["modality"]))
         ), f"{list(dataset_json['modality'].keys())} != {range(len(dataset_json['modality']))}"
-        assert list(dataset_json["labels"].keys()) == list(
-            range(len(dataset_json["labels"]))
-        ), f"{list(dataset_json['labels'].keys())} != {range(len(dataset_json['labels']))}"
+        assert list(dataset_json["labels"].keys()) == list(range(len(dataset_json["labels"]))), (
+            f"{list(dataset_json['labels'].keys())} != {range(len(dataset_json['labels']))}"
+        )
 
         def replace_key(old: str, new: str):
             if old not in dataset_json:
@@ -80,13 +80,13 @@ class Metadata(BaseModel):
 
         training = []
 
-        for X in dataset_json["training"]:
-            if isinstance(X, str):
-                image = base_folder / X
+        for elem in dataset_json["training"]:
+            if isinstance(elem, str):
+                image = base_folder / elem
 
                 training.append(dict(image=image))
-            elif isinstance(X, dict):
-                d = {name: base_folder / item for name, item in X.items()}
+            elif isinstance(elem, dict):
+                d = {name: base_folder / item for name, item in elem.items()}
 
                 for path in d.values():
                     assert path.exists(), f"path {path} does not exist"
@@ -101,13 +101,13 @@ class Metadata(BaseModel):
         if "validation" in dataset_json:
             validation = []
 
-            for X in dataset_json["validation"]:
-                if isinstance(X, str):
-                    image = base_folder / X
+            for elem in dataset_json["validation"]:
+                if isinstance(elem, str):
+                    image = base_folder / elem
 
                     validation.append(dict(image=image))
-                elif isinstance(X, dict):
-                    d = {name: base_folder / item for name, item in X.items()}
+                elif isinstance(elem, dict):
+                    d = {name: base_folder / item for name, item in elem.items()}
 
                     for path in d.values():
                         assert path.exists()
@@ -124,15 +124,15 @@ class Metadata(BaseModel):
 
         test = []
 
-        for X in dataset_json["test"]:
-            if isinstance(X, str):
-                image = base_folder / X
+        for elem in dataset_json["test"]:
+            if isinstance(elem, str):
+                image = base_folder / elem
 
                 assert image.exists()
 
                 test.append(dict(image=image))
-            elif isinstance(X, dict):
-                d = {name: base_folder / item for name, item in X.items()}
+            elif isinstance(elem, dict):
+                d = {name: base_folder / item for name, item in elem.items()}
 
                 for path in d.values():
                     assert path.exists()
@@ -148,15 +148,15 @@ class Metadata(BaseModel):
             # spellchecking is totally overrated
             replace_key("relase", "release")
 
-        assert dataset_json["num_training"] == len(
-            dataset_json["training"]
-        ), f"{dataset_json['num_training']} != {len(dataset_json['training'])}"
-        assert dataset_json["num_validation"] == len(
-            dataset_json["validation"]
-        ), f"{dataset_json['num_validation']} != {len(dataset_json['validation'])}"
-        assert dataset_json["num_test"] == len(
-            dataset_json["test"]
-        ), f"{dataset_json['num_test']} != {len(dataset_json['test'])}"
+        assert dataset_json["num_training"] == len(dataset_json["training"]), (
+            f"{dataset_json['num_training']} != {len(dataset_json['training'])}"
+        )
+        assert dataset_json["num_validation"] == len(dataset_json["validation"]), (
+            f"{dataset_json['num_validation']} != {len(dataset_json['validation'])}"
+        )
+        assert dataset_json["num_test"] == len(dataset_json["test"]), (
+            f"{dataset_json['num_test']} != {len(dataset_json['test'])}"
+        )
 
         if "license" in dataset_json:
             # oops
