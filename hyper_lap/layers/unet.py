@@ -21,8 +21,7 @@ class ResBlock(eqx.Module):
 
     use_weight_standardized_conv: bool = eqx.field(static=True)
 
-    layers: nn.Sequential
-    # layers: list[ConvNormAct]
+    layers: list[ConvNormAct]
 
     res_conv: nn.Conv2d | nn.Identity
 
@@ -52,7 +51,7 @@ class ResBlock(eqx.Module):
 
         res_conv_key, *keys = jr.split(key, n_convs + 1)
 
-        layers = [
+        self.layers = [
             ConvNormAct(
                 in_channels,
                 out_channels,
@@ -63,7 +62,7 @@ class ResBlock(eqx.Module):
             )
         ]
 
-        layers += [
+        self.layers += [
             ConvNormAct(
                 out_channels,
                 out_channels,
@@ -74,8 +73,6 @@ class ResBlock(eqx.Module):
             )
             for key in keys[1:]
         ]
-
-        self.layers = nn.Sequential(layers)
 
         if in_channels != out_channels:
             self.res_conv = nn.Conv2d(

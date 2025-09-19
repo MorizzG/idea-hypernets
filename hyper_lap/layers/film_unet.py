@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
-from .activations import ReLU, SiLU
+from .activations import SiLU
 from .conv import ConvNormAct, WeightStandardizedConv2d
 from .upsample import BilinearUpsample2d
 
@@ -39,7 +39,7 @@ class ConvNormFilmAct(eqx.Module):
     conv: nn.Conv2d | WeightStandardizedConv2d
     norm: nn.GroupNorm
     film_proj: FilmProjection
-    act: ReLU | SiLU
+    act: SiLU
 
     def __init__(
         self,
