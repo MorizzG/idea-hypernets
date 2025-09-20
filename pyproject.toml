@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "jax[cuda]>=0.7.0",
+    "jax[cuda]==0.7.1",
     # "nvidia-cublas-cu12~=12.6.0",
     # "nvidia-cuda-cupti-cu12~=12.6.0",
     # "nvidia-cuda-nvcc-cu12~=12.6.0",
