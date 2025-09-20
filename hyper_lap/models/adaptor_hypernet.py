@@ -34,8 +34,8 @@ class AdaptorHyperNet(eqx.Module):
 
     kernel_generator: Conv2dGeneratorABC
 
-    unet_pos_embs: list[Array]
-    recomb_pos_embs: list[Array]
+    unet_pos_embs: list[Array | None]
+    recomb_pos_embs: list[Array | None]
 
     init_kernel: Array
     final_kernel: Array
@@ -146,12 +146,12 @@ class AdaptorHyperNet(eqx.Module):
 
     def generate_pos_embs(
         self, module: eqx.Module, filter_spec: PyTree, *, key: PRNGKeyArray
-    ) -> list[Array]:
+    ) -> list[Array | None]:
         leaves, _ = jt.flatten_with_path(eqx.filter(module, filter_spec))
 
         block_size = self.block_size
 
-        embs = []
+        embs: list[Array | None] = []
 
         for tree_path, leaf in leaves:
             assert isinstance(leaf, Array)
@@ -165,9 +165,9 @@ class AdaptorHyperNet(eqx.Module):
             c_out, c_in, k1, k2 = leaf.shape
 
             assert k1 == k2 == 1, f"Array has unexpected shape: {leaf.shape}"
-            assert (
-                c_out % block_size == 0 and c_in % block_size == 0
-            ), f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            assert c_out % block_size == 0 and c_in % block_size == 0, (
+                f"channels {c_out} {c_in} not divisible by block_size {block_size}"
+            )
             assert c_out == c_in, "in_channels must be out_channels"
 
             b_out = c_out // block_size
@@ -185,16 +185,16 @@ class AdaptorHyperNet(eqx.Module):
         self,
         unet: T,
         input_emb: Array,
-        pos_embs: list[Array],
+        pos_embs: list[Array | None],
         filter_spec: PyTree,
     ) -> tuple[T, Scalar]:
         model_weights, static_model = eqx.partition(unet, filter_spec)
 
         weights, treedef = jt.flatten(model_weights)
 
-        assert len(weights) == len(
-            pos_embs
-        ), f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        assert len(weights) == len(pos_embs), (
+            f"expected {len(pos_embs)} weights, found {len(weights)} instead"
+        )
 
         # vmap over block in positional embeddings
 

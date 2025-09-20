@@ -16,6 +16,7 @@ from hyper_lap.hyper.generator import (
     Conv2dLoraGenerator,
 )
 from hyper_lap.layers.conv import ConvNormAct
+from hyper_lap.serialisation.safetensors import tree_path_to_str
 
 from .unet import Unet
 
@@ -71,8 +72,8 @@ class HyperNet(eqx.Module):
     kernel_generator: Conv2dGeneratorABC
     resample_generator: Conv2dGeneratorABC
 
-    unet_pos_embs: list[Array]
-    recomb_pos_embs: list[Array]
+    unet_pos_embs: list[Array | None]
+    recomb_pos_embs: list[Array | None]
 
     init_kernel: Array
     final_kernel: Array
@@ -164,16 +165,22 @@ class HyperNet(eqx.Module):
 
     def generate_pos_embs(
         self, module: eqx.Module, filter_spec: PyTree, *, key: PRNGKeyArray
-    ) -> list[Array]:
-        leaves, _ = jt.flatten(eqx.filter(module, filter_spec))
+    ) -> list[Array | None]:
+        leaves, _ = jt.flatten_with_path(eqx.filter(module, filter_spec))
 
         block_size = self.block_size
         kernel_size = self.unet.kernel_size
 
-        embs = []
+        embs: list[Array | None] = []
 
-        for leaf in leaves:
+        for tree_path, leaf in leaves:
             assert isinstance(leaf, Array)
+
+            path_str = tree_path_to_str(tree_path)
+
+            if not path_str.endswith(".conv.weight"):
+                embs.append(None)
+                continue
 
             c_out, c_in, k1, k2 = leaf.shape
 
@@ -231,7 +238,7 @@ class HyperNet(eqx.Module):
         self,
         unet: T,
         input_emb: Array,
-        pos_embs: list[Array],
+        pos_embs: list[Array | None],
         filter_spec: PyTree,
     ) -> tuple[T, Scalar]:
         model_weights, static_model = eqx.partition(unet, filter_spec)
@@ -256,6 +263,9 @@ class HyperNet(eqx.Module):
         reg = jnp.array(0.0)
 
         for i, pos_emb in enumerate(pos_embs):
+            if pos_emb is None:
+                continue
+
             b_out, b_in, _ = pos_emb.shape
 
             c_out, c_in, k1, k2 = weights[i].shape
