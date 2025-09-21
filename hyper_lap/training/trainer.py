@@ -520,6 +520,14 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             pred = jnp.argmax(logits[0], axis=0)
 
+            metrics = calc_metrics(logits, batch["label"])
+
+            tqdm.write(f"Dataset: {dataset_name}:")
+            tqdm.write(f"    Dice score: {metrics['dice'].item():.3f}")
+            tqdm.write(f"    IoU score : {metrics['iou'].item():.3f}")
+            tqdm.write(f"    Hausdorff : {metrics['hausdorff'].item():.3f}")
+            tqdm.write("")
+
             fig, axs = plt.subplots(ncols=3)
 
             axs[0].imshow(image.mean(axis=0), cmap="gray")
