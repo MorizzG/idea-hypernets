@@ -59,6 +59,7 @@ UNET_CONFIG = {
     "channel_mults": [1, 2, 4, 6, 6],
     "in_channels": 3,
     "out_channels": 2,
+    "kernel_size": 3,
     "use_weight_standardized_conv": False,
 }
 
@@ -82,6 +83,7 @@ FILMUNET_CONFIG = {
     "in_channels": 3,
     "out_channels": 2,
     "emb_size": "${embedder.emb_size}",
+    "kernel_size": 3,
     "use_weight_standardized_conv": False,
 }
 

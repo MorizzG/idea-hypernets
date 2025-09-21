@@ -32,6 +32,7 @@ class FilmUnet(eqx.Module):
         out_channels: int,
         *,
         emb_size: int,
+        kernel_size: int = 5,
         use_weight_standardized_conv: bool = False,
         key: PRNGKeyArray,
     ):
@@ -61,6 +62,7 @@ class FilmUnet(eqx.Module):
             emb_size,
             key=unet_key,
             block_args={
+                "kernel_size": kernel_size,
                 "use_weight_standardized_conv": use_weight_standardized_conv,
             },
         )
@@ -68,6 +70,7 @@ class FilmUnet(eqx.Module):
         self.recomb = ResBlock(
             base_channels,
             base_channels,
+            kernel_size=kernel_size,
             use_weight_standardized_conv=use_weight_standardized_conv,
             key=recomb_key,
         )
