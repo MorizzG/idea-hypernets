@@ -97,7 +97,7 @@ def main():
     print("Validation before training:")
     print()
 
-    trainer.validate(hypernet, embedder)
+    trainer.validate(hypernet, embedder, seed=0)
 
     hypernet, embedder = trainer.run(hypernet, embedder, config.epochs, OmegaConf.to_object(config))
 

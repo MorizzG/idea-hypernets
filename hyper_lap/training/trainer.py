@@ -277,6 +277,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         net: Net,
         embedder: InputEmbedder | None,
         *,
+        seed: int,
         num_batches: int | None = None,
     ) -> dict[str, float]:
         if num_batches is None:
@@ -290,12 +291,12 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         metrics = {}
 
         valsets: dict[str, MapDataset] = {
-            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
+            unwrap(valset[0])["name"]: valset.seed(seed).shuffle()[:num_batches]
             for valset in self.valsets
         }
 
         oodsets: dict[str, MapDataset] = {
-            unwrap(valset[0])["name"]: valset.seed(self.epoch).shuffle()[:num_batches]
+            unwrap(valset[0])["name"]: valset.seed(seed).shuffle()[:num_batches]
             for valset in self.oodsets
         }
 
@@ -429,7 +430,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 tqdm.write(f"Epoch {self.epoch: 3}: Validation\n")
 
                 with timer("validate", use_tqdm=True):
-                    val_metrics = self.validate(net, embedder)
+                    val_metrics = self.validate(net, embedder, seed=self.epoch)
 
                 metrics |= val_metrics
 
@@ -468,7 +469,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
         tqdm.write("Best model validation:\n")
 
         with timer("best_validation", use_tqdm=True):
-            best_metrics = self.validate(best_net, best_embedder, num_batches=100)
+            best_metrics = self.validate(best_net, best_embedder, seed=0, num_batches=100)
 
         if wandb.run is not None:
             for key in wandb.run.summary.keys():
