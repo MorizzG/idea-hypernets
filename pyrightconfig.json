@@ -1,4 +1,6 @@
 {
+  "exclude": ["datasets"],
+
   "reportAny": false,
   "reportExplicitAny": false,
   "reportIgnoreCommentWithoutRule": false,
