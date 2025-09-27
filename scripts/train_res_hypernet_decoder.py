@@ -41,7 +41,7 @@ def main():
 
     unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))
 
-    unet = load_pytree(unet_weights_path, unet)
+    unet = load_pytree(unet_weights_path, unet, strip_prefix="0")
 
     filter_spec = jt.map(lambda _: False, unet)
     filter_spec = eqx.tree_at(

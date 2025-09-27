@@ -128,7 +128,7 @@ def make_base_config(
             }
         case "res_hypernet":
             config |= {
-                "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v98",
+                "unet_artifact": MISSING,
                 "hypernet": HYPERNET_CONFIG,
                 "embedder": EMBEDDER_CONFIG,
             }
@@ -140,7 +140,7 @@ def make_base_config(
             }
         case "attn_res_hypernet":
             config |= {
-                "unet_artifact": "morizzg/idea-laplacian-hypernet/unet-medidec:v98",
+                "unet_artifact": MISSING,
                 "hypernet": ATTN_HYPERNET_CONFIG,
                 "embedder": EMBEDDER_CONFIG,
             }
