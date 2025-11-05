@@ -6,17 +6,23 @@ import sys
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from queue import Queue, ShutDown
+from threading import Event, Thread
 
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+from grain import MapDataset, ReadOptions
 from tqdm import tqdm
 
 from hyper_lap.datasets import MediDec
 
+type Split = Literal["train", "validation", "test"]
+
 jax.config.update("jax_platform_name", "cpu")
 
+MEDIDEC_FOLDER = Path("./datasets/MediDec")
 
 _key = jr.PRNGKey(0)
 
@@ -35,21 +41,78 @@ class Dataset:
 
     num_classes: int
 
+    input_channel: int
+
+    modality: str
+
     orig_dataset_folder: Path
 
     sliced_dataset_folder: Path
 
-    split_medidec: dict[str, MediDec]
+    sources: dict[Split, MapDataset]
 
-    split_folders: dict[str, Path]
+    split_folders: dict[Split, Path]
+
+    counters: dict[str, int]
+
+
+class AsyncFileWriter:
+    q: Queue
+    thread: Thread
+
+    shutdown: Event
+
+    def __init__(self):
+        self.q = Queue(3)
+        self.thread = Thread(target=self._worker)
+        self.shutdown = Event()
+
+        self.thread.start()
+
+    def _worker(self):
+        """Worker thread that writes files from queue"""
+        while True:
+            try:
+                item = self.q.get()
+            except ShutDown:
+                break
+
+            path, image, label = item
+
+            np.savez_compressed(path, image=image, label=label)
+
+            self.q.task_done()
+
+    def queue(self, path: str | Path, image: np.ndarray, label: np.ndarray):
+        """Queue a BytesIO buffer to be written to file"""
+        if self.shutdown.is_set():
+            raise RuntimeError("Writer is shut down")
+
+        assert image.ndim == 2 and image.dtype == np.float32
+        assert label.ndim == 2 and label.dtype == np.uint8
+
+        self.q.put((path, image, label))
+
+    def wait(self):
+        """Wait for all queued writes to complete"""
+
+        self.q.join()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.shutdown.set()
+        self.q.shutdown()
+
+        self.q.join()
+        self.thread.join()
 
 
 def make_datasets(base_folder: Path):
-    medidec_folder = Path("./datasets/MediDec")
-
     datasets = []
 
-    for folder in medidec_folder.iterdir():
+    for folder in sorted(list(MEDIDEC_FOLDER.iterdir())):
         if not folder.is_dir():
             continue
 
@@ -57,7 +120,45 @@ def make_datasets(base_folder: Path):
         name = folder.name[7:]
 
         trainset = MediDec(folder, split="train")
-        testset = MediDec(folder, split="test")
+
+        source = MapDataset.source(trainset)  # pyright: ignore
+
+        total_len = len(source)
+
+        train_source = source[: int(0.6 * total_len)]
+        val_source = source[int(0.6 * total_len) : int(0.8 * total_len)]
+        test_source = source[int(0.8 * total_len) :]
+
+        if "BRATS" in name:
+            for subname, channel in [("FLAIR", 0), ("T1w", 1), ("T2w", 3)]:
+                dataset_folder = base_folder / f"{i:02}_{name}_{subname}"
+
+                train_folder = dataset_folder / "training"
+
+                val_folder = dataset_folder / "validation"
+
+                test_folder = dataset_folder / "test"
+
+                dataset = Dataset(
+                    i=i,
+                    name=name,
+                    input_channel=channel,
+                    modality=subname,
+                    num_classes=len(trainset.metadata.labels),
+                    sources={"train": train_source, "validation": val_source, "test": test_source},
+                    orig_dataset_folder=folder,
+                    sliced_dataset_folder=dataset_folder,
+                    split_folders={
+                        "train": train_folder,
+                        "validation": val_folder,
+                        "test": test_folder,
+                    },
+                    counters=dict(train=0, validation=0, test=0),
+                )
+
+                datasets.append(dataset)
+
+            continue
 
         dataset_folder = base_folder / f"{i:02}_{name}"
 
@@ -70,11 +171,14 @@ def make_datasets(base_folder: Path):
         dataset = Dataset(
             i=i,
             name=name,
+            input_channel=0,
+            modality=trainset.metadata.modality[0],
             num_classes=len(trainset.metadata.labels),
-            split_medidec=dict(train=trainset, test=testset),
+            sources={"train": train_source, "validation": val_source, "test": test_source},
             orig_dataset_folder=folder,
             sliced_dataset_folder=dataset_folder,
-            split_folders=dict(train=train_folder, validation=val_folder, test=test_folder),
+            split_folders={"train": train_folder, "validation": val_folder, "test": test_folder},
+            counters=dict(train=0, validation=0, test=0),
         )
 
         datasets.append(dataset)
@@ -82,10 +186,7 @@ def make_datasets(base_folder: Path):
     return datasets
 
 
-def make_slice_dist(label: Array | None) -> Array | None:
-    if label is None:
-        return None
-
+def make_slice_dist(label: Array) -> Array | None:
     assert label.ndim == 3, f"label has shape {label.shape}"
 
     counts = jnp.count_nonzero(label, axis=(0, 1))
@@ -101,42 +202,42 @@ def make_slice_dist(label: Array | None) -> Array | None:
 @partial(jax.jit, static_argnums=(2, 3))
 def normalise(
     image: Array,
-    label: Array | None,
+    label: Array,
     num_classes: int,
     target_size: int,
-) -> tuple[Array, Array | None]:
-    c, h, w, d = image.shape
+) -> tuple[Array, Array]:
+    h, w, d = image.shape
 
-    target_h = target_size
-    target_w = target_size
+    assert label.shape == (h, w, d)
 
-    if label is not None:
-        assert label.shape == (h, w, d)
+    if h != target_size or w != target_size:
+        image = jax.image.resize(image, (target_size, target_size, d), method="cubic")
 
-    if h != target_h or w != target_w:
-        image = jax.image.resize(image, (c, target_h, target_w, d), method="cubic")
+        label_onehot = jax.nn.one_hot(label, num_classes, dtype=jnp.float32)
 
-        if label is not None:
-            label_onehot = jax.nn.one_hot(label, num_classes, dtype=jnp.float32)
+        assert label_onehot.shape == (h, w, d, num_classes)
 
-            assert label_onehot.shape == (h, w, d, num_classes)
+        label_onehot = jax.image.resize(
+            label_onehot, (target_size, target_size, d, num_classes), method="cubic"
+        )
 
-            label_onehot = jax.image.resize(
-                label_onehot, (target_h, target_w, d, num_classes), method="cubic"
-            )
+        # label = (label > 0.5).astype(jnp.uint8)
 
-            # label = (label > 0.5).astype(jnp.uint8)
+        # undo one-hot encoding
+        label = jnp.argmax(label_onehot, axis=-1).astype(jnp.uint8)
 
-            # undo one-hot encoding
-            label = jnp.argmax(label_onehot, axis=-1)
-
-            assert label.shape == (target_h, target_w, d), f"{label.shape=}"
+        assert label.shape == (target_size, target_size, d), f"{label.shape=}"
 
     return image, label
 
 
-def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"], target_size: int):
-    n = 0
+def make_slices(
+    dataset: Dataset,
+    split: Split,
+    *,
+    target_size: int,
+):
+    source = dataset.sources[split]
 
     split_folder = dataset.split_folders[split]
 
@@ -147,100 +248,75 @@ def make_slices(dataset: Dataset, split: Literal["train", "validation", "test"],
 
     split_folder.mkdir(parents=True, exist_ok=False)
 
-    match split:
-        case "train":
-            all_items = dataset.split_medidec["train"]
-
-            n = len(all_items)
-
-            cutoff = int(0.8 * n)
-
-            def get_item(i):
-                return all_items[i]
-
-            items = (get_item(i) for i in range(0, cutoff))
-
-            total = cutoff
-        case "validation":
-            all_items = dataset.split_medidec["train"]
-
-            n = len(all_items)
-
-            cutoff = int(0.8 * n)
-
-            def get_item(i):
-                return all_items[i]
-
-            items = (get_item(i) for i in range(cutoff, n))
-
-            total = n - cutoff
-        case "test":
-            items = dataset.split_medidec["test"]
-
-            total = None
-
-    for n_item, X in enumerate(
-        tqdm(items, leave=True, desc=f"{dataset.name} {split}", total=total)
-    ):
-        image = jnp.asarray(X["image"])
-
-        if "label" in X:
+    with AsyncFileWriter() as async_writer:
+        for n_item, X in enumerate(
+            tqdm(
+                source.to_iter_dataset(
+                    read_options=ReadOptions(num_threads=16, prefetch_buffer_size=16)
+                ),
+                total=len(source),
+            )
+        ):
+            image = jnp.asarray(X["image"])
             label = jnp.asarray(X["label"])
-        else:
-            label = None
 
-        image, label = normalise(image, label, dataset.num_classes, target_size)
+            image = image[dataset.input_channel, ...]
 
-        c, h, w, d = image.shape
+            image, label = normalise(image, label, dataset.num_classes, target_size)
 
-        if label is not None:
+            h, w, d = image.shape
+
             assert label.shape == (h, w, d)
 
-        p = make_slice_dist(label)
+            p = make_slice_dist(label)
 
-        if label is not None and p is None:
-            tqdm.write(f"item {n_item} has empty label")
+            if p is not None:
+                num_candidates = jnp.count_nonzero(p).item()
 
-        if p is not None:
-            num_candidates = jnp.count_nonzero(p).item()
+                assert num_candidates != 0
 
-            assert num_candidates != 0
+                num_samples = max(num_candidates // 4, 2)
+            else:
+                tqdm.write(f"item {n_item} has empty label")
 
-            num_samples = max(num_candidates // 4, 2)
-        else:
-            num_samples = 2
+                num_samples = 2
 
-        slice_idxs = jr.choice(consume(), d, (num_samples,), replace=False, p=p)
+            slice_idxs = jr.choice(consume(), d, (num_samples,), replace=False, p=p)
 
-        image_slice = image[:, :, :, slice_idxs]
+            image_slice = image[:, :, slice_idxs]
 
-        if label is not None:
             label_slice = label[:, :, slice_idxs]
 
             if p is not None:
                 assert jnp.all(
                     jnp.sum(label_slice[..., :num_candidates], axis=(0, 1)) != 0  # pyright: ignore
                 ), f"{jnp.sum(label_slice, axis=(0, 1))}"
-        else:
-            label_slice = None
 
-        assert image_slice.shape == (c, h, w, num_samples)
+            assert image_slice.shape == (h, w, num_samples)
 
-        assert label_slice is None or label_slice.shape == (h, w, num_samples)
+            assert label_slice.shape == (h, w, num_samples)
 
-        for k in range(num_samples):
-            file = split_folder / f"{n:04}.npz"
+            for k in range(num_samples):
+                counter = dataset.counters[split]
 
-            assert not file.exists()
+                path = split_folder / f"{counter:04}.npz"
 
-            if label_slice is not None:
-                np.savez_compressed(file, image=image_slice[..., k], label=label_slice[..., k])
-            else:
-                np.savez_compressed(file, image=image_slice[..., k])
+                assert not path.exists()
 
-            n += 1
+                # if label_slice is not None:
+                #     np.savez_compressed(
+                #         path, image=image_slice[..., k], label=label_slice[..., k]
+                #     )
+                # else:
+                #     np.savez_compressed(path, image=image_slice[..., k])
 
-            assert n <= 9999
+                async_writer.queue(
+                    path, np.asarray(image_slice[..., k]), np.asarray(label_slice[..., k])
+                )
+
+                dataset.counters[split] = counter + 1
+
+                assert counter <= 9999
 
 
 def make_json(dataset: Dataset):
@@ -286,9 +362,9 @@ def main():
     for dataset in datasets:
         print(f"Starting dataset {dataset.name}")
 
-        make_slices(dataset, "train", target_size)
-        make_slices(dataset, "validation", target_size)
-        make_slices(dataset, "test", target_size)
+        make_slices(dataset, "train", target_size=target_size)
+        make_slices(dataset, "validation", target_size=target_size)
+        make_slices(dataset, "test", target_size=target_size)
 
         make_json(dataset)
 

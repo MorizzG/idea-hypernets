@@ -1,5 +1,5 @@
 {
-  "exclude": ["datasets"],
+  "include": ["hyper_lap", "scripts"],
 
   "reportAny": false,
   "reportExplicitAny": false,

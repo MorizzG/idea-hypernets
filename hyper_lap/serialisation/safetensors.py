@@ -86,7 +86,7 @@ def load_state_dict(
     *,
     match_exact: bool = True,
 ) -> PyTree:
-    # we want to modify state_dict, but not the original at the call site
+    # we want to modify state_dict, but only locally
     state_dict = state_dict.copy()
 
     tree, static = eqx.partition(tree, eqx.is_array_like)

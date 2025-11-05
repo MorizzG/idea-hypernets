@@ -119,7 +119,7 @@ class NormalisedDataset(Dataset):
         elem = self.dataset[idx]
 
         image = elem.pop("image")
-        label = elem.pop("label")
+        label = elem.pop("label", None)
 
         # TODO: sth better than just slice out first channel here?
         # image = image[self.channel, ...]
@@ -133,8 +133,13 @@ class NormalisedDataset(Dataset):
 
         image = self.renormalise_to_clip(image)
 
-        label = (label != 0).astype(np.uint8)
+        # elem |= {"image": image, "label": label}
 
-        elem |= {"image": image, "label": label}
+        elem["image"] = image
+
+        if label is not None:
+            label = (label != 0).astype(np.uint8)
+
+            elem["label"] = label
 
         return elem

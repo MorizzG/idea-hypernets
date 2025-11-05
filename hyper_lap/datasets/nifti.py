@@ -69,13 +69,13 @@ class NiftiDataset(Dataset):
     def load_array(path: Path, dtype: DTypeLike = np.float32):
         nib = NiftiDataset.load_nib(path)
 
-        assert nib.ndim == 3
+        # assert nib.ndim == 3
 
         return np.asarray(nib.dataobj, dtype=dtype)
 
     @staticmethod
     def load_array_slice(
-        path: Path, slice_idx: int, slice_axis: int = 2, *, dtype: DTypeLike = np.float32
+        path: Path, slice_idx: int, slice_axis: int = -1, *, dtype: DTypeLike = np.float32
     ):
         if not isinstance(slice_axis, int) or not 0 <= slice_axis <= 2:
             raise ValueError(f"Invalid slice_axis {slice_axis}")

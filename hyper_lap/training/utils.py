@@ -486,7 +486,7 @@ def to_PIL(img: np.ndarray | Array) -> Image.Image:
     return Image.fromarray(image, mode="RGB")
 
 
-def load_model_artifact(artifact_or_path: str) -> tuple[dict, Path]:
+def load_model_artifact(artifact_or_path: str) -> tuple[DictConfig, Path]:
     # first try to interpret artifact as a path
     config_path = Path(artifact_or_path).with_suffix(".json")
     weights_path = Path(artifact_or_path).with_suffix(".safetensors")
@@ -522,7 +522,7 @@ def load_model_artifact(artifact_or_path: str) -> tuple[dict, Path]:
     assert config_path.exists() and weights_path.exists()
 
     with config_path.open("r") as f:
-        config = json.load(f)
+        config: DictConfig = OmegaConf.create(json.load(f))  # pyright: ignore
 
     return config, weights_path
 
