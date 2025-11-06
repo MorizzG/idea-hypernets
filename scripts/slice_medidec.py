@@ -260,6 +260,9 @@ def make_slices(
             image = jnp.asarray(X["image"])
             label = jnp.asarray(X["label"])
 
+            assert image.ndim == 4
+            assert label.ndim == 3
+
             image = image[dataset.input_channel, ...]
 
             image, label = normalise(image, label, dataset.num_classes, target_size)

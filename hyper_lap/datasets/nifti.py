@@ -103,7 +103,11 @@ class NiftiDataset(Dataset):
         shape = self.load_nib(entry["image"]).shape
 
         if len(shape) == 3:
-            shape = (1,) + shape
+            shape = shape + (1,)
+
+        assert len(shape) == 4
+
+        shape = (shape[-1],) + shape[:-1]
 
         return shape
 
