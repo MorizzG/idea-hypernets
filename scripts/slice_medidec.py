@@ -129,8 +129,8 @@ def make_datasets(base_folder: Path):
         val_source = source[int(0.6 * total_len) : int(0.8 * total_len)]
         test_source = source[int(0.8 * total_len) :]
 
-        if "BRATS" in name:
-            for subname, channel in [("FLAIR", 0), ("T1w", 1), ("T2w", 3)]:
+        if len(trainset.metadata.modality) > 1:
+            for channel, subname in trainset.metadata.modality.items():
                 dataset_folder = base_folder / f"{i:02}_{name}_{subname}"
 
                 train_folder = dataset_folder / "training"
@@ -141,7 +141,7 @@ def make_datasets(base_folder: Path):
 
                 dataset = Dataset(
                     i=i,
-                    name=name,
+                    name=f"{name}_{subname}",
                     input_channel=channel,
                     modality=subname,
                     num_classes=len(trainset.metadata.labels),
@@ -327,7 +327,8 @@ def make_json(dataset: Dataset):
 
     assert dataset_folder.exists(), f"Path {dataset_folder} doesn't exist"
 
-    dataset_json["name"] += " sliced"
+    dataset_json["name"] = dataset.name + " sliced"
+    dataset_json["modality"] = {"0": dataset.modality}
 
     splits = {}
     nums = {}
