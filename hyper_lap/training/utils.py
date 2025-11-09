@@ -265,7 +265,7 @@ def load_amos_datasets(
 
 
 def load_medidec_datasets(
-    split: Literal["train", "validation", "test"], normalised: bool = True, size: int = 336
+    split: Literal["train", "validation", "test"], normalised: bool = True, size: int = 512
 ) -> dict[str, Dataset]:
     medidec_sliced = Path(f"./datasets/MediDecSliced-{size}")
 
@@ -285,28 +285,28 @@ def load_medidec_datasets(
 
         dataset = MediDecSliced(sub_dir, split=split)
 
-        if dataset.name == "BRATS":
-            # special case: make FLAIR, T1, T2 variants of BRATS
+        # if dataset.name == "BRATS":
+        #     # special case: make FLAIR, T1, T2 variants of BRATS
 
-            assert dataset.metadata.modality[0] == "FLAIR"
-            assert dataset.metadata.modality[1] == "T1w"
-            assert dataset.metadata.modality[3] == "T2w"
+        #     assert dataset.metadata.modality[0] == "FLAIR"
+        #     assert dataset.metadata.modality[1] == "T1w"
+        #     assert dataset.metadata.modality[3] == "T2w"
 
-            dataset_flair = NormalisedDataset(dataset, channel=0)
-            dataset_t1 = NormalisedDataset(dataset, channel=1)
-            dataset_t2 = NormalisedDataset(dataset, channel=3)
+        #     dataset_flair = NormalisedDataset(dataset, channel=0)
+        #     dataset_t1 = NormalisedDataset(dataset, channel=1)
+        #     dataset_t2 = NormalisedDataset(dataset, channel=3)
 
-            dataset_flair.metadata = dataset_flair.metadata.model_copy(
-                update={"name": "BRATS-FLAIR"}
-            )
-            dataset_t1.metadata = dataset_flair.metadata.model_copy(update={"name": "BRATS-T1"})
-            dataset_t2.metadata = dataset_flair.metadata.model_copy(update={"name": "BRATS-T2"})
+        #     dataset_flair.metadata = dataset_flair.metadata.model_copy(
+        #         update={"name": "BRATS-FLAIR"}
+        #     )
+        #     dataset_t1.metadata = dataset_flair.metadata.model_copy(update={"name": "BRATS-T1"})
+        #     dataset_t2.metadata = dataset_flair.metadata.model_copy(update={"name": "BRATS-T2"})
 
-            datasets["BRATS-FLAIR"] = dataset_flair
-            datasets["BRATS-T1"] = dataset_t1
-            datasets["BRATS-T2"] = dataset_t2
+        #     datasets["BRATS-FLAIR"] = dataset_flair
+        #     datasets["BRATS-T1"] = dataset_t1
+        #     datasets["BRATS-T2"] = dataset_t2
 
-            continue
+        #     continue
 
         if normalised:
             dataset = NormalisedDataset(dataset)
