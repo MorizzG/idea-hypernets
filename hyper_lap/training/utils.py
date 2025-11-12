@@ -29,7 +29,6 @@ from hyper_lap.datasets import (
     NormalisedDataset,
 )
 from hyper_lap.models import HyperNet, Unet
-from hyper_lap.serialisation import load_config, load_pytree
 
 COMMON_CONFIG = {
     "seed": 42,
@@ -237,6 +236,9 @@ def with_timer(fn: Callable | None, *, msg: str, use_tqdm: bool = False):
 
 
 def print_config(config: Any):
+    if isinstance(config, DictConfig):
+        config = OmegaConf.to_object(config)
+
     print(yaml.dump(config, indent=2, width=60, sort_keys=False))
 
 
@@ -444,29 +446,6 @@ def make_hypernet(config: dict[str, Any]) -> HyperNet:
 
     unet = Unet(**config["unet"], key=unet_key)
     hypernet = HyperNet(unet, **config["hypernet"], key=hypernet_key)
-
-    return hypernet
-
-
-def load_hypernet_safetensors(path: str | Path) -> HyperNet:
-    if isinstance(path, str):
-        path = Path(path)
-    elif isinstance(path, Path):
-        pass
-    else:
-        raise ValueError(f"Unexpected path {path}")
-
-    config_path = path.with_suffix(".json")
-    safetensors_path = path.with_suffix(".safetensors")
-
-    if not (safetensors_path.exists()):
-        raise ValueError(f"Path {safetensors_path} does not exist")
-
-    config = load_config(config_path)
-
-    hypernet = make_hypernet(config)
-
-    hypernet = load_pytree(safetensors_path, hypernet)
 
     return hypernet
 

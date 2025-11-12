@@ -1,5 +1,6 @@
 {
   "include": ["hyper_lap", "scripts"],
+  "ignore": ["**/site-packages/transformers"],
 
   "reportAny": false,
   "reportExplicitAny": false,

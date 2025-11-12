@@ -5,9 +5,9 @@ import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.numpy as jnp
-import transformers
+import transformers  # pyright: ignore
 from chex import assert_shape
-from transformers.models.clip import FlaxCLIPVisionModel
+from transformers.models.clip import FlaxCLIPVisionModel  # pyright: ignore
 
 
 class ClipEmbedder(eqx.Module):
