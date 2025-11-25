@@ -9,26 +9,25 @@ import jax.numpy as jnp
 import jax.tree as jt
 import matplotlib.pyplot as plt
 from tqdm import trange
-from wandb.apis.public import Run
 
-import wandb
-from hyper_lap.training.utils import get_datasets, load_model, print_config
+from hyper_lap.training.utils import find_run, get_datasets, load_model, print_config
 
 
 def main():
     parser = argparse.ArgumentParser()
 
-    # parser.add_argument("artifact_name", type=str)
-    parser.add_argument("run_name", type=str)
+    parser.add_argument("dataset", choices=["medidec", "amos"])
+    parser.add_argument("run_name")
 
     parser.add_argument("num-images", type=int, default=10)
 
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=0)
 
     parser.add_argument("--datasets", type=str, default=None)
 
     args = parser.parse_args()
 
+    dataset = args.dataset
     run_name: str = args.run_name
     num_images: int = getattr(args, "num-images")
     seed: int | None = args.seed
@@ -41,18 +40,16 @@ def main():
     else:
         datasets = None
 
-    api = wandb.Api()
+    run = find_run(run_name, dataset)
 
-    run: Run = api.run(run_name)
-
-    image_folder = Path(f"images/{run.name}")
+    image_folder = Path(f"images/{dataset}/{run.name}")
 
     if image_folder.exists():
         shutil.rmtree(image_folder)
 
     image_folder.mkdir(parents=True, exist_ok=False)
 
-    config, net, embedder = load_model(run_name)
+    config, net, embedder = load_model(run.id)
 
     print_config(config)
 
