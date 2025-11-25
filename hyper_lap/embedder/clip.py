@@ -20,7 +20,7 @@ class ClipEmbedder(eqx.Module):
     # tokenizer: CLIPTokenizerFast = eqx.field(static=True)
     # clip_text: FlaxCLIPTextModel = eqx.field(static=True)
 
-    projection: nn.Linear | nn.Identity
+    projection: nn.Linear
 
     def __init__(
         self,
@@ -93,7 +93,7 @@ class ClipEmbedder(eqx.Module):
 
         output = self.clip_vision(input, output_hidden_states=True)
 
-        hidden_states: list[Array] = output["hidden_states"][1:]  # pyright: ignore
+        hidden_states: list[Array] = output["hidden_states"][1:]
 
         assert len(hidden_states) == self.num_layers
 
