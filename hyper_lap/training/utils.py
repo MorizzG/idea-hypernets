@@ -28,7 +28,9 @@ from hyper_lap.datasets import (
     MediDecSliced,
     NormalisedDataset,
 )
-from hyper_lap.models import HyperNet, Unet
+from hyper_lap.embedder import InputEmbedder
+from hyper_lap.models import FilmUnet, HyperNet, Unet
+from hyper_lap.serialisation import load_pytree
 
 COMMON_CONFIG = {
     "seed": 42,
@@ -503,7 +505,83 @@ def load_model_artifact(artifact_or_path: str) -> tuple[DictConfig, Path]:
     with config_path.open("r") as f:
         config: DictConfig = OmegaConf.create(json.load(f))  # pyright: ignore
 
-    return config, weights_path
+    return (config, weights_path)
+
+
+def load_unet(config: DictConfig, weights_path: Path) -> Unet:
+    unet = Unet(**config.unet, key=jr.PRNGKey(config.seed))
+
+    unet, _ = load_pytree(weights_path, (unet, None))
+
+    return unet
+
+
+def load_hypernet(
+    config: DictConfig, weights_path: Path, num_datasets: int
+) -> tuple[HyperNet, InputEmbedder]:
+    key = jr.PRNGKey(config.seed)
+
+    unet_key, hypernet_key, embedder_key = jr.split(key, 3)
+
+    unet = Unet(**config.unet, key=unet_key)
+
+    hypernet = HyperNet(unet, **config.hypernet, res=False, key=hypernet_key)
+
+    embedder = InputEmbedder(num_datasets=num_datasets, **config.embedder, key=embedder_key)
+
+    hypernet, embedder = load_pytree(weights_path, (hypernet, embedder))
+
+    return hypernet, embedder
+
+
+def load_film_unet(
+    config: DictConfig, weights_path: Path, num_datasets: int
+) -> tuple[FilmUnet, InputEmbedder]:
+    key = jr.PRNGKey(config.seed)
+
+    unet_key, embedder_key = jr.split(key)
+
+    film_unet = FilmUnet(**config.film_unet, key=unet_key)
+
+    embedder = InputEmbedder(num_datasets=num_datasets, **config.embedder, key=embedder_key)
+
+    film_unet, embedder = load_pytree(weights_path, (film_unet, embedder))
+
+    return film_unet, embedder
+
+
+def load_model(
+    run_name: str,
+) -> tuple[DictConfig, Unet | HyperNet | FilmUnet, InputEmbedder | None]:
+    run = wandb.Api().run("morizzg/idea-laplacian-hypernet/" + run_name)
+
+    artifacts = [artifact for artifact in run.logged_artifacts() if artifact.type == "model"]
+
+    if len(artifacts) == 0:
+        raise RuntimeError('Cannot find "model" artifact for Run')
+    elif len(artifacts) > 1:
+        raise RuntimeError('Multiple "model" artifacts associated with Run')
+
+    (artifact,) = artifacts
+
+    config, weights_path = load_model_artifact(artifact.qualified_name)
+
+    trainset_names = config.trainsets.split(",")
+    oodset_names = config.oodsets.split(",")
+
+    num_datasets = len(trainset_names) + len(oodset_names)
+
+    if "unet" in run.tags:
+        net = load_unet(config, weights_path)
+        embedder = None
+    elif "hypernet" in run.tags:
+        net, embedder = load_hypernet(config, weights_path, num_datasets)
+    elif "film_unet" in run.tags:
+        net, embedder = load_film_unet(config, weights_path, num_datasets)
+    else:
+        raise RuntimeError(f"Don't know how to load model with tags {run.tags}")
+
+    return config, net, embedder
 
 
 def global_norm(updates: PyTree) -> Array:
