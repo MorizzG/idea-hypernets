@@ -308,7 +308,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
         def validate_dataset(dataset_name):
             losses = []
-            first_losses = []
             dataset_metrices = []
 
             for _ in trange(num_batches):
@@ -325,16 +324,15 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
                 loss = loss_jit(logits, labels, self.loss_fn)
 
                 losses += [x.item() for x in loss]
-                first_losses.append(loss[0].item())
 
                 dataset_metrices.append(dataset_metrics)
 
             dataset_metrics = transpose(dataset_metrices)
 
-            return losses, first_losses, dataset_metrics
+            return losses, dataset_metrics
 
         for dataset_name in tqdm(valsets.keys()):
-            losses, first_losses, dataset_metrics = validate_dataset(dataset_name)
+            losses, dataset_metrics = validate_dataset(dataset_name)
 
             val_losses += losses
 
@@ -345,7 +343,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
             tqdm.write(f"Dataset: {dataset_name}:")
             tqdm.write(f"    Loss      : {np.mean(losses):.3}")
-            tqdm.write(f"    First Loss: {np.mean(first_losses):.3}")
             tqdm.write(f"    Dice score: {np.mean(dataset_metrics['dice']):.3f}")
             tqdm.write(f"    IoU score : {np.mean(dataset_metrics['iou']):.3f}")
             tqdm.write(f"    Hausdorff : {np.mean(dataset_metrics['hausdorff']):.3f}")
@@ -361,7 +358,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             ood_losses = []
 
             for dataset_name in tqdm(oodsets.keys()):
-                losses, first_losses, dataset_metrics = validate_dataset(dataset_name)
+                losses, dataset_metrics = validate_dataset(dataset_name)
 
                 ood_losses += losses
 
@@ -372,7 +369,6 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
 
                 tqdm.write(f"Dataset: {dataset_name}:")
                 tqdm.write(f"    Loss      : {np.mean(losses):.3}")
-                tqdm.write(f"    First Loss: {np.mean(first_losses):.3}")
                 tqdm.write(f"    Dice score: {np.mean(dataset_metrics['dice']):.3f}")
                 tqdm.write(f"    IoU score : {np.mean(dataset_metrics['iou']):.3f}")
                 tqdm.write(f"    Hausdorff : {np.mean(dataset_metrics['hausdorff']):.3f}")
