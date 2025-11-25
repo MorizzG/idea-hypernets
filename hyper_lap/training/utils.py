@@ -586,6 +586,8 @@ def load_model(
 
 
 def find_run(name: str, dataset: Literal["amos", "medidec"]) -> Run:
+    print(f"finding run {name} ({dataset})")
+
     runs = wandb.Api().runs(
         "morizzg/idea-laplacian-hypernet",
         filters={"displayName": name, "tags": dataset},
@@ -593,21 +595,19 @@ def find_run(name: str, dataset: Literal["amos", "medidec"]) -> Run:
 
     if not runs:
         raise RuntimeError(f"did not find a run for {name} ({dataset})")
-        # return None
 
     assert len(runs) == 1, f"{name}: expected exactly one run, found {len(runs)} runs"
 
     run = runs[0]
 
     if not run.state == "finished":
-        # raise RuntimeError(f"run {name} ({dataset}) is not finished yet")
-        return None
+        raise RuntimeError(f"run {name} ({dataset}) is not finished yet")
 
-    return runs[0]
+    return run
 
 
 def find_runs(names: list[str], dataset: Literal["amos", "medidec"]) -> list[Run]:
-    runs = wadnb.Api().runs(
+    runs = wandb.Api().runs(
         "morizzg/idea-laplacian-hypernet",
         filters={"tags": dataset, "$or": [{"displayName": name} for name in names]},
     )
