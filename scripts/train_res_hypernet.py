@@ -39,7 +39,7 @@ def main():
 
     unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))
 
-    unet = load_pytree(unet_weights_path, unet, strip_prefix="0")
+    unet, _ = load_pytree(unet_weights_path, (unet, None))
 
     key = jr.PRNGKey(config.seed)
 
