@@ -5,9 +5,9 @@ import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.numpy as jnp
-import transformers  # pyright: ignore
 from chex import assert_shape
-from transformers.models.clip import FlaxCLIPVisionModel  # pyright: ignore
+from transformers.models.clip import FlaxCLIPVisionModel
+from transformers.utils.logging import get_verbosity, set_verbosity_error
 
 
 class ClipEmbedder(eqx.Module):
@@ -39,9 +39,9 @@ class ClipEmbedder(eqx.Module):
         self.select_layer = select_layer
         self.pool = pool
 
-        orig_verbosity = transformers.logging.get_verbosity()
+        orig_verbosity = get_verbosity()
 
-        transformers.logging.set_verbosity_error()
+        set_verbosity_error()
 
         if clip == "openai":
             clip_vision = FlaxCLIPVisionModel.from_pretrained(
@@ -53,7 +53,7 @@ class ClipEmbedder(eqx.Module):
         else:
             raise RuntimeError(f"Unknown clip variant {clip}")
 
-        transformers.logging.set_verbosity(orig_verbosity)
+        set_verbosity(orig_verbosity)
 
         self.num_layers = len(self.clip_vision.params["vision_model"]["encoder"]["layers"])
 
