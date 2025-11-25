@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from chex import assert_shape
 from transformers.models.clip import FlaxCLIPVisionModel
-from transformers.utils.logging import get_verbosity, set_verbosity_error
+from transformers.utils.logging import get_verbosity, set_verbosity, set_verbosity_error
 
 
 class ClipEmbedder(eqx.Module):
