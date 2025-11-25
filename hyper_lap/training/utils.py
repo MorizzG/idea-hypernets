@@ -21,6 +21,7 @@ import yaml
 from grain import MapDataset
 from omegaconf import MISSING, DictConfig, OmegaConf
 from tqdm import tqdm
+from wandb.apis.public import Run
 
 from hyper_lap.datasets import (
     AmosSliced,
@@ -582,6 +583,44 @@ def load_model(
         raise RuntimeError(f"Don't know how to load model with tags {run.tags}")
 
     return config, net, embedder
+
+
+def find_run(name: str, dataset: Literal["amos", "medidec"]) -> Run:
+    runs = wandb.Api().runs(
+        "morizzg/idea-laplacian-hypernet",
+        filters={"displayName": name, "tags": dataset},
+    )
+
+    if not runs:
+        raise RuntimeError(f"did not find a run for {name} ({dataset})")
+        # return None
+
+    assert len(runs) == 1, f"{name}: expected exactly one run, found {len(runs)} runs"
+
+    run = runs[0]
+
+    if not run.state == "finished":
+        # raise RuntimeError(f"run {name} ({dataset}) is not finished yet")
+        return None
+
+    return runs[0]
+
+
+def find_runs(names: list[str], dataset: Literal["amos", "medidec"]) -> list[Run]:
+    runs = wadnb.Api().runs(
+        "morizzg/idea-laplacian-hypernet",
+        filters={"tags": dataset, "$or": [{"displayName": name} for name in names]},
+    )
+
+    if not len(runs) == len(names) or not set(names) == {run.name for run in runs}:
+        raise RuntimeError(
+            f"expected to find run names {names}, but found names {[run.name for run in runs]} instead"
+        )
+
+    if not all(run.state == "finished" for run in runs):
+        raise RuntimeError("runs are not finished yet")
+
+    return runs
 
 
 def global_norm(updates: PyTree) -> Array:
