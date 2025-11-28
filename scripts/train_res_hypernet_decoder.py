@@ -7,12 +7,12 @@ import wandb
 from omegaconf import OmegaConf
 
 from hyper_lap.embedder import InputEmbedder
-from hyper_lap.models import HyperNet, Unet
-from hyper_lap.serialisation import load_pytree
+from hyper_lap.models import HyperNet
 from hyper_lap.training.trainer import Trainer
 from hyper_lap.training.utils import (
     get_datasets,
     load_model_artifact,
+    load_unet,
     parse_args,
     print_config,
 )
@@ -39,9 +39,7 @@ def main():
 
     print(f"Loading U-Net weights from {unet_weights_path}")
 
-    unet = Unet(**unet_config["unet"], key=jr.PRNGKey(unet_config["seed"]))
-
-    unet = load_pytree(unet_weights_path, unet, strip_prefix="0")
+    unet = load_unet(unet_config, unet_weights_path)
 
     filter_spec = jt.map(lambda _: False, unet)
     filter_spec = eqx.tree_at(
