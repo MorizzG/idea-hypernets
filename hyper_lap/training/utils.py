@@ -21,7 +21,6 @@ import yaml
 from grain import MapDataset
 from omegaconf import MISSING, DictConfig, OmegaConf
 from tqdm import tqdm
-from wandb.apis.public import Run
 
 from hyper_lap.datasets import (
     AmosSliced,
@@ -549,78 +548,6 @@ def load_film_unet(
     film_unet, embedder = load_pytree(weights_path, (film_unet, embedder))
 
     return film_unet, embedder
-
-
-def load_model(
-    run_name: str,
-) -> tuple[DictConfig, Unet | HyperNet | FilmUnet, InputEmbedder | None]:
-    run = wandb.Api().run("morizzg/idea-laplacian-hypernet/" + run_name)
-
-    artifacts = [artifact for artifact in run.logged_artifacts() if artifact.type == "model"]
-
-    if len(artifacts) == 0:
-        raise RuntimeError('Cannot find "model" artifact for Run')
-    elif len(artifacts) > 1:
-        raise RuntimeError('Multiple "model" artifacts associated with Run')
-
-    (artifact,) = artifacts
-
-    config, weights_path = load_model_artifact(artifact.qualified_name)
-
-    trainset_names = config.trainsets.split(",")
-    oodset_names = config.oodsets.split(",")
-
-    num_datasets = len(trainset_names) + len(oodset_names)
-
-    if "unet" in run.tags:
-        net = load_unet(config, weights_path)
-        embedder = None
-    elif "hypernet" in run.tags:
-        net, embedder = load_hypernet(config, weights_path, num_datasets)
-    elif "film_unet" in run.tags:
-        net, embedder = load_film_unet(config, weights_path, num_datasets)
-    else:
-        raise RuntimeError(f"Don't know how to load model with tags {run.tags}")
-
-    return config, net, embedder
-
-
-def find_run(name: str, dataset: Literal["amos", "medidec"]) -> Run:
-    print(f"finding run {name} ({dataset})")
-
-    runs = wandb.Api().runs(
-        "morizzg/idea-laplacian-hypernet",
-        filters={"displayName": name, "tags": dataset},
-    )
-
-    if not runs:
-        raise RuntimeError(f"did not find a run for {name} ({dataset})")
-
-    assert len(runs) == 1, f"{name}: expected exactly one run, found {len(runs)} runs"
-
-    run = runs[0]
-
-    if not run.state == "finished":
-        raise RuntimeError(f"run {name} ({dataset}) is not finished yet")
-
-    return run
-
-
-def find_runs(names: list[str], dataset: Literal["amos", "medidec"]) -> list[Run]:
-    runs = wandb.Api().runs(
-        "morizzg/idea-laplacian-hypernet",
-        filters={"tags": dataset, "$or": [{"displayName": name} for name in names]},
-    )
-
-    if not len(runs) == len(names) or not set(names) == {run.name for run in runs}:
-        raise RuntimeError(
-            f"expected to find run names {names}, but found names {[run.name for run in runs]} instead"
-        )
-
-    if not all(run.state == "finished" for run in runs):
-        raise RuntimeError("runs are not finished yet")
-
-    return runs
 
 
 def global_norm(updates: PyTree) -> Array:
