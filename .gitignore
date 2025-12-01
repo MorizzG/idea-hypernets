@@ -3,6 +3,7 @@
 /images
 /models
 /tmp
+/typings
 /wandb
 
 scratch.md

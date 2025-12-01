@@ -606,7 +606,7 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             umap = UMAP()
             umap.fit(jnp.concat([embs for embs in embs.values()]))
 
-            projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}  # pyright: ignore
+            projs: dict[str, Array] = {name: umap.transform(embs) for name, embs in embs.items()}
 
         fig, ax = plt.subplots()
 
