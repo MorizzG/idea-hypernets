@@ -29,7 +29,8 @@ dependencies = [
     "wandb>=0.19.6",
     "umap-learn>=0.5.9",
     "pydantic>=2.11.4",
-    "dinov3-equinox",
+    "dinov3-equinox>=0.1.1",
+    "torch>=2.9.1"
 ]
 
 
@@ -72,7 +73,7 @@ explicit = true
 [tool.uv.sources]
 dinov3-equinox = { git = "https://github.com/MorizzG/dinov3-equinox" }
 torch = { index = "pytorch-cpu" }
-# umap-learn = { git = "https://github.com/lmcinnes/umap" }
+# torchvision = { index = "pytorch-cpu" }
 
 
 [tool.black]
