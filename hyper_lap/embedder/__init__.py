@@ -9,12 +9,13 @@ from .clip import ClipEmbedder
 from .conv_next import ConvNextEmbedder
 from .dino import DinoEmbedder
 from .learned import LearnedEmbedding
+from .null import NullEmbedder
 from .resnet import ResNetEmbedder
 from .vit import ViTEmbedder
 
 
 class InputEmbedder(eqx.Module):
-    type EmbedderKind = Literal["vit", "convnext", "resnet", "clip", "dino", "learned"]
+    type EmbedderKind = Literal["vit", "convnext", "resnet", "clip", "dino", "learned", "null"]
 
     emb_size: int = eqx.field(static=True)
 
@@ -25,6 +26,7 @@ class InputEmbedder(eqx.Module):
         | ClipEmbedder
         | DinoEmbedder
         | LearnedEmbedding
+        | NullEmbedder
     )
 
     def __init__(
@@ -75,6 +77,8 @@ class InputEmbedder(eqx.Module):
                 )
             case "learned":
                 self.embedder = LearnedEmbedding(emb_size, num_datasets, key=key, **embedder_args)
+            case "null":
+                self.embedder = NullEmbedder(emb_size)
             case _:
                 raise ValueError(f"Unknown embedder: {kind}")
 
