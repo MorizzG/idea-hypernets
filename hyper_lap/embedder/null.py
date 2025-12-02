@@ -1,10 +1,10 @@
-from jaxtyping import Array, Float, Integer, PRNGKeyArray
+from jaxtyping import Array, Float, Integer
 
 import equinox as eqx
 import jax.numpy as jnp
 
 
-class NullEmbedder(eqx.Module):
+class ZeroEmbedder(eqx.Module):
     emb_size: int
 
     def __init__(self, emb_size: int):
