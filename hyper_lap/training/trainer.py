@@ -571,6 +571,9 @@ class Trainer[Net: Callable[[Array, Array | None], Array]]:
             make_images(batch, ood=True)
 
     def make_umap(self, embedder: InputEmbedder, image_folder: Path):
+        if embedder.emb_size == 0:
+            return
+
         print("Making UMAP")
 
         if not image_folder.exists():
