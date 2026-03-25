@@ -35,7 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda = [
-    "jax[cuda]"
+    "jax[cuda]==0.7.1"
 ]
 
 
